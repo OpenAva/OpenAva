@@ -1,0 +1,30 @@
+## macOS
+.DS_Store
+
+## Xcode user-specific files
+xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+## Build artifacts
+build/
+DerivedData/
+*.moved-aside
+*.xcarchive
+
+## SwiftPM
+.build/
+.swiftpm/
+Packages/
+
+## Dependency managers
+Pods/
+Carthage/Build/
+
+## Common IDE settings
+.idea/
+.vscode/
+
+## Logs and temporary files
+*.log
+tmp/

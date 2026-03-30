@@ -1,0 +1,49 @@
+//
+//  ServerEventSessionDelegate.swift
+//  EventSource
+//
+//  Copyright © 2023 Firdavs Khaydarov (Recouse). All rights reserved.
+//  Licensed under the MIT License.
+//
+
+import Foundation
+
+/// Dedicated URLSession delegate for server-sent event streams.
+final class ServerEventSessionDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    enum Event {
+        case didCompleteWithError(Error?)
+        case didReceiveResponse(URLResponse, @Sendable (URLSession.ResponseDisposition) -> Void)
+        case didReceiveData(Data)
+    }
+
+    let internalStream = AsyncStream<Event>.makeStream()
+
+    var eventStream: AsyncStream<Event> {
+        internalStream.stream
+    }
+
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        internalStream.continuation.yield(.didCompleteWithError(error))
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask _: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @Sendable @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        internalStream.continuation.yield(.didReceiveResponse(response, completionHandler))
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask _: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        internalStream.continuation.yield(.didReceiveData(data))
+    }
+}

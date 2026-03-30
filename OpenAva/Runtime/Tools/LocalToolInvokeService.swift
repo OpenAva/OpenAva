@@ -1,0 +1,2262 @@
+import CoreLocation
+import Foundation
+import MemoryKit
+import OpenClawKit
+import UserNotifications
+
+private struct NotificationCallError: Error {
+    let message: String
+}
+
+private final class NotificationInvokeLatch<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<T, NotificationCallError>, Never>?
+    private var resumed = false
+
+    func setContinuation(_ continuation: CheckedContinuation<Result<T, NotificationCallError>, Never>) {
+        lock.lock()
+        defer { self.lock.unlock() }
+        self.continuation = continuation
+    }
+
+    func resume(_ response: Result<T, NotificationCallError>) {
+        let continuation: CheckedContinuation<Result<T, NotificationCallError>, Never>?
+        lock.lock()
+        if resumed {
+            lock.unlock()
+            return
+        }
+        resumed = true
+        continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: response)
+    }
+}
+
+@MainActor
+final class LocalToolInvokeService: @unchecked Sendable {
+    private enum InvocationContext {
+        /// Session identifier propagated from chat layer for tool state isolation.
+        @TaskLocal static var sessionID: String?
+    }
+
+    private static var isMacCatalyst: Bool {
+        #if targetEnvironment(macCatalyst)
+            true
+        #else
+            false
+        #endif
+    }
+
+    private static var catalystRestrictedCommands: Set<String> {
+        [
+            OpenClawWatchCommand.status.rawValue,
+            OpenClawWatchCommand.notify.rawValue,
+            OpenClawMotionCommand.activity.rawValue,
+            OpenClawMotionCommand.pedometer.rawValue,
+        ]
+    }
+
+    private static func unsupportedPlatformMessage(for command: String) -> String? {
+        guard isMacCatalyst,
+              catalystRestrictedCommands.contains(command)
+        else {
+            return nil
+        }
+        return "UNAVAILABLE: this capability is not supported in Mac Catalyst. 当前在 Mac Catalyst 环境受限。"
+    }
+
+    private static var notificationAuthorizationGuidance: String {
+        #if targetEnvironment(macCatalyst)
+            "请在 macOS 系统设置 > 通知 > OpenAva 中开启通知权限。"
+        #else
+            "请在 iOS 设置 > 通知 > OpenAva 中开启通知权限。"
+        #endif
+    }
+
+    private let cameraService: any CameraServicing
+    private let screenRecordingService: any ScreenRecordingServicing
+    private let locationService: any LocationServicing
+    private let deviceStatusService: any DeviceStatusServicing
+    private let watchMessagingService: any WatchMessagingServicing
+    private let photosService: any PhotosServicing
+    private let imageBackgroundRemovalService: any ImageBackgroundRemoving
+    private let contactsService: any ContactsServicing
+    private let calendarService: any CalendarServicing
+    private let remindersService: any RemindersServicing
+    private let motionService: any MotionServicing
+    private let userNotifyService: any UserNotifyServicing
+    private let speechService: any SpeechServicing
+    private let cronService: any CronServicing
+    private let notificationCenter: any NotificationCentering
+    private let webFetchService: WebFetchService
+    private let webSearchService: WebSearchService
+    private let imageSearchService: ImageSearchService
+    private let youTubeTranscriptService: YouTubeTranscriptService
+    private let webViewToolService: WebViewService
+    private let textImageRenderService: TextImageRenderService
+    private let fileSystemService: FileSystemService
+    private let workspaceRootURL: URL?
+    private let weatherService: WeatherService
+    private let yahooFinanceService: YahooFinanceService
+    private let aShareMarketService: AShareMarketService
+
+    private lazy var capabilityRouter: NodeCapabilityRouter = self.buildCapabilityRouter()
+
+    static func makeDefault(workspaceRootURL: URL? = nil) -> LocalToolInvokeService {
+        // Register all tools on first initialization
+        Task { @MainActor in
+            await registerAllTools()
+        }
+
+        let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
+        let notificationCenter = LiveNotificationCenter()
+
+        return LocalToolInvokeService(
+            cameraService: CameraController(),
+            screenRecordingService: ScreenRecordService(),
+            locationService: LocationService(),
+            deviceStatusService: DeviceStatusService(),
+            watchMessagingService: WatchMessagingService(),
+            photosService: PhotoLibraryService(),
+            imageBackgroundRemovalService: ImageBackgroundRemovalService(),
+            contactsService: ContactsService(),
+            calendarService: CalendarService(),
+            remindersService: RemindersService(),
+            motionService: MotionService(),
+            userNotifyService: UserNotifyService(notificationCenter: notificationCenter),
+            speechService: SpeechService(baseDirectoryURL: workspaceRootURL),
+            cronService: CronService(),
+            notificationCenter: notificationCenter,
+            webFetchService: WebFetchService(),
+            webSearchService: WebSearchService(),
+            imageSearchService: ImageSearchService(),
+            youTubeTranscriptService: YouTubeTranscriptService(),
+            webViewToolService: WebViewService.shared,
+            textImageRenderService: TextImageRenderService(),
+            fileSystemService: FileSystemService(
+                baseDirectoryURL: workspaceRootURL,
+                additionalReadableRootURLs: builtInSkillRoots
+            ),
+            weatherService: WeatherService(),
+            yahooFinanceService: YahooFinanceService(),
+            aShareMarketService: AShareMarketService(),
+            workspaceRootURL: workspaceRootURL
+        )
+    }
+
+    init(
+        cameraService: any CameraServicing,
+        screenRecordingService: any ScreenRecordingServicing,
+        locationService: any LocationServicing,
+        deviceStatusService: any DeviceStatusServicing,
+        watchMessagingService: any WatchMessagingServicing,
+        photosService: any PhotosServicing,
+        imageBackgroundRemovalService: any ImageBackgroundRemoving,
+        contactsService: any ContactsServicing,
+        calendarService: any CalendarServicing,
+        remindersService: any RemindersServicing,
+        motionService: any MotionServicing,
+        userNotifyService: any UserNotifyServicing,
+        speechService: any SpeechServicing,
+        cronService: any CronServicing,
+        notificationCenter: any NotificationCentering,
+        webFetchService: WebFetchService,
+        webSearchService: WebSearchService,
+        imageSearchService: ImageSearchService,
+        youTubeTranscriptService: YouTubeTranscriptService,
+        webViewToolService: WebViewService,
+        textImageRenderService: TextImageRenderService,
+        fileSystemService: FileSystemService,
+        weatherService: WeatherService = WeatherService(),
+        yahooFinanceService: YahooFinanceService = YahooFinanceService(),
+        aShareMarketService: AShareMarketService = AShareMarketService(),
+        workspaceRootURL: URL? = nil
+    ) {
+        self.cameraService = cameraService
+        self.screenRecordingService = screenRecordingService
+        self.locationService = locationService
+        self.deviceStatusService = deviceStatusService
+        self.watchMessagingService = watchMessagingService
+        self.photosService = photosService
+        self.imageBackgroundRemovalService = imageBackgroundRemovalService
+        self.contactsService = contactsService
+        self.calendarService = calendarService
+        self.remindersService = remindersService
+        self.motionService = motionService
+        self.userNotifyService = userNotifyService
+        self.speechService = speechService
+        self.cronService = cronService
+        self.notificationCenter = notificationCenter
+        self.webFetchService = webFetchService
+        self.webSearchService = webSearchService
+        self.imageSearchService = imageSearchService
+        self.youTubeTranscriptService = youTubeTranscriptService
+        self.webViewToolService = webViewToolService
+        self.textImageRenderService = textImageRenderService
+        self.fileSystemService = fileSystemService
+        self.workspaceRootURL = workspaceRootURL
+        self.weatherService = weatherService
+        self.yahooFinanceService = yahooFinanceService
+        self.aShareMarketService = aShareMarketService
+    }
+
+    func handle(_ request: BridgeInvokeRequest) async -> BridgeInvokeResponse {
+        if let message = Self.unsupportedPlatformMessage(for: request.command) {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: message)
+            )
+        }
+
+        do {
+            return try await capabilityRouter.handle(request)
+        } catch let error as NodeCapabilityRouter.RouterError {
+            switch error {
+            case .unknownCommand:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+                )
+            case .handlerUnavailable:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                )
+            }
+        } catch {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: error.localizedDescription)
+            )
+        }
+    }
+
+    func handle(_ request: BridgeInvokeRequest, sessionID: String?) async -> BridgeInvokeResponse {
+        await InvocationContext.$sessionID.withValue(sessionID) {
+            await self.handle(request)
+        }
+    }
+
+    private func handleLocationInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        guard CLLocationManager.locationServicesEnabled() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(
+                    code: .unavailable,
+                    message: "LOCATION_DISABLED: enable Location Services in Settings"
+                )
+            )
+        }
+
+        // Actively request location permission on first use instead of failing fast.
+        let status = await locationService.ensureAuthorization(mode: .whileUsing)
+        guard status == .authorizedAlways || status == .authorizedWhenInUse else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(
+                    code: .unavailable,
+                    message: "LOCATION_PERMISSION_REQUIRED: grant Location permission"
+                )
+            )
+        }
+
+        let params = (try? Self.decodeParams(OpenClawLocationGetParams.self, from: request.paramsJSON))
+            ?? OpenClawLocationGetParams()
+        let desired = params.desiredAccuracy ?? .precise
+        let location = try await locationService.currentLocation(
+            params: params,
+            desiredAccuracy: desired,
+            maxAgeMs: params.maxAgeMs,
+            timeoutMs: params.timeoutMs
+        )
+
+        let payload = OpenClawLocationPayload(
+            lat: location.coordinate.latitude,
+            lon: location.coordinate.longitude,
+            accuracyMeters: location.horizontalAccuracy,
+            altitudeMeters: location.verticalAccuracy >= 0 ? location.altitude : nil,
+            speedMps: location.speed >= 0 ? location.speed : nil,
+            headingDeg: location.course >= 0 ? location.course : nil,
+            timestamp: ISO8601DateFormatter().string(from: location.timestamp),
+            isPrecise: locationService.accuracyAuthorization() == .fullAccuracy,
+            source: nil
+        )
+        let altitude = payload.altitudeMeters.map { String(format: "%.1f", $0) } ?? "n/a"
+        let speed = payload.speedMps.map { String(format: "%.2f", $0) } ?? "n/a"
+        let heading = payload.headingDeg.map { String(format: "%.1f", $0) } ?? "n/a"
+        let text = """
+        ## Location
+        - coordinates: \(String(format: "%.6f", payload.lat)), \(String(format: "%.6f", payload.lon))
+        - accuracy_m: \(String(format: "%.1f", payload.accuracyMeters))
+        - precise: \(payload.isPrecise ? "yes" : "no")
+        - altitude_m: \(altitude)
+        - speed_mps: \(speed)
+        - heading_deg: \(heading)
+        - timestamp: \(payload.timestamp)
+        """
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleCameraInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawCameraCommand.list.rawValue:
+            let devices = await cameraService.listDevices()
+            let lines = devices.enumerated().map { index, device in
+                "\(index + 1). \(device.name) (`\(device.position)`, \(device.deviceType)) id=\(device.id)"
+            }
+            let body = lines.isEmpty ? "No camera devices found." : lines.joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "## Cameras\n\(body)")
+        case OpenClawCameraCommand.snap.rawValue:
+            let params = (try? Self.decodeParams(OpenClawCameraSnapParams.self, from: request.paramsJSON))
+                ?? OpenClawCameraSnapParams()
+            let result = try await cameraService.snap(params: params)
+            let mediaFile = try persistMediaData(
+                result.data,
+                suggestedExtension: result.format,
+                prefix: "camera-snap"
+            )
+            let payload = Self.composeTag(
+                name: "media",
+                attributes: [
+                    ("tool", "camera_snap"),
+                    ("format", result.format),
+                    ("mime-type", Self.mimeType(for: result.format)),
+                    ("size-bytes", "\(mediaFile.sizeBytes)"),
+                    ("width", "\(result.width)"),
+                    ("height", "\(result.height)"),
+                    ("path", mediaFile.path),
+                ]
+            )
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+        case OpenClawCameraCommand.clip.rawValue:
+            let params = (try? Self.decodeParams(OpenClawCameraClipParams.self, from: request.paramsJSON))
+                ?? OpenClawCameraClipParams()
+            let result = try await cameraService.clip(params: params)
+            let mediaFile = try persistMediaData(
+                result.data,
+                suggestedExtension: result.format,
+                prefix: "camera-clip"
+            )
+            let payload = Self.composeTag(
+                name: "media",
+                attributes: [
+                    ("tool", "camera_clip"),
+                    ("format", result.format),
+                    ("mime-type", Self.mimeType(for: result.format)),
+                    ("size-bytes", "\(mediaFile.sizeBytes)"),
+                    ("duration-ms", "\(result.durationMs)"),
+                    ("has-audio", result.hasAudio ? "1" : "0"),
+                    ("path", mediaFile.path),
+                ]
+            )
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleScreenRecordInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let params = (try? Self.decodeParams(OpenClawScreenRecordParams.self, from: request.paramsJSON))
+            ?? OpenClawScreenRecordParams()
+
+        if let format = params.format, format.lowercased() != "mp4" {
+            throw NSError(domain: "Screen", code: 30, userInfo: [
+                NSLocalizedDescriptionKey: "INVALID_REQUEST: screen format must be mp4",
+            ])
+        }
+
+        let outputURL = try nextMediaOutputURL(prefix: "screen-record", suggestedExtension: "mp4")
+        let path = try await screenRecordingService.record(
+            screenIndex: params.screenIndex,
+            durationMs: params.durationMs,
+            fps: params.fps,
+            includeAudio: params.includeAudio,
+            outPath: outputURL.path
+        )
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue ?? 0
+        let payload = Self.composeTag(
+            name: "media",
+            attributes: [
+                ("tool", "screen_record"),
+                ("format", "mp4"),
+                ("mime-type", Self.mimeType(for: "mp4")),
+                ("size-bytes", "\(fileSize)"),
+                ("duration-ms", "\(params.durationMs ?? 0)"),
+                ("fps", "\(params.fps ?? 0)"),
+                ("screen-index", "\(params.screenIndex ?? 0)"),
+                ("has-audio", (params.includeAudio ?? true) ? "1" : "0"),
+                ("path", path),
+            ]
+        )
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+    }
+
+    private func handleSystemNotify(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct MergedNotifyParams: Decodable {
+            var message: String
+            var title: String?
+            var speech: Bool?
+            var notificationSound: Bool?
+            var priority: OpenClawNotificationPriority?
+
+            enum CodingKeys: String, CodingKey {
+                case message
+                case title
+                case speech
+                case notificationSound = "notification_sound"
+                case priority
+            }
+        }
+
+        let params = try Self.decodeParams(MergedNotifyParams.self, from: request.paramsJSON)
+        let notifyParams = UserNotifyParams(
+            message: params.message,
+            title: params.title,
+            speech: params.speech,
+            notificationSound: params.notificationSound,
+            priority: params.priority
+        )
+        do {
+            _ = try await userNotifyService.notify(params: notifyParams)
+            let payloadText = """
+            Notification sent successfully.
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payloadText)
+        } catch let error as UserNotifyServiceError {
+            switch error {
+            case .emptyNotification:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: error.localizedDescription)
+                )
+            case .notificationPermissionDenied:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(
+                        code: .unavailable,
+                        message: "NOT_AUTHORIZED: notifications. \(Self.notificationAuthorizationGuidance)"
+                    )
+                )
+            case .notificationFailed, .speechFailed:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: error.localizedDescription)
+                )
+            }
+        }
+    }
+
+    private func handleWatchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawWatchCommand.status.rawValue:
+            let status = await watchMessagingService.status()
+            let payload = OpenClawWatchStatusPayload(
+                supported: status.supported,
+                paired: status.paired,
+                appInstalled: status.appInstalled,
+                reachable: status.reachable,
+                activationState: status.activationState
+            )
+            let message = status.paired
+                ? "Apple Watch is paired"
+                : "No Apple Watch paired"
+            let text = """
+            ## Apple Watch Status
+            - message: \(message)
+            - supported: \(payload.supported ? "yes" : "no")
+            - paired: \(payload.paired ? "yes" : "no")
+            - app_installed: \(payload.appInstalled ? "yes" : "no")
+            - reachable: \(payload.reachable ? "yes" : "no")
+            - activation_state: \(payload.activationState)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawWatchCommand.notify.rawValue:
+            let params = try Self.decodeParams(OpenClawWatchNotifyParams.self, from: request.paramsJSON)
+            let normalizedParams = Self.normalizeWatchNotifyParams(params)
+            let title = normalizedParams.title
+            let body = normalizedParams.body
+            if title.isEmpty, body.isEmpty {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: empty watch notification")
+                )
+            }
+
+            do {
+                let result = try await watchMessagingService.sendNotification(
+                    id: request.id,
+                    params: normalizedParams
+                )
+                let payload = OpenClawWatchNotifyPayload(
+                    deliveredImmediately: result.deliveredImmediately,
+                    queuedForDelivery: result.queuedForDelivery,
+                    transport: result.transport
+                )
+                let message = result.deliveredImmediately
+                    ? "Notification delivered to watch"
+                    : "Notification queued for delivery"
+                let text = """
+                <watch-notify status="ok" delivered-immediately="\(payload.deliveredImmediately ? "1" : "0")" queued="\(payload.queuedForDelivery ? "1" : "0")" transport="\(Self.xmlEscaped(payload.transport))" message="\(Self.xmlEscaped(message))"/>
+                """
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+            } catch {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: error.localizedDescription)
+                )
+            }
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleDeviceInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawDeviceCommand.status.rawValue:
+            let payload = try await deviceStatusService.status()
+            // Generate human-readable message from device status
+            var parts: [String] = []
+            if let level = payload.battery.level {
+                parts.append("Battery: \(Int(level * 100))%")
+            }
+            let freeGB = Double(payload.storage.freeBytes) / (1024.0 * 1024.0 * 1024.0)
+            let totalGB = Double(payload.storage.totalBytes) / (1024.0 * 1024.0 * 1024.0)
+            parts.append(String(format: "Storage: %.1f/%.1f GB free", freeGB, totalGB))
+            let message = parts.isEmpty ? "Device status retrieved" : parts.joined(separator: ", ")
+            let text = """
+            ## Device Status
+            - summary: \(message)
+            - battery_state: \(payload.battery.state.rawValue)
+            - low_power_mode: \(payload.battery.lowPowerModeEnabled ? "on" : "off")
+            - thermal_state: \(payload.thermal.state.rawValue)
+            - network_status: \(payload.network.status.rawValue)
+            - interfaces: \(payload.network.interfaces.map(\.rawValue).joined(separator: ", "))
+            - uptime_seconds: \(Int(payload.uptimeSeconds))
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawDeviceCommand.info.rawValue:
+            let payload = deviceStatusService.info()
+            let message = "\(payload.deviceName) running \(payload.systemName) \(payload.systemVersion)"
+            let text = """
+            ## Device Info
+            - summary: \(message)
+            - model_identifier: \(payload.modelIdentifier)
+            - app_version: \(payload.appVersion) (\(payload.appBuild))
+            - locale: \(payload.locale)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case "current.time":
+            struct RuntimeTimeParams: Decodable {
+                var timezone: String?
+                var locale: String?
+            }
+
+            let params = (try? Self.decodeParams(RuntimeTimeParams.self, from: request.paramsJSON)) ?? RuntimeTimeParams()
+            let requestedTimezone = params.timezone?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestedLocale = params.locale?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let timeZoneIdentifier = (requestedTimezone?.isEmpty == false)
+                ? requestedTimezone!
+                : TimeZone.autoupdatingCurrent.identifier
+            guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown timezone")
+                )
+            }
+
+            let localeIdentifier = (requestedLocale?.isEmpty == false)
+                ? requestedLocale!
+                : Locale.autoupdatingCurrent.identifier
+            let locale = Locale(identifier: localeIdentifier)
+            let now = Date()
+            let unixMs = Int64(now.timeIntervalSince1970 * 1000)
+
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.timeZone = timeZone
+            isoFormatter.formatOptions = [.withInternetDateTime]
+            let iso8601 = isoFormatter.string(from: now)
+
+            // Use a fixed Gregorian calendar for stable date fields across locales.
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second, .weekday], from: now)
+            let weekday = components.weekday.map { index in
+                guard index >= 1, index <= calendar.weekdaySymbols.count else { return "" }
+                return calendar.weekdaySymbols[index - 1]
+            } ?? ""
+
+            let text = """
+            ## Runtime Time
+            - iso8601: \(iso8601)
+            - unix_ms: \(unixMs)
+            - timezone: \(timeZone.identifier)
+            - locale: \(locale.identifier)
+            - date: \(components.year ?? 0)-\(String(format: "%02d", components.month ?? 0))-\(String(format: "%02d", components.day ?? 0))
+            - time: \(String(format: "%02d", components.hour ?? 0)):\(String(format: "%02d", components.minute ?? 0)):\(String(format: "%02d", components.second ?? 0))
+            - weekday: \(weekday)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handlePhotosInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let params = (try? Self.decodeParams(OpenClawPhotosLatestParams.self, from: request.paramsJSON))
+            ?? OpenClawPhotosLatestParams()
+        let mediaPayload = try await photosService.latest(params: params)
+        let photoTags = try mediaPayload.photos.enumerated().map { index, photo in
+            let mediaFile = try persistMediaData(
+                photo.data,
+                suggestedExtension: photo.format,
+                prefix: "photo"
+            )
+            return Self.composeTag(
+                name: "photo",
+                attributes: [
+                    ("index", "\(index + 1)"),
+                    ("format", photo.format),
+                    ("mime-type", Self.mimeType(for: photo.format)),
+                    ("size-bytes", "\(mediaFile.sizeBytes)"),
+                    ("width", "\(photo.width)"),
+                    ("height", "\(photo.height)"),
+                    ("created-at", photo.createdAt ?? ""),
+                    ("path", mediaFile.path),
+                ]
+            )
+        }
+
+        let count = photoTags.count
+        let message = count == 0
+            ? "No photos found"
+            : "Retrieved \(count) photo\(count == 1 ? "" : "s")"
+        let payload = Self.composeBlock(
+            name: "photos",
+            attributes: [("count", "\(count)"), ("message", message)],
+            children: photoTags
+        )
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+    }
+
+    private func handleImageInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawImageCommand.removeBackground.rawValue:
+            let params = try Self.decodeParams(OpenClawImageRemoveBackgroundParams.self, from: request.paramsJSON)
+            let payload = try await imageBackgroundRemovalService.removeBackground(
+                params: params,
+                fileSystemService: fileSystemService
+            )
+            let message = "Removed background -> \(payload.outputPath)"
+            let text = """
+            <image-remove-background status="ok" format="\(payload.format)" width="\(payload.width)" height="\(payload.height)" bytes="\(payload.bytes)" input="\(Self.xmlEscaped(payload.inputPath))" output="\(Self.xmlEscaped(payload.outputPath))" message="\(Self.xmlEscaped(message))"/>
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleContactsInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawContactsCommand.search.rawValue:
+            let params = (try? Self.decodeParams(OpenClawContactsSearchParams.self, from: request.paramsJSON))
+                ?? OpenClawContactsSearchParams()
+            let payload = try await contactsService.search(params: params)
+            let count = payload.contacts.count
+            let message = count == 0
+                ? "No contacts found"
+                : "Found \(count) contact\(count == 1 ? "" : "s")"
+            let contactLines = payload.contacts.map { contact in
+                let phone = contact.phoneNumbers.first ?? ""
+                let email = contact.emails.first ?? ""
+                return "- \(contact.displayName) | phone: \(phone) | email: \(email) | id: \(contact.identifier)"
+            }
+            let body = contactLines.isEmpty ? "- (empty)" : contactLines.joined(separator: "\n")
+            let text = "## Contacts Search\n- summary: \(message)\n\(body)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawContactsCommand.add.rawValue:
+            let params = try Self.decodeParams(OpenClawContactsAddParams.self, from: request.paramsJSON)
+            let payload = try await contactsService.add(params: params)
+            let message = "Added contact: \(payload.contact.displayName)"
+            let c = payload.contact
+            let text = """
+            ## Contact Added
+            - summary: \(message)
+            - name: \(c.displayName)
+            - phones: \(c.phoneNumbers.joined(separator: ", "))
+            - emails: \(c.emails.joined(separator: ", "))
+            - id: \(c.identifier)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleCalendarInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawCalendarCommand.events.rawValue:
+            let params = (try? Self.decodeParams(OpenClawCalendarEventsParams.self, from: request.paramsJSON))
+                ?? OpenClawCalendarEventsParams()
+            let payload = try await calendarService.events(params: params)
+            let count = payload.events.count
+            let message = count == 0
+                ? "No events found"
+                : "Found \(count) event\(count == 1 ? "" : "s")"
+            let lines = payload.events.map { event in
+                "- \(event.startISO) → \(event.endISO) | \(event.title) | all_day=\(event.isAllDay ? "yes" : "no")"
+            }
+            let text = "## Calendar Events\n- summary: \(message)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawCalendarCommand.add.rawValue:
+            let params = try Self.decodeParams(OpenClawCalendarAddParams.self, from: request.paramsJSON)
+            let payload = try await calendarService.add(params: params)
+            let message = "Added event: \(payload.event.title)"
+            let event = payload.event
+            let text = """
+            ## Calendar Event Added
+            - summary: \(message)
+            - start: \(event.startISO)
+            - end: \(event.endISO)
+            - calendar: \(event.calendarTitle ?? "")
+            - id: \(event.identifier)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleRemindersInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawRemindersCommand.list.rawValue:
+            let params = (try? Self.decodeParams(OpenClawRemindersListParams.self, from: request.paramsJSON))
+                ?? OpenClawRemindersListParams()
+            let payload = try await remindersService.list(params: params)
+            let count = payload.reminders.count
+            let incomplete = payload.reminders.filter { !$0.completed }.count
+            let completed = count - incomplete
+            let message = count == 0
+                ? "No reminders found"
+                : "Found \(count) reminder\(count == 1 ? "" : "s") (\(incomplete) incomplete, \(completed) completed)"
+            let lines = payload.reminders.map { reminder in
+                "- [\(reminder.completed ? "x" : " ")] \(reminder.title) | due=\(reminder.dueISO ?? "") | list=\(reminder.listName ?? "")"
+            }
+            let text = "## Reminders\n- summary: \(message)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawRemindersCommand.add.rawValue:
+            let params = try Self.decodeParams(OpenClawRemindersAddParams.self, from: request.paramsJSON)
+            let payload = try await remindersService.add(params: params)
+            let message = "Added reminder: \(payload.reminder.title)"
+            let reminder = payload.reminder
+            let text = """
+            ## Reminder Added
+            - summary: \(message)
+            - due: \(reminder.dueISO ?? "")
+            - completed: \(reminder.completed ? "yes" : "no")
+            - list: \(reminder.listName ?? "")
+            - id: \(reminder.identifier)
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleCronInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let params: CronParams
+        do {
+            params = try Self.decodeParams(CronParams.self, from: request.paramsJSON)
+        } catch {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(
+                    code: .invalidRequest,
+                    message: "INVALID_REQUEST: failed to decode cron params"
+                )
+            )
+        }
+
+        do {
+            switch params.action {
+            case .add:
+                let status = await requestNotificationAuthorizationIfNeeded()
+                guard status == .authorized || status == .provisional || status == .ephemeral else {
+                    return BridgeInvokeResponse(
+                        id: request.id,
+                        ok: false,
+                        error: OpenClawNodeError(
+                            code: .unavailable,
+                            message: "NOT_AUTHORIZED: notifications. \(Self.notificationAuthorizationGuidance)"
+                        )
+                    )
+                }
+
+                let payload = try await CronAddPayload(job: cronService.add(
+                    message: params.message ?? "",
+                    atISO: params.at,
+                    everySeconds: params.everySeconds
+                ))
+                let scheduleMessage: String
+                if payload.job.schedule == "at", let at = payload.job.at {
+                    scheduleMessage = "Scheduled at \(at)"
+                } else if payload.job.schedule == "every", let every = payload.job.everySeconds {
+                    scheduleMessage = "Scheduled every \(every)s"
+                } else {
+                    scheduleMessage = "Scheduled cron job"
+                }
+                let text = """
+                ## Cron Added
+                - summary: \(scheduleMessage)
+                - id: \(payload.job.id)
+                - message: \(payload.job.message)
+                - schedule: \(payload.job.schedule)
+                - next_run: \(payload.job.nextRunISO ?? "")
+                """
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+            case .list:
+                let payload = try await cronService.list()
+                let count = payload.jobs.count
+                let message = count == 0
+                    ? "No scheduled cron jobs"
+                    : "Found \(count) scheduled cron job\(count == 1 ? "" : "s")"
+                let lines = payload.jobs.map { job in
+                    "- id=\(job.id) | schedule=\(job.schedule) | next=\(job.nextRunISO ?? "") | message=\(job.message)"
+                }
+                let text = "## Cron Jobs\n- summary: \(message)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+            case .remove:
+                let id = params.id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !id.isEmpty else {
+                    return BridgeInvokeResponse(
+                        id: request.id,
+                        ok: false,
+                        error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: id is required")
+                    )
+                }
+                let payload = try await cronService.remove(id: id)
+                let message = payload.removed
+                    ? "Removed cron job \(payload.id)"
+                    : "Cron job \(payload.id) not found"
+                let text = "<cron-remove id=\"\(Self.xmlEscaped(payload.id))\" removed=\"\(payload.removed ? "1" : "0")\" message=\"\(Self.xmlEscaped(message))\"/>"
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+            }
+        } catch let error as CronServiceError {
+            switch error {
+            case let .invalidRequest(message):
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: \(message)")
+                )
+            case let .schedulingFailed(message):
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "CRON_SCHEDULING_FAILED: \(message)")
+                )
+            }
+        }
+    }
+
+    private func handleMotionInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawMotionCommand.activity.rawValue:
+            let params = (try? Self.decodeParams(OpenClawMotionActivityParams.self, from: request.paramsJSON))
+                ?? OpenClawMotionActivityParams()
+            let payload = try await motionService.activities(params: params)
+            let count = payload.activities.count
+            let message = count == 0
+                ? "No activity data"
+                : "Retrieved \(count) activity record\(count == 1 ? "" : "s")"
+            let lines = payload.activities.map { activity in
+                let modes = [
+                    activity.isWalking ? "walking" : nil,
+                    activity.isRunning ? "running" : nil,
+                    activity.isCycling ? "cycling" : nil,
+                    activity.isAutomotive ? "automotive" : nil,
+                    activity.isStationary ? "stationary" : nil,
+                    activity.isUnknown ? "unknown" : nil,
+                ].compactMap { $0 }.joined(separator: ",")
+                return "- \(activity.startISO) → \(activity.endISO) | confidence=\(activity.confidence) | modes=\(modes)"
+            }
+            let text = "## Motion Activity\n- summary: \(message)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case OpenClawMotionCommand.pedometer.rawValue:
+            let params = (try? Self.decodeParams(OpenClawPedometerParams.self, from: request.paramsJSON))
+                ?? OpenClawPedometerParams()
+            let payload = try await motionService.pedometer(params: params)
+            let message = payload.steps != nil
+                ? "Steps: \(payload.steps!)"
+                : "Pedometer data retrieved"
+            let text = """
+            ## Pedometer
+            - summary: \(message)
+            - start: \(payload.startISO)
+            - end: \(payload.endISO)
+            - steps: \(payload.steps.map(String.init) ?? "")
+            - distance_m: \(payload.distanceMeters.map { String(format: "%.1f", $0) } ?? "")
+            - floors_up: \(payload.floorsAscended.map(String.init) ?? "")
+            - floors_down: \(payload.floorsDescended.map(String.init) ?? "")
+            """
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func handleSpeechInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case OpenClawSpeechCommand.transcribe.rawValue:
+            let params = try Self.decodeParams(OpenClawSpeechTranscribeParams.self, from: request.paramsJSON)
+            let payload = try await speechService.transcribe(params: params)
+            let segmentCount = payload.segments.count
+            let message = payload.text.isEmpty
+                ? "No speech recognized"
+                : "Transcribed \(segmentCount) segment\(segmentCount == 1 ? "" : "s")"
+            let segmentLines = payload.segments.prefix(20).enumerated().map { index, segment in
+                "- \(index + 1). [\(String(format: "%.2f", segment.startSeconds))s +\(String(format: "%.2f", segment.durationSeconds))s, conf=\(String(format: "%.2f", segment.confidence))] \(segment.text)"
+            }
+            let text = "## Speech Transcript\n- summary: \(message)\n- locale: \(payload.locale)\n- file: \(payload.filePath)\n\(segmentLines.joined(separator: "\n"))\n\n### Full Text\n\(payload.text)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    /// Handle web fetch requests
+    private func handleWebFetchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let url: String
+            let extractMode: String?
+            let maxChars: Int?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let url = URL(string: params.url),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: invalid URL")
+            )
+        }
+
+        let extractMode: WebFetchService.ExtractMode = params.extractMode == "text" ? .text : .markdown
+        let result = try await webFetchService.fetch(
+            url: url,
+            extractMode: extractMode,
+            maxChars: params.maxChars ?? 50000
+        )
+        // Return structured plain text to make tool output easier for AI models to parse.
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: result.asAIFriendlyText())
+    }
+
+    /// Dispatch all web_view* commands to the appropriate WebViewService method.
+    private func handleWebViewInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let sessionID = normalizedWebViewSessionID()
+        switch request.command {
+        case "web_view":
+            struct Params: Codable { let url: String }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let rawURL = params.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            let expandedPath = (rawURL as NSString).expandingTildeInPath
+            let resolvedURL: URL?
+            if expandedPath.hasPrefix("/") {
+                // Treat absolute paths as local files for easier tool usage.
+                resolvedURL = URL(fileURLWithPath: expandedPath)
+            } else if let parsedURL = URL(string: rawURL), parsedURL.scheme != nil {
+                resolvedURL = parsedURL
+            } else {
+                resolvedURL = nil
+            }
+
+            guard let url = resolvedURL else {
+                return BridgeInvokeResponse(
+                    id: request.id, ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: invalid URL")
+                )
+            }
+            let result = try await webViewToolService.openAndSnapshot(url: url, sessionID: sessionID)
+            let lines = result.elements.joined(separator: "\n")
+            let text = "## Web View\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- elements: \(result.count)\n\(lines)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_snapshot":
+            let result = try await webViewToolService.snapshot(sessionID: sessionID)
+            let lines = result.elements.joined(separator: "\n")
+            let text = "## Web Snapshot\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- elements: \(result.count)\n\(lines)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_click":
+            struct Params: Codable { let ref: String }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await webViewToolService.click(sessionID: sessionID, ref: params.ref)
+            let text = "<web-action kind=\"click\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(Self.xmlEscaped(result.message))\" url=\"\(Self.xmlEscaped(result.url ?? ""))\" title=\"\(Self.xmlEscaped(result.title ?? ""))\"/>"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_type":
+            struct Params: Codable { let ref: String; let text: String; let submit: Bool? }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await webViewToolService.type(sessionID: sessionID, ref: params.ref, text: params.text, submit: params.submit ?? false)
+            let text = "<web-action kind=\"type\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(Self.xmlEscaped(result.message))\" url=\"\(Self.xmlEscaped(result.url ?? ""))\" title=\"\(Self.xmlEscaped(result.title ?? ""))\"/>"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_scroll":
+            struct Params: Codable { let direction: String; let amount: Int? }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await webViewToolService.scroll(sessionID: sessionID, direction: params.direction, amount: params.amount ?? 300)
+            let text = "<web-action kind=\"scroll\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(Self.xmlEscaped(result.message))\" url=\"\(Self.xmlEscaped(result.url ?? ""))\" title=\"\(Self.xmlEscaped(result.title ?? ""))\"/>"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_select":
+            struct Params: Codable { let ref: String; let value: String }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await webViewToolService.selectOption(sessionID: sessionID, ref: params.ref, value: params.value)
+            let text = "<web-action kind=\"select\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(Self.xmlEscaped(result.message))\" url=\"\(Self.xmlEscaped(result.url ?? ""))\" title=\"\(Self.xmlEscaped(result.title ?? ""))\"/>"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_navigate":
+            struct Params: Codable { let direction: String }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await webViewToolService.navigate(sessionID: sessionID, direction: params.direction)
+            let text = "<web-action kind=\"navigate\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(Self.xmlEscaped(result.message))\" url=\"\(Self.xmlEscaped(result.url ?? ""))\" title=\"\(Self.xmlEscaped(result.title ?? ""))\"/>"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "web_view_close":
+            webViewToolService.close(sessionID: sessionID)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Web view closed.")
+
+        case "web_view_read":
+            struct Params: Codable { let maxLength: Int? }
+            let params = (try? Self.decodeParams(Params.self, from: request.paramsJSON)) ?? Params(maxLength: nil)
+            let result = try await webViewToolService.readMarkdown(sessionID: sessionID, maxLength: params.maxLength ?? 120_000)
+            let text = "## Web Page Read\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- length: \(result.length)\n\n\(result.markdown)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        default:
+            return BridgeInvokeResponse(
+                id: request.id, ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "Unknown web_view command: \(request.command)")
+            )
+        }
+    }
+
+    /// Render plain text into social-media-ready image cards.
+    private func handleTextImageRenderInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let text: String
+            let title: String?
+            let theme: String?
+            let width: Int?
+            let aspectRatio: String?
+            let maxPages: Int?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let result = try textImageRenderService.render(
+            request: TextImageRenderService.Request(
+                text: params.text,
+                title: params.title,
+                theme: params.theme,
+                width: params.width,
+                aspectRatio: params.aspectRatio,
+                maxPages: params.maxPages
+            )
+        )
+
+        var mediaTags: [String] = []
+        for page in result.pages {
+            let mediaFile = try persistMediaData(
+                page.data,
+                suggestedExtension: page.format,
+                prefix: "text-card-p\(page.index)"
+            )
+            mediaTags.append(
+                Self.composeTag(
+                    name: "media",
+                    attributes: [
+                        ("tool", "text_image_render"),
+                        ("page", "\(page.index)"),
+                        ("total-pages", "\(page.total)"),
+                        ("format", page.format),
+                        ("mime-type", Self.mimeType(for: page.format)),
+                        ("size-bytes", "\(mediaFile.sizeBytes)"),
+                        ("width", "\(page.width)"),
+                        ("height", "\(page.height)"),
+                        ("path", mediaFile.path),
+                    ]
+                )
+            )
+        }
+
+        let payload = Self.composeBlock(
+            name: "text-image-render",
+            attributes: [
+                ("pages", "\(result.pages.count)"),
+                ("truncated", result.truncated ? "1" : "0"),
+                ("theme", result.theme),
+            ],
+            children: mediaTags
+        )
+
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+    }
+
+    private func normalizedWebViewSessionID() -> String {
+        let trimmed = (InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "default" : trimmed
+    }
+
+    /// Handle web search requests
+    private func handleWebSearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let query: String
+            let topK: Int?
+            let fetchTopK: Int?
+            let lang: String?
+            let safeSearch: String?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let query = params.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: query is required")
+            )
+        }
+
+        let result = try await webSearchService.search(
+            query: query,
+            topK: params.topK ?? 8,
+            fetchTopK: params.fetchTopK ?? 3,
+            lang: params.lang ?? "zh-CN",
+            safeSearch: params.safeSearch ?? "moderate"
+        )
+        let lines = result.results.map { item in
+            "\(item.rank). [\(item.title)](\(item.link)) — \(item.summary)"
+        }
+        let sourceLine = result.sourceStatus.map { "\($0.source):\($0.count)" }.joined(separator: ", ")
+        let text = "## Web Search\n- query: \(result.query)\n- total: \(result.total)\n- sources: \(sourceLine)\n\n\(lines.joined(separator: "\n"))"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    /// Handle free-to-use image search requests.
+    private func handleImageSearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let query: String
+            let topK: Int?
+            let minWidth: Int?
+            let minHeight: Int?
+            let orientation: String?
+            let safeSearch: Bool?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let query = params.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: query is required")
+            )
+        }
+
+        let result = try await imageSearchService.search(
+            query: query,
+            topK: params.topK ?? 8,
+            minWidth: params.minWidth ?? 1024,
+            minHeight: params.minHeight ?? 720,
+            orientation: params.orientation ?? "any",
+            safeSearch: params.safeSearch ?? true
+        )
+        let lines = result.results.enumerated().map { index, item in
+            "\(index + 1). \(item.title)\n   - image: \(item.imageURL)\n   - size: \(item.width)x\(item.height)\n   - provider: \(item.provider), license: \(item.license)"
+        }
+        let text = "## Image Search\n- query: \(result.query)\n- total: \(result.total)\n- filters: min=\(result.minWidth)x\(result.minHeight), orientation=\(result.orientation)\n\n\(lines.joined(separator: "\n"))"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    /// Handle YouTube transcript fetch requests.
+    private func handleYouTubeTranscriptInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let input: String
+            let preferredLanguage: String?
+            let maxSegments: Int?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let normalizedInput = params.input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedInput.isEmpty else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: input is required")
+            )
+        }
+
+        let result = try await youTubeTranscriptService.fetchTranscript(
+            input: normalizedInput,
+            preferredLanguage: params.preferredLanguage,
+            maxSegments: params.maxSegments ?? 500
+        )
+
+        let segmentLines = result.segments.prefix(120).enumerated().map { index, segment in
+            "\(index + 1). [\(String(format: "%.2f", segment.startSeconds))s +\(String(format: "%.2f", segment.durationSeconds))s] \(segment.text)"
+        }
+        let body = segmentLines.isEmpty ? "- (empty)" : segmentLines.joined(separator: "\n")
+        let text = "## YouTube Transcript\n- video_id: \(result.videoID)\n- title: \(result.title ?? "")\n- language: \(result.language)\n- track: \(result.trackName)\n- segments: \(result.segmentCount)\n- summary: \(result.message)\n\n\(body)\n\n### Full Transcript\n\(result.transcript)"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    /// Handle file system requests
+    private func handleFileSystemInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        func resolvedPathText(_ path: String) async throws -> String {
+            let metadata = try await fileSystemService.pathMetadata(path: path)
+            return metadata.resolvedPath
+        }
+
+        func conciseListText(for result: DirectoryListResult, resolvedPath: String) -> String {
+            if result.items.isEmpty {
+                return "Empty: \(resolvedPath)"
+            }
+
+            let itemLines = result.items.map { item in
+                item.isDirectory ? "  \(item.name)/" : "  \(item.name)"
+            }
+
+            return ([resolvedPath] + itemLines).joined(separator: "\n")
+        }
+
+        switch request.command {
+        case "fs.read":
+            struct Params: Codable {
+                let path: String
+                let startLine: Int?
+                let endLine: Int?
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.readFile(
+                path: params.path,
+                startLine: params.startLine,
+                endLine: params.endLine
+            )
+            var text = result.content
+            if result.truncated {
+                text += "\n\n... (truncated — file is \(result.totalChars) chars, limit 128000)"
+            }
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.write":
+            struct Params: Codable {
+                let path: String
+                let content: String
+                let createDirectories: Bool?
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.writeFile(
+                path: params.path,
+                content: params.content,
+                createDirectories: params.createDirectories ?? true
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let verb = result.created ? "created" : "updated"
+            let text = "OK: \(verb) \(result.size) bytes -> \(resolvedPath)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.replace":
+            struct Params: Codable {
+                let path: String
+                let oldText: String
+                let newText: String
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.replaceInFile(
+                path: params.path,
+                oldText: params.oldText,
+                newText: params.newText
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: replaced \(result.occurrences) occurrence\(result.occurrences == 1 ? "" : "s") -> \(resolvedPath)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.append":
+            struct Params: Codable {
+                let path: String
+                let content: String
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.appendToFile(
+                path: params.path,
+                content: params.content
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: appended \(result.appendedSize) bytes -> \(resolvedPath)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.list":
+            struct Params: Codable {
+                let path: String
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.listDirectory(path: params.path)
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = conciseListText(for: result, resolvedPath: resolvedPath)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.mkdir":
+            struct Params: Codable {
+                let path: String
+                let recursive: Bool?
+                let ifNotExists: Bool?
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.makeDirectory(
+                path: params.path,
+                recursive: params.recursive ?? true,
+                ifNotExists: params.ifNotExists ?? true
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let verb = result.created ? "created" : "already exists"
+            let text = "OK: \(verb) directory -> \(resolvedPath)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.delete":
+            struct Params: Codable {
+                let path: String
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.delete(path: params.path)
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: deleted -> \(resolvedPath)"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.find":
+            struct Params: Codable {
+                let glob: String
+                let path: String?
+                let recursive: Bool?
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.findFiles(
+                glob: params.glob,
+                path: params.path ?? ".",
+                recursive: params.recursive ?? true
+            )
+            let itemLines = result.items.map { item in
+                "[FILE] \(item.path) (\(item.size ?? 0) bytes)"
+            }
+            let text = itemLines.isEmpty ? "No files matching '\(result.pattern)'" : itemLines.joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        case "fs.grep":
+            struct Params: Codable {
+                let pattern: String
+                let path: String?
+                let recursive: Bool?
+                let isRegex: Bool?
+                let caseInsensitive: Bool?
+            }
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await fileSystemService.grep(
+                pattern: params.pattern,
+                path: params.path ?? ".",
+                recursive: params.recursive ?? true,
+                isRegex: params.isRegex ?? true,
+                caseInsensitive: params.caseInsensitive ?? true
+            )
+            let matchLines = result.matches.map { match in
+                "\(match.path):\(match.lineNumber): \(match.line)"
+            }
+            let text = matchLines.isEmpty ? "No matches for '\(result.pattern)'" : matchLines.joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown command")
+            )
+        }
+    }
+
+    private func requestNotificationAuthorizationIfNeeded() async -> NotificationAuthorizationStatus {
+        let status = await notificationAuthorizationStatus()
+        guard status == .notDetermined else { return status }
+
+        _ = await runNotificationCall(timeoutSeconds: 2.0) { [notificationCenter] in
+            _ = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
+        }
+        return await notificationAuthorizationStatus()
+    }
+
+    private func notificationAuthorizationStatus() async -> NotificationAuthorizationStatus {
+        let result = await runNotificationCall(timeoutSeconds: 1.5) { [notificationCenter] in
+            await notificationCenter.authorizationStatus()
+        }
+        switch result {
+        case let .success(status):
+            return status
+        case .failure:
+            return .denied
+        }
+    }
+
+    private func runNotificationCall<T: Sendable>(
+        timeoutSeconds: Double,
+        operation: @escaping @Sendable () async throws -> T
+    ) async -> Result<T, NotificationCallError> {
+        let latch = NotificationInvokeLatch<T>()
+        var operationTask: Task<Void, Never>?
+        var timeoutTask: Task<Void, Never>?
+
+        defer {
+            operationTask?.cancel()
+            timeoutTask?.cancel()
+        }
+
+        let clamped = max(0.0, timeoutSeconds)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Result<T, NotificationCallError>, Never>) in
+            latch.setContinuation(continuation)
+            operationTask = Task { @MainActor in
+                do {
+                    let value = try await operation()
+                    latch.resume(.success(value))
+                } catch {
+                    latch.resume(.failure(NotificationCallError(message: error.localizedDescription)))
+                }
+            }
+            timeoutTask = Task.detached {
+                if clamped > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
+                }
+                latch.resume(.failure(NotificationCallError(message: "notification request timed out")))
+            }
+        }
+    }
+
+    private func buildCapabilityRouter() -> NodeCapabilityRouter {
+        var handlers: [String: NodeCapabilityRouter.Handler] = [:]
+
+        func register(_ commands: [String], handler: @escaping NodeCapabilityRouter.Handler) {
+            for command in commands {
+                handlers[command] = handler
+            }
+        }
+
+        register([OpenClawLocationCommand.get.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleLocationInvoke(request)
+        }
+
+        register([
+            OpenClawCameraCommand.list.rawValue,
+            OpenClawCameraCommand.snap.rawValue,
+            OpenClawCameraCommand.clip.rawValue,
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleCameraInvoke(request)
+        }
+
+        register([OpenClawScreenCommand.record.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleScreenRecordInvoke(request)
+        }
+
+        register([OpenClawSystemCommand.notify.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleSystemNotify(request)
+        }
+
+        register([
+            OpenClawDeviceCommand.status.rawValue,
+            OpenClawDeviceCommand.info.rawValue,
+            "current.time",
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleDeviceInvoke(request)
+        }
+
+        if !Self.isMacCatalyst {
+            register([
+                OpenClawWatchCommand.status.rawValue,
+                OpenClawWatchCommand.notify.rawValue,
+            ]) { [weak self] request in
+                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                return try await self.handleWatchInvoke(request)
+            }
+        }
+
+        register([OpenClawPhotosCommand.latest.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handlePhotosInvoke(request)
+        }
+
+        register([OpenClawImageCommand.removeBackground.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleImageInvoke(request)
+        }
+
+        register([
+            OpenClawContactsCommand.search.rawValue,
+            OpenClawContactsCommand.add.rawValue,
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleContactsInvoke(request)
+        }
+
+        register([
+            OpenClawCalendarCommand.events.rawValue,
+            OpenClawCalendarCommand.add.rawValue,
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleCalendarInvoke(request)
+        }
+
+        register([
+            OpenClawRemindersCommand.list.rawValue,
+            OpenClawRemindersCommand.add.rawValue,
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleRemindersInvoke(request)
+        }
+
+        register([CronCommand.cron.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleCronInvoke(request)
+        }
+
+        if !Self.isMacCatalyst {
+            register([
+                OpenClawMotionCommand.activity.rawValue,
+                OpenClawMotionCommand.pedometer.rawValue,
+            ]) { [weak self] request in
+                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                return try await self.handleMotionInvoke(request)
+            }
+        }
+
+        register([OpenClawSpeechCommand.transcribe.rawValue]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleSpeechInvoke(request)
+        }
+
+        // Web fetch tool
+        register(["web.fetch"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWebFetchInvoke(request)
+        }
+
+        // Floating web view tools: navigate, snapshot, interactions, read, close.
+        register([
+            "web_view", "web_view_snapshot", "web_view_click", "web_view_type",
+            "web_view_scroll", "web_view_select", "web_view_navigate", "web_view_close", "web_view_read",
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWebViewInvoke(request)
+        }
+
+        // Text-to-image social card rendering tool.
+        register(["text.image.render"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleTextImageRenderInvoke(request)
+        }
+
+        // Web search tool
+        register(["web.search"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWebSearchInvoke(request)
+        }
+
+        // Free image search tool
+        register(["image.search"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleImageSearchInvoke(request)
+        }
+
+        // YouTube transcript tool
+        register(["youtube.transcript"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleYouTubeTranscriptInvoke(request)
+        }
+
+        // File system tools
+        register(["fs.read", "fs.write", "fs.list", "fs.mkdir", "fs.delete", "fs.replace", "fs.append", "fs.find", "fs.grep"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleFileSystemInvoke(request)
+        }
+
+        // Skill tool
+        register(["skill.load"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleSkillInvoke(request)
+        }
+
+        // Memory tools
+        register(["memory.history_search", "memory.write_long_term", "memory.append_history"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleMemoryInvoke(request)
+        }
+
+        // Weather tool
+        register(["weather.get"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWeatherInvoke(request)
+        }
+
+        // Yahoo Finance tool
+        register(["finance.yahoo"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleYahooFinanceInvoke(request)
+        }
+
+        // China A-share market tool
+        register(["finance.a_share"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleAShareMarketInvoke(request)
+        }
+
+        return NodeCapabilityRouter(handlers: handlers)
+    }
+
+    private func handleSkillInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            let id: String?
+        }
+
+        switch request.command {
+        case "skill.load":
+            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+            guard let id = AppConfig.nonEmpty(params.id) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: id is required")
+                )
+            }
+
+            guard let content = AgentSkillsLoader.loadSkill(
+                id: id,
+                workspaceRootURL: workspaceRootURL
+            ) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "NOT_FOUND: skill id '\(id)' not found")
+                )
+            }
+
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: content)
+
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown skill command")
+            )
+        }
+    }
+
+    private func handleMemoryInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch request.command {
+        case "memory.history_search":
+            return try await handleMemoryHistorySearchInvoke(request)
+        case "memory.write_long_term":
+            return try await handleMemoryWriteLongTermInvoke(request)
+        case "memory.append_history":
+            return try await handleMemoryAppendHistoryInvoke(request)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown memory command")
+            )
+        }
+    }
+
+    private func handleMemoryHistorySearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct MemoryHistorySearchParams: Decodable {
+            var query: String
+            var mode: String?
+            var caseInsensitive: Bool?
+            var limit: Int?
+        }
+
+        struct SearchHitPayload: Codable {
+            var lineNumber: Int
+            var line: String
+        }
+
+        struct SearchPayload: Codable {
+            var mode: String
+            var query: String
+            var historyFile: String
+            var hits: [SearchHitPayload]
+            var count: Int
+            var message: String
+        }
+
+        let params = try Self.decodeParams(MemoryHistorySearchParams.self, from: request.paramsJSON)
+        guard let workspaceURL = activeAgentWorkspaceURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
+            )
+        }
+
+        let modeRaw = (params.mode ?? MemoryService.HistorySearchMode.keyword.rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let mode = MemoryService.HistorySearchMode(rawValue: modeRaw) else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: mode must be keyword or regex")
+            )
+        }
+
+        let service = try MemoryService(workspaceDirectory: workspaceURL)
+        let result = try await service.searchHistory(
+            query: params.query,
+            mode: mode,
+            caseInsensitive: params.caseInsensitive ?? true,
+            limit: params.limit ?? 20
+        )
+
+        let hitPayload = result.hits.map { SearchHitPayload(lineNumber: $0.lineNumber, line: $0.line) }
+        let message = hitPayload.isEmpty ? "No matching history events." : "Found \(hitPayload.count) matching history event\(hitPayload.count == 1 ? "" : "s")."
+        let lines = hitPayload.map { "- L\($0.lineNumber): \($0.line)" }
+        let body = lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n")
+        let text = "## Memory History Search\n- mode: \(result.mode.rawValue)\n- query: \(result.query)\n- file: \(result.fileURL.path)\n- summary: \(message)\n\(body)"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleMemoryWriteLongTermInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            var content: String
+            var mode: String?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let modeRaw = (params.mode ?? MemoryService.LongTermMemoryWriteMode.append.rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let mode = MemoryService.LongTermMemoryWriteMode(rawValue: modeRaw) else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: mode must be replace or append")
+            )
+        }
+
+        guard let workspaceURL = activeAgentWorkspaceURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
+            )
+        }
+
+        let service = try MemoryService(workspaceDirectory: workspaceURL)
+        let result = try await service.writeLongTermMemory(content: params.content, mode: mode)
+        let status: String
+        if result.duplicateSkipped {
+            status = "unchanged (duplicate skipped)"
+        } else if result.changed {
+            status = mode == .replace ? "updated" : "appended"
+        } else {
+            status = "unchanged"
+        }
+
+        return BridgeInvokeResponse(
+            id: request.id,
+            ok: true,
+            payload: "OK: \(status) -> \(result.fileURL.path)"
+        )
+    }
+
+    private func handleMemoryAppendHistoryInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            var entry: String
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let workspaceURL = activeAgentWorkspaceURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
+            )
+        }
+
+        let service = try MemoryService(workspaceDirectory: workspaceURL)
+        let result = try await service.appendHistory(entry: params.entry)
+        return BridgeInvokeResponse(
+            id: request.id,
+            ok: true,
+            payload: "OK: appended history entry -> \(result.fileURL.path)\n\(result.entry)"
+        )
+    }
+
+    private func activeAgentWorkspaceURL() -> URL? {
+        AgentStore.load().activeAgent?.workspaceURL
+    }
+
+    private func handleWeatherInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct WeatherParams: Decodable {
+            var location: String?
+            var latitude: Double?
+            var longitude: Double?
+            var forecastDays: Int?
+            var temperatureUnit: String?
+        }
+
+        let params = (try? Self.decodeParams(WeatherParams.self, from: request.paramsJSON)) ?? WeatherParams()
+        let result = try await weatherService.fetchWeather(
+            location: params.location,
+            latitude: params.latitude,
+            longitude: params.longitude,
+            forecastDays: params.forecastDays ?? 1,
+            temperatureUnit: params.temperatureUnit ?? "celsius"
+        )
+        let current = result.current
+        let forecastLines = (result.forecast ?? []).map { day in
+            "- \(day.date): \(day.condition), \(day.temperatureMin)~\(day.temperatureMax)\(current.temperatureUnit), precip=\(day.precipitationSum)mm"
+        }
+        let forecastText = forecastLines.isEmpty ? "- (none)" : forecastLines.joined(separator: "\n")
+        let text = """
+        ## Weather
+        - location: \(result.location) (\(result.latitude), \(result.longitude))
+        - timezone: \(result.timezone)
+        - now: \(current.condition), \(current.temperature)\(current.temperatureUnit), feels \(current.apparentTemperature)\(current.temperatureUnit)
+        - humidity: \(current.humidity)%
+        - wind: \(current.windSpeed) \(current.windSpeedUnit), direction \(current.windDirection)°
+
+        ### Forecast
+        \(forecastText)
+        """
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleYahooFinanceInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct YahooFinanceParams: Decodable {
+            var action: String
+            var symbols: [String]?
+            var symbol: String?
+            var range: String?
+            var interval: String?
+            var includePrePost: Bool?
+            var modules: [String]?
+            var query: String?
+            var quotesCount: Int?
+            var newsCount: Int?
+        }
+
+        let params = try Self.decodeParams(YahooFinanceParams.self, from: request.paramsJSON)
+        let action = params.action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        switch action {
+        case "quote":
+            let result = try await yahooFinanceService.fetchQuotes(symbols: params.symbols ?? [])
+            let lines = result.quotes.map { quote in
+                let price = quote.regularMarketPrice.map { "\($0)" } ?? ""
+                let change = quote.regularMarketChangePercent.map { String(format: "%.2f%%", $0) } ?? ""
+                return "- \(quote.symbol): \(price) \(quote.currency ?? "") (\(change))"
+            }
+            let text = "## Yahoo Finance Quotes\n- symbols: \(result.symbols.joined(separator: ", "))\n- count: \(result.count)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case "chart":
+            guard let symbol = params.symbol else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: symbol is required for chart action")
+                )
+            }
+            let result = try await yahooFinanceService.fetchChart(
+                symbol: symbol,
+                range: params.range ?? "1mo",
+                interval: params.interval ?? "1d",
+                includePrePost: params.includePrePost ?? false
+            )
+            let samples = Array(result.points.prefix(10)).map { point in
+                "- ts=\(point.timestamp) o=\(point.open.map { "\($0)" } ?? "") h=\(point.high.map { "\($0)" } ?? "") l=\(point.low.map { "\($0)" } ?? "") c=\(point.close.map { "\($0)" } ?? "") v=\(point.volume.map { "\($0)" } ?? "")"
+            }
+            let text = "## Yahoo Finance Chart\n- symbol: \(result.symbol)\n- range: \(result.range)\n- interval: \(result.interval)\n- points: \(result.points.count)\n\(samples.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case "summary":
+            guard let symbol = params.symbol else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: symbol is required for summary action")
+                )
+            }
+            let result = try await yahooFinanceService.fetchSummary(symbol: symbol, modules: params.modules ?? [])
+            let text = "## Yahoo Finance Summary\n- symbol: \(result.symbol)\n- modules: \(result.modules.joined(separator: ", "))\n- note: raw summary object is omitted to keep context concise; call specific modules if needed."
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        case "search":
+            guard let query = params.query else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: query is required for search action")
+                )
+            }
+            let result = try await yahooFinanceService.search(
+                query: query,
+                quotesCount: params.quotesCount ?? 8,
+                newsCount: params.newsCount ?? 6
+            )
+            let quoteLines = result.quotes.map { quote in
+                "- \(quote.symbol ?? "") | \(quote.shortname ?? quote.longname ?? "") | \(quote.exchDisp ?? "")"
+            }
+            let newsLines = result.news.map { news in
+                "- \(news.title ?? "") (\(news.publisher ?? "")) \(news.link ?? "")"
+            }
+            let text = "## Yahoo Finance Search\n- query: \(result.query)\n\n### Quotes\n\(quoteLines.isEmpty ? "- (empty)" : quoteLines.joined(separator: "\n"))\n\n### News\n\(newsLines.isEmpty ? "- (empty)" : newsLines.joined(separator: "\n"))"
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: action must be one of quote, chart, summary, search")
+            )
+        }
+    }
+
+    private func handleAShareMarketInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct AShareMarketParams: Decodable {
+            var codes: [String]
+            var minute: Bool?
+            var json: Bool?
+        }
+
+        let params = try Self.decodeParams(AShareMarketParams.self, from: request.paramsJSON)
+        let normalizedCodes = params.codes
+            .map(AShareMarketService.cleanCode(_:))
+            .filter { !$0.isEmpty }
+        guard !normalizedCodes.isEmpty else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: codes must contain at least one stock code")
+            )
+        }
+
+        let includeMinute = params.minute ?? false
+        let results = try await aShareMarketService.analyzeStocks(codes: normalizedCodes, includeMinute: includeMinute)
+
+        if params.json ?? false {
+            return try BridgeInvokeResponse(id: request.id, ok: true, payload: Self.encodePayload(results))
+        }
+
+        var blocks: [String] = []
+        for result in results {
+            if let error = result.error {
+                blocks.append("错误: \(error)")
+                continue
+            }
+            guard let realtime = result.realtime else {
+                blocks.append("错误: 无法获取 \(result.code) 的行情数据")
+                continue
+            }
+
+            var text = AShareMarketService.formatRealtime(realtime)
+            if includeMinute {
+                if let analysis = result.minuteAnalysis {
+                    text += AShareMarketService.formatMinuteAnalysis(analysis)
+                } else if let minuteError = result.minuteError {
+                    text += "\n\n【分时量能分析】\n  错误: \(minuteError)"
+                }
+            }
+            blocks.append(text)
+        }
+
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: blocks.joined(separator: "\n\n"))
+    }
+
+    private struct PersistedMediaFile {
+        let path: String
+        let sizeBytes: Int
+    }
+
+    /// Persist media data under the active workspace so generated artifacts stay discoverable.
+    private func persistMediaData(_ data: Data, suggestedExtension: String, prefix: String) throws -> PersistedMediaFile {
+        let ext = Self.normalizedFileExtension(suggestedExtension)
+        let fileURL = try nextMediaOutputURL(prefix: prefix, suggestedExtension: ext)
+        try data.write(to: fileURL, options: .atomic)
+        return PersistedMediaFile(path: fileURL.path, sizeBytes: data.count)
+    }
+
+    /// Keep tool-generated media in one workspace-scoped directory.
+    private func nextMediaOutputURL(prefix: String, suggestedExtension: String) throws -> URL {
+        let ext = Self.normalizedFileExtension(suggestedExtension)
+        let directoryURL = try mediaOutputDirectoryURL()
+        return directoryURL.appendingPathComponent("\(prefix)-\(UUID().uuidString).\(ext)")
+    }
+
+    /// Resolve and create the workspace-level directory used by media tools.
+    private func mediaOutputDirectoryURL() throws -> URL {
+        let baseURL = activeAgentWorkspaceURL() ?? FileManager.default.temporaryDirectory
+        let directoryURL = baseURL
+            .appendingPathComponent("media", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        return directoryURL
+    }
+
+    /// Keep extension values safe and predictable for generated temporary file paths.
+    private static func normalizedFileExtension(_ raw: String) -> String {
+        let filtered = raw.lowercased().filter { $0.isLetter || $0.isNumber }
+        return filtered.isEmpty ? "bin" : filtered
+    }
+
+    /// Map media extensions to standard MIME types for downstream consumers.
+    private static func mimeType(for format: String) -> String {
+        switch format.lowercased() {
+        case "jpg", "jpeg":
+            return "image/jpeg"
+        case "png":
+            return "image/png"
+        case "mp4":
+            return "video/mp4"
+        case "mov":
+            return "video/quicktime"
+        default:
+            return "application/octet-stream"
+        }
+    }
+
+    /// Build a compact XML-like one-line tag to keep tool payloads simple and readable.
+    private static func composeTag(name: String, attributes: [(String, String)]) -> String {
+        let attrs = attributes
+            .filter { !$0.1.isEmpty }
+            .map { key, value in
+                "\(key)=\"\(xmlEscaped(value))\""
+            }
+            .joined(separator: " ")
+        return attrs.isEmpty ? "<\(name)/>" : "<\(name) \(attrs)/>"
+    }
+
+    /// Build a compact XML-like block for list payloads.
+    private static func composeBlock(name: String, attributes: [(String, String)], children: [String]) -> String {
+        let start = composeTag(name: name, attributes: attributes)
+        guard !children.isEmpty else {
+            return start.replacingOccurrences(of: "/>", with: "></\(name)>")
+        }
+        let open = start.replacingOccurrences(of: "/>", with: ">")
+        let body = children.joined(separator: "\n")
+        return "\(open)\n\(body)\n</\(name)>"
+    }
+
+    /// Escape reserved characters so XML-like output stays machine-readable.
+    private static func xmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
+    }
+
+    private static func decodeParams<T: Decodable>(_ type: T.Type, from json: String?) throws -> T {
+        guard let json, let data = json.data(using: .utf8) else {
+            throw NSError(domain: "LocalToolInvokeService", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "INVALID_REQUEST: paramsJSON required",
+            ])
+        }
+        return try JSONDecoder().decode(type, from: data)
+    }
+
+    private static func encodePayload(_ obj: some Encodable) throws -> String {
+        let data = try JSONEncoder().encode(obj)
+        guard let json = String(bytes: data, encoding: .utf8) else {
+            throw NSError(domain: "LocalToolInvokeService", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to encode payload as UTF-8",
+            ])
+        }
+        return json
+    }
+
+    /// Wrap OpenClaw payload with a message field for UI display
+    private static func encodePayloadWithMessage(_ payload: some Encodable, message: String) throws -> String {
+        // Encode payload to JSON
+        let payloadData = try JSONEncoder().encode(payload)
+        guard var payloadDict = try JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+            throw NSError(domain: "LocalToolInvokeService", code: 22, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to convert payload to dictionary",
+            ])
+        }
+
+        // Add message field
+        payloadDict["message"] = message
+
+        // Encode back to JSON string
+        let resultData = try JSONSerialization.data(withJSONObject: payloadDict)
+        guard let json = String(data: resultData, encoding: .utf8) else {
+            throw NSError(domain: "LocalToolInvokeService", code: 23, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to encode result as UTF-8",
+            ])
+        }
+        return json
+    }
+
+    private static func normalizeWatchNotifyParams(_ params: OpenClawWatchNotifyParams) -> OpenClawWatchNotifyParams {
+        var normalized = params
+        normalized.title = params.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.body = params.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.promptId = Self.trimmedOrNil(params.promptId)
+        normalized.sessionKey = Self.trimmedOrNil(params.sessionKey)
+        normalized.kind = Self.trimmedOrNil(params.kind)
+        normalized.details = Self.trimmedOrNil(params.details)
+        normalized.priority = Self.normalizedWatchPriority(params.priority, risk: params.risk)
+        normalized.risk = Self.normalizedWatchRisk(params.risk, priority: normalized.priority)
+
+        let normalizedActions = Self.normalizeWatchActions(
+            params.actions,
+            kind: normalized.kind,
+            promptId: normalized.promptId
+        )
+        normalized.actions = normalizedActions.isEmpty ? nil : normalizedActions
+        return normalized
+    }
+
+    private static func normalizeWatchActions(
+        _ actions: [OpenClawWatchAction]?,
+        kind: String?,
+        promptId: String?
+    ) -> [OpenClawWatchAction] {
+        let provided = (actions ?? []).compactMap { action -> OpenClawWatchAction? in
+            let id = action.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = action.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, !label.isEmpty else { return nil }
+            return OpenClawWatchAction(
+                id: id,
+                label: label,
+                style: Self.trimmedOrNil(action.style)
+            )
+        }
+        if !provided.isEmpty {
+            return Array(provided.prefix(4))
+        }
+
+        guard promptId?.isEmpty == false else {
+            return []
+        }
+
+        let normalizedKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if normalizedKind.contains("approval") || normalizedKind.contains("approve") {
+            return [
+                OpenClawWatchAction(id: "approve", label: "Approve"),
+                OpenClawWatchAction(id: "decline", label: "Decline", style: "destructive"),
+                OpenClawWatchAction(id: "open_phone", label: "Open iPhone"),
+                OpenClawWatchAction(id: "escalate", label: "Escalate"),
+            ]
+        }
+
+        return [
+            OpenClawWatchAction(id: "done", label: "Done"),
+            OpenClawWatchAction(id: "snooze_10m", label: "Snooze 10m"),
+            OpenClawWatchAction(id: "open_phone", label: "Open iPhone"),
+            OpenClawWatchAction(id: "escalate", label: "Escalate"),
+        ]
+    }
+
+    private static func normalizedWatchRisk(
+        _ risk: OpenClawWatchRisk?,
+        priority: OpenClawNotificationPriority?
+    ) -> OpenClawWatchRisk? {
+        if let risk { return risk }
+        switch priority {
+        case .passive:
+            return .low
+        case .active:
+            return .medium
+        case .timeSensitive:
+            return .high
+        case nil:
+            return nil
+        }
+    }
+
+    private static func normalizedWatchPriority(
+        _ priority: OpenClawNotificationPriority?,
+        risk: OpenClawWatchRisk?
+    ) -> OpenClawNotificationPriority? {
+        if let priority { return priority }
+        switch risk {
+        case .low:
+            return .passive
+        case .medium:
+            return .active
+        case .high:
+            return .timeSensitive
+        case nil:
+            return nil
+        }
+    }
+
+    private static func trimmedOrNil(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

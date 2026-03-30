@@ -1,0 +1,757 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2B41971E2F671D0E0034620C /* DebugSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 2B41971D2F671D0E0034620C /* DebugSwift */; };
+		2B4F30A22F5817000047B2B6 /* OpenClawKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4F30A52F5817000047B2B6 /* OpenClawKit */; };
+		2B4F30A32F5817000047B2B6 /* OpenClawProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4F30A62F5817000047B2B6 /* OpenClawProtocol */; };
+		2B4F30B72F5817000047B2B6 /* OpenClawKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4F30A52F5817000047B2B6 /* OpenClawKit */; };
+		2B4F30B82F5817000047B2B6 /* OpenClawProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4F30A62F5817000047B2B6 /* OpenClawProtocol */; };
+		2BDF6D6B2F601579007D4C27 /* ChatClient in Frameworks */ = {isa = PBXBuildFile; productRef = 2BDF6D6A2F601579007D4C27 /* ChatClient */; };
+		2BDF6D6D2F601579007D4C27 /* ChatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2BDF6D6C2F601579007D4C27 /* ChatUI */; };
+		7C8B5D102F70020000A1B2C3 /* OpenClawKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4F30A52F5817000047B2B6 /* OpenClawKit */; };
+		7C8B5D112F70020000A1B2C3 /* ActivityWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7C8B5D142F70020000A1B2C3 /* ActivityWidget.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AC110003FACE0003FA000003 /* TaskActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC110001FACE0001FA000001 /* TaskActivityAttributes.swift */; };
+		AC110004FACE0004FA000004 /* CronActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC110002FACE0002FA000002 /* CronActivityAttributes.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2B4F30C42F5817000047B2B6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2B4F30872F5813FF0047B2B6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2B4F308E2F5813FF0047B2B6;
+			remoteInfo = OpenAva;
+		};
+		7C8B5D122F70020000A1B2C3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2B4F30872F5813FF0047B2B6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7C8B5D182F70020000A1B2C3;
+			remoteInfo = ActivityWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7C8B5D132F70020000A1B2C3 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7C8B5D112F70020000A1B2C3 /* ActivityWidget.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		2B4F308F2F5813FF0047B2B6 /* OpenAva.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenAva.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B4F30B92F5817000047B2B6 /* OpenAvaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenAvaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7C8B5D142F70020000A1B2C3 /* ActivityWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ActivityWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC110001FACE0001FA000001 /* TaskActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TaskActivityAttributes.swift; path = ActivityWidget/TaskActivityAttributes.swift; sourceTree = SOURCE_ROOT; };
+		AC110002FACE0002FA000002 /* CronActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CronActivityAttributes.swift; path = ActivityWidget/CronActivityAttributes.swift; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2B4F309C2F5814020047B2B6 /* Exceptions for "OpenAva" folder in "OpenAva" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2B4F308E2F5813FF0047B2B6 /* OpenAva */;
+		};
+		7C8B5D152F70020000A1B2C3 /* Exceptions for "ActivityWidget" folder in "ActivityWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7C8B5D182F70020000A1B2C3 /* ActivityWidget */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		2B4F30912F5813FF0047B2B6 /* OpenAva */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2B4F309C2F5814020047B2B6 /* Exceptions for "OpenAva" folder in "OpenAva" target */,
+			);
+			explicitFolders = (
+				Runtime/Agent/Skills,
+			);
+			path = OpenAva;
+			sourceTree = "<group>";
+		};
+		2B4F30BD2F5817000047B2B6 /* OpenAvaTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OpenAvaTests;
+			sourceTree = "<group>";
+		};
+		7C8B5D162F70020000A1B2C3 /* ActivityWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7C8B5D152F70020000A1B2C3 /* Exceptions for "ActivityWidget" folder in "ActivityWidget" target */,
+			);
+			path = ActivityWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2B4F308C2F5813FF0047B2B6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2BDF6D6D2F601579007D4C27 /* ChatUI in Frameworks */,
+				2B4F30A22F5817000047B2B6 /* OpenClawKit in Frameworks */,
+				2B41971E2F671D0E0034620C /* DebugSwift in Frameworks */,
+				2BDF6D6B2F601579007D4C27 /* ChatClient in Frameworks */,
+				2B4F30A32F5817000047B2B6 /* OpenClawProtocol in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B4F30C02F5817000047B2B6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B4F30B72F5817000047B2B6 /* OpenClawKit in Frameworks */,
+				2B4F30B82F5817000047B2B6 /* OpenClawProtocol in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7C8B5D172F70020000A1B2C3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C8B5D102F70020000A1B2C3 /* OpenClawKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2B4F30862F5813FF0047B2B6 = {
+			isa = PBXGroup;
+			children = (
+				7C8B5D162F70020000A1B2C3 /* ActivityWidget */,
+				2B4F30912F5813FF0047B2B6 /* OpenAva */,
+				2B4F30BD2F5817000047B2B6 /* OpenAvaTests */,
+				2BDF6D662F6012AC007D4C27 /* Frameworks */,
+				2B4F30902F5813FF0047B2B6 /* Products */,
+				2B95995E2F726D8F00D18222 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+		2B4F30902F5813FF0047B2B6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7C8B5D142F70020000A1B2C3 /* ActivityWidget.appex */,
+				2B4F308F2F5813FF0047B2B6 /* OpenAva.app */,
+				2B4F30B92F5817000047B2B6 /* OpenAvaTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2B95995E2F726D8F00D18222 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				AC110001FACE0001FA000001 /* TaskActivityAttributes.swift */,
+				AC110002FACE0002FA000002 /* CronActivityAttributes.swift */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		2BDF6D662F6012AC007D4C27 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2B4F308E2F5813FF0047B2B6 /* OpenAva */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B4F309D2F5814020047B2B6 /* Build configuration list for PBXNativeTarget "OpenAva" */;
+			buildPhases = (
+				7C8B5D132F70020000A1B2C3 /* Embed App Extensions */,
+				2B4F308B2F5813FF0047B2B6 /* Sources */,
+				2B4F308C2F5813FF0047B2B6 /* Frameworks */,
+				2B4F308D2F5813FF0047B2B6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7C8B5D1B2F70020000A1B2C3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				2B4F30912F5813FF0047B2B6 /* OpenAva */,
+			);
+			name = OpenAva;
+			packageProductDependencies = (
+				2B4F30A52F5817000047B2B6 /* OpenClawKit */,
+				2B4F30A62F5817000047B2B6 /* OpenClawProtocol */,
+				2BDF6D6A2F601579007D4C27 /* ChatClient */,
+				2BDF6D6C2F601579007D4C27 /* ChatUI */,
+				2B41971D2F671D0E0034620C /* DebugSwift */,
+			);
+			productName = OpenAva;
+			productReference = 2B4F308F2F5813FF0047B2B6 /* OpenAva.app */;
+			productType = "com.apple.product-type.application";
+		};
+		2B4F30C22F5817000047B2B6 /* OpenAvaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B4F30C72F5817000047B2B6 /* Build configuration list for PBXNativeTarget "OpenAvaTests" */;
+			buildPhases = (
+				2B4F30BF2F5817000047B2B6 /* Sources */,
+				2B4F30C02F5817000047B2B6 /* Frameworks */,
+				2B4F30C12F5817000047B2B6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2B4F30C32F5817000047B2B6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				2B4F30BD2F5817000047B2B6 /* OpenAvaTests */,
+			);
+			name = OpenAvaTests;
+			packageProductDependencies = (
+				2B4F30A52F5817000047B2B6 /* OpenClawKit */,
+				2B4F30A62F5817000047B2B6 /* OpenClawProtocol */,
+			);
+			productName = OpenAvaTests;
+			productReference = 2B4F30B92F5817000047B2B6 /* OpenAvaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		7C8B5D182F70020000A1B2C3 /* ActivityWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7C8B5D1E2F70020000A1B2C3 /* Build configuration list for PBXNativeTarget "ActivityWidget" */;
+			buildPhases = (
+				7C8B5D1A2F70020000A1B2C3 /* Sources */,
+				7C8B5D172F70020000A1B2C3 /* Frameworks */,
+				7C8B5D192F70020000A1B2C3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7C8B5D162F70020000A1B2C3 /* ActivityWidget */,
+			);
+			name = ActivityWidget;
+			packageProductDependencies = (
+				2B4F30A52F5817000047B2B6 /* OpenClawKit */,
+			);
+			productName = ActivityWidget;
+			productReference = 7C8B5D142F70020000A1B2C3 /* ActivityWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2B4F30872F5813FF0047B2B6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					2B4F308E2F5813FF0047B2B6 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					2B4F30C22F5817000047B2B6 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 2B4F308E2F5813FF0047B2B6;
+					};
+					7C8B5D182F70020000A1B2C3 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = 2B4F308A2F5813FF0047B2B6 /* Build configuration list for PBXProject "OpenAva" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				"zh-Hans",
+			);
+			mainGroup = 2B4F30862F5813FF0047B2B6;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2B4F30A42F5817000047B2B6 /* XCLocalSwiftPackageReference "OpenClawKit" */,
+				2BDF6D692F601579007D4C27 /* XCLocalSwiftPackageReference "ChatKit" */,
+				2B41971C2F671D0E0034620C /* XCRemoteSwiftPackageReference "DebugSwift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2B4F30902F5813FF0047B2B6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7C8B5D182F70020000A1B2C3 /* ActivityWidget */,
+				2B4F308E2F5813FF0047B2B6 /* OpenAva */,
+				2B4F30C22F5817000047B2B6 /* OpenAvaTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2B4F308D2F5813FF0047B2B6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B4F30C12F5817000047B2B6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7C8B5D192F70020000A1B2C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2B4F308B2F5813FF0047B2B6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AC110003FACE0003FA000003 /* TaskActivityAttributes.swift in Sources */,
+				AC110004FACE0004FA000004 /* CronActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B4F30BF2F5817000047B2B6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7C8B5D1A2F70020000A1B2C3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2B4F30C32F5817000047B2B6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2B4F308E2F5813FF0047B2B6 /* OpenAva */;
+			targetProxy = 2B4F30C42F5817000047B2B6 /* PBXContainerItemProxy */;
+		};
+		7C8B5D1B2F70020000A1B2C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 7C8B5D182F70020000A1B2C3 /* ActivityWidget */;
+			targetProxy = 7C8B5D122F70020000A1B2C3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2B4F309E2F5814020047B2B6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OpenAva/OpenAva.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = OpenAva/OpenAvaMacCatalyst.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OpenAva/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ava;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openava";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2B4F309F2F5814020047B2B6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OpenAva/OpenAva.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = OpenAva/OpenAvaMacCatalyst.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = YES;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OpenAva/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ava;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openava";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2B4F30A02F5814020047B2B6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		2B4F30A12F5814020047B2B6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		2B4F30C52F5817000047B2B6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openavaTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenAva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OpenAva";
+			};
+			name = Debug;
+		};
+		2B4F30C62F5817000047B2B6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openavaTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenAva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OpenAva";
+			};
+			name = Release;
+		};
+		7C8B5D1C2F70020000A1B2C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ActivityWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openava.ActivityWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7C8B5D1D2F70020000A1B2C3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9BQQUBD776;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ActivityWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.day1-labs.openava.ActivityWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2B4F308A2F5813FF0047B2B6 /* Build configuration list for PBXProject "OpenAva" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B4F30A02F5814020047B2B6 /* Debug */,
+				2B4F30A12F5814020047B2B6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2B4F309D2F5814020047B2B6 /* Build configuration list for PBXNativeTarget "OpenAva" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B4F309E2F5814020047B2B6 /* Debug */,
+				2B4F309F2F5814020047B2B6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2B4F30C72F5817000047B2B6 /* Build configuration list for PBXNativeTarget "OpenAvaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B4F30C52F5817000047B2B6 /* Debug */,
+				2B4F30C62F5817000047B2B6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7C8B5D1E2F70020000A1B2C3 /* Build configuration list for PBXNativeTarget "ActivityWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7C8B5D1C2F70020000A1B2C3 /* Debug */,
+				7C8B5D1D2F70020000A1B2C3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2B4F30A42F5817000047B2B6 /* XCLocalSwiftPackageReference "OpenClawKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = OpenClawKit;
+		};
+		2BDF6D692F601579007D4C27 /* XCLocalSwiftPackageReference "ChatKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ChatKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2B41971C2F671D0E0034620C /* XCRemoteSwiftPackageReference "DebugSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/DebugSwift/DebugSwift";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2B41971D2F671D0E0034620C /* DebugSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2B41971C2F671D0E0034620C /* XCRemoteSwiftPackageReference "DebugSwift" */;
+			productName = DebugSwift;
+		};
+		2B4F30A52F5817000047B2B6 /* OpenClawKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2B4F30A42F5817000047B2B6 /* XCLocalSwiftPackageReference "OpenClawKit" */;
+			productName = OpenClawKit;
+		};
+		2B4F30A62F5817000047B2B6 /* OpenClawProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2B4F30A42F5817000047B2B6 /* XCLocalSwiftPackageReference "OpenClawKit" */;
+			productName = OpenClawProtocol;
+		};
+		2BDF6D6A2F601579007D4C27 /* ChatClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ChatClient;
+		};
+		2BDF6D6C2F601579007D4C27 /* ChatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ChatUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 2B4F30872F5813FF0047B2B6 /* Project object */;
+}

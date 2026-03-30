@@ -1,0 +1,3 @@
+"Run skill in ${applicationName}" = "在 ${applicationName} 运行技能";
+"Call skill with ${applicationName}" = "用 ${applicationName} 调用技能";
+"Let ${applicationName} execute skill" = "让 ${applicationName} 执行技能";

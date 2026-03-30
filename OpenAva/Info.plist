@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>OpenAva</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.day1-labs.openava</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>openava</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_openava-gw._tcp</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.day1-labs.openava.chat.resume</string>
+	</array>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>OpenAva needs full calendar access to list and read event details for local calendar tools.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>OpenAva uses calendar access to run local calendar tools for your agent.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>OpenAva can use write-only calendar access when creating events for local calendar tools.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>OpenAva can capture photos or short video clips when requested by local camera tools.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>OpenAva uses contacts access to run local contact tools for your agent.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OpenAva uses the local network to discover and connect to nearby OpenClaw gateways.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>OpenAva can use location in the background when always-on location tools are enabled.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OpenAva uses location access to run local location tools for your agent.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>OpenAva uses microphone access for camera clips and screen recording with audio.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>OpenAva uses motion access to run local motion tools for your agent.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>OpenAva uses photo library access to run local media tools for your agent.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>OpenAva needs reminders access to list and create reminders for local reminder tools.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>OpenAva uses reminders access to run local reminders tools for your agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>OpenAva uses speech recognition to transcribe audio files into text for agent tools.</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+</dict>
+</plist>
