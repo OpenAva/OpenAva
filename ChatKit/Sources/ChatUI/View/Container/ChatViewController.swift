@@ -358,6 +358,11 @@ open class ChatViewController: UIViewController {
             .store(in: &sessionCancellables)
     }
 
+    /// Updates `autoCompactEnabled` on the active session's chat model without recreating the session.
+    public func updateAutoCompactEnabled(_ enabled: Bool) {
+        currentSession?.models.chat?.autoCompactEnabled = enabled
+    }
+
     private func configureSession(for id: String) {
         conversationID = id
         let session = ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)

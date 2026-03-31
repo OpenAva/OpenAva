@@ -9,7 +9,6 @@ import ChatClient
 import ChatUI
 import Foundation
 import SwiftUI
-import UserNotifications
 
 struct ChatRootView: View {
     @Environment(\.appContainerStore) private var containerStore
@@ -26,11 +25,7 @@ struct ChatRootView: View {
     @State private var sessions: [ChatSession] = []
     @State private var sessionsByAgentKey: [String: [ChatSession]] = [:]
     @State private var currentSessionKeyByAgentKey: [String: String] = [:]
-    @State private var showsDeleteAgentConfirmation = false
-    @State private var showsRenameAgentAlert = false
-    @State private var showsRenameAgentFailure = false
-    @State private var renameDraft = ""
-    @State private var backgroundExecutionEnabled = BackgroundExecutionPreferences.shared.isEnabled
+    @State private var autoCompactEnabled = true
     /// Pending message from an App Intent, consumed once by ChatViewControllerWrapper.
     @State private var pendingAutoSendID: String? = nil
     @State private var pendingAutoSendMessage: String? = nil
@@ -67,51 +62,15 @@ struct ChatRootView: View {
                     onAgentSwitch: handleAgentSwitch,
                     onCreateLocalAgent: openLocalAgentCreation,
                     onDeleteCurrentAgent: handleDeleteCurrentAgent,
-                    onRenameCurrentAgent: handleRenameCurrentAgent
+                    onRenameCurrentAgent: handleRenameCurrentAgent,
+                    autoCompactEnabled: autoCompactEnabled,
+                    onToggleAutoCompact: toggleAutoCompact
                 )
                 .id(containerAgent + "|" + (currentSessionKey ?? ""))
                 // Keep the host NavigationStack bar hidden to avoid duplicating
                 // ChatViewController's own header on both iOS and macCatalyst.
                 .toolbar(.hidden, for: .navigationBar)
             }
-            #if targetEnvironment(macCatalyst)
-            .navigationTitle(headerAgentTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    agentMenu
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    actionsMenu
-                }
-            }
-            .alert(
-                L10n.tr("chat.menu.renameAgentNamed", currentActiveAgentName),
-                isPresented: $showsRenameAgentAlert
-            ) {
-                TextField(L10n.tr("chat.menu.renameAlert.placeholder"), text: $renameDraft)
-                Button(L10n.tr("common.cancel"), role: .cancel) {}
-                Button(L10n.tr("common.save")) {
-                    commitAgentRename()
-                }
-            } message: {
-                Text(L10n.tr("chat.menu.renameAlert.message"))
-            }
-            .alert(L10n.tr("chat.menu.renameFailed.title"), isPresented: $showsRenameAgentFailure) {
-                Button(L10n.tr("common.ok"), role: .cancel) {}
-            } message: {
-                Text(L10n.tr("chat.menu.renameFailed.message"))
-            }
-            .alert(L10n.tr("chat.menu.deleteAlert.title"), isPresented: $showsDeleteAgentConfirmation) {
-                Button(L10n.tr("common.cancel"), role: .cancel) {}
-                Button(L10n.tr("common.delete"), role: .destructive) {
-                    handleDeleteCurrentAgent()
-                }
-            } message: {
-                Text(deleteAgentMessage)
-            }
-            #endif
             .navigationDestination(for: MenuDestination.self) { destination in
                 destinationView(for: destination)
             }
@@ -129,7 +88,7 @@ struct ChatRootView: View {
             })
         }
         .onAppear {
-            backgroundExecutionEnabled = BackgroundExecutionPreferences.shared.isEnabled
+            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             presentOnboardingIfNeeded()
             restoreAgentScopedState(for: containerStore.activeAgent?.id)
             refreshSessions()
@@ -155,6 +114,7 @@ struct ChatRootView: View {
             restoreAgentScopedState(for: newAgentID)
             refreshSessions(for: newAgentID)
             drainPendingAutoSend(for: newAgentID)
+            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
         }
     }
 
@@ -436,129 +396,11 @@ struct ChatRootView: View {
         containerStore.container.config.selectedLLMModel?.name ?? L10n.tr("chat.selectedModel.notSelected")
     }
 
-    #if targetEnvironment(macCatalyst)
-        private var agentMenu: some View {
-            Menu {
-                if containerStore.agents.isEmpty {
-                    Button(L10n.tr("chat.menu.noAgentsAvailable")) {}
-                        .disabled(true)
-                } else {
-                    ForEach(containerStore.agents) { agent in
-                        Button {
-                            handleAgentSwitch(agent.id)
-                        } label: {
-                            Text(agentMenuTitle(for: agent))
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    openLocalAgentCreation()
-                } label: {
-                    Label(L10n.tr("chat.menu.newLocalAgent"), systemImage: "plus")
-                }
-            } label: {
-                Image(systemName: "line.3.horizontal")
-            }
-        }
-
-        private var actionsMenu: some View {
-            Menu {
-                Button {
-                    handleMenuAction(.openLLM)
-                } label: {
-                    Label(L10n.tr("settings.llm.navigationTitle"), systemImage: "cpu")
-                }
-
-                Button {
-                    handleMenuAction(.openSkills)
-                } label: {
-                    Label(L10n.tr("settings.skills.navigationTitle"), systemImage: "square.stack.3d.up")
-                }
-
-                Button {
-                    handleMenuAction(.openContext)
-                } label: {
-                    Label(L10n.tr("settings.context.navigationTitle"), systemImage: "doc.text")
-                }
-
-                Button {
-                    handleMenuAction(.openCron)
-                } label: {
-                    Label(L10n.tr("settings.cron.navigationTitle"), systemImage: "calendar.badge.clock")
-                }
-
-                Divider()
-
-                Button {
-                    toggleBackgroundExecution()
-                } label: {
-                    Label(
-                        L10n.tr("settings.background.enabled"),
-                        systemImage: backgroundExecutionEnabled ? "checkmark.circle.fill" : "circle"
-                    )
-                }
-
-                if containerStore.activeAgent?.id != nil {
-                    Button {
-                        renameDraft = currentActiveAgentName
-                        showsRenameAgentAlert = true
-                    } label: {
-                        Label(L10n.tr("chat.menu.renameAgent"), systemImage: "pencil")
-                    }
-
-                    Button(role: .destructive) {
-                        showsDeleteAgentConfirmation = true
-                    } label: {
-                        Label(L10n.tr("chat.menu.deleteAgent"), systemImage: "trash")
-                    }
-                }
-            } label: {
-                Image(systemName: "chevron.down")
-            }
-        }
-
-        private var headerAgentTitle: String {
-            let trimmedEmoji = currentActiveAgentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmedEmoji.isEmpty {
-                return currentActiveAgentName
-            }
-            return "\(trimmedEmoji) \(currentActiveAgentName)"
-        }
-
-        private var deleteAgentMessage: String {
-            let normalizedName = currentActiveAgentName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let agentName = normalizedName.isEmpty ? L10n.tr("chat.menu.thisAgent") : "\"\(normalizedName)\""
-            return L10n.tr("chat.menu.deleteAlert.message", agentName)
-        }
-
-        private func agentMenuTitle(for agent: AgentProfile) -> String {
-            let prefix = agent.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = prefix.isEmpty ? agent.name : "\(prefix) \(agent.name)"
-            guard agent.id == containerStore.activeAgent?.id else { return title }
-            return "✓ \(title)"
-        }
-
-        private func toggleBackgroundExecution() {
-            let preferences = BackgroundExecutionPreferences.shared
-            preferences.isEnabled.toggle()
-            backgroundExecutionEnabled = preferences.isEnabled
-            if preferences.isEnabled {
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-            }
-        }
-
-        private func commitAgentRename() {
-            let normalizedName = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedName.isEmpty else { return }
-            let didRename = handleRenameCurrentAgent(normalizedName)
-            if !didRename {
-                showsRenameAgentFailure = true
-            }
-        }
-    #endif
+    private func toggleAutoCompact() {
+        let newValue = !autoCompactEnabled
+        containerStore.setAutoCompact(newValue)
+        autoCompactEnabled = newValue
+    }
 }
 
 private struct ChatScreen: View {
@@ -581,6 +423,8 @@ private struct ChatScreen: View {
     private let onCreateLocalAgent: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
     private let onRenameCurrentAgent: ((String) -> Bool)?
+    private let autoCompactEnabled: Bool
+    private let onToggleAutoCompact: (() -> Void)?
 
     init(
         container: AppContainer,
@@ -601,7 +445,9 @@ private struct ChatScreen: View {
         onAgentSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
-        onRenameCurrentAgent: ((String) -> Bool)? = nil
+        onRenameCurrentAgent: ((String) -> Bool)? = nil,
+        autoCompactEnabled: Bool = true,
+        onToggleAutoCompact: (() -> Void)? = nil
     ) {
         self.container = container
         self.scopedConversationID = scopedConversationID
@@ -622,6 +468,8 @@ private struct ChatScreen: View {
         self.onCreateLocalAgent = onCreateLocalAgent
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
         self.onRenameCurrentAgent = onRenameCurrentAgent
+        self.autoCompactEnabled = autoCompactEnabled
+        self.onToggleAutoCompact = onToggleAutoCompact
     }
 
     var body: some View {
@@ -652,7 +500,10 @@ private struct ChatScreen: View {
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
-            onRenameCurrentAgent: onRenameCurrentAgent
+            onRenameCurrentAgent: onRenameCurrentAgent,
+            modelConfig: container.config.selectedLLMModel,
+            autoCompactEnabled: autoCompactEnabled,
+            onToggleAutoCompact: onToggleAutoCompact
         )
         .id(scopedConversationID)
     }

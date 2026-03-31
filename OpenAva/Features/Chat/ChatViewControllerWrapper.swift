@@ -105,6 +105,9 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let onCreateLocalAgent: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
     let onRenameCurrentAgent: ((String) -> Bool)?
+    let modelConfig: AppConfig.LLMModel?
+    let autoCompactEnabled: Bool
+    let onToggleAutoCompact: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -118,11 +121,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             selectedProviderName: selectedProviderName,
             defaultSessionKey: defaultSessionKey,
             currentSessionKey: currentSessionKey,
+            autoCompactEnabled: autoCompactEnabled,
             onSessionSwitch: onSessionSwitch,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
-            onRenameCurrentAgent: onRenameCurrentAgent
+            onRenameCurrentAgent: onRenameCurrentAgent,
+            onToggleAutoCompact: onToggleAutoCompact
         )
     }
 
@@ -166,7 +171,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             models.chat = ConversationSession.Model(
                 client: chatClient,
                 capabilities: [.visual, .tool],
-                contextLength: 128_000
+                contextLength: modelConfig?.contextTokens ?? 128_000,
+                autoCompactEnabled: autoCompactEnabled
             )
         }
 
@@ -283,6 +289,9 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onCreateLocalAgent = onCreateLocalAgent
         context.coordinator.onDeleteCurrentAgent = onDeleteCurrentAgent
         context.coordinator.onRenameCurrentAgent = onRenameCurrentAgent
+        context.coordinator.autoCompactEnabled = autoCompactEnabled
+        context.coordinator.onToggleAutoCompact = onToggleAutoCompact
+        uiViewController.updateAutoCompactEnabled(autoCompactEnabled)
 
         #if targetEnvironment(macCatalyst)
             if let catalystController = uiViewController as? CatalystChatViewController {
@@ -752,6 +761,8 @@ extension ChatViewControllerWrapper {
         var onCreateLocalAgent: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
         var onRenameCurrentAgent: ((String) -> Bool)?
+        var autoCompactEnabled: Bool
+        var onToggleAutoCompact: (() -> Void)?
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
@@ -764,11 +775,13 @@ extension ChatViewControllerWrapper {
             selectedProviderName: String,
             defaultSessionKey: String,
             currentSessionKey: String?,
+            autoCompactEnabled: Bool,
             onSessionSwitch: ((String) -> Void)?,
             onAgentSwitch: ((UUID) -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
-            onRenameCurrentAgent: ((String) -> Bool)?
+            onRenameCurrentAgent: ((String) -> Bool)?,
+            onToggleAutoCompact: (() -> Void)?
         ) {
             self.onMenuAction = onMenuAction
             self.sessions = sessions
@@ -780,11 +793,13 @@ extension ChatViewControllerWrapper {
             self.selectedProviderName = selectedProviderName
             self.defaultSessionKey = defaultSessionKey
             self.currentSessionKey = currentSessionKey
+            self.autoCompactEnabled = autoCompactEnabled
             self.onSessionSwitch = onSessionSwitch
             self.onAgentSwitch = onAgentSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
             self.onRenameCurrentAgent = onRenameCurrentAgent
+            self.onToggleAutoCompact = onToggleAutoCompact
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
@@ -829,6 +844,13 @@ extension ChatViewControllerWrapper {
                     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
                 }
             }
+            let autoCompactAction = UIAction(
+                title: L10n.tr("chat.menu.autoCompact"),
+                image: UIImage(systemName: "rectangle.compress.vertical"),
+                state: autoCompactEnabled ? .on : .off
+            ) { [weak self] _ in
+                self?.onToggleAutoCompact?()
+            }
             let renameAction = UIAction(
                 title: renameTitle,
                 image: UIImage(systemName: "pencil")
@@ -859,7 +881,7 @@ extension ChatViewControllerWrapper {
             let agentManagementMenu = UIMenu(
                 title: "",
                 options: .displayInline,
-                children: [backgroundAction, renameAction, deleteAction]
+                children: [backgroundAction, autoCompactAction, renameAction, deleteAction]
             )
 
             return UIMenu(children: [

@@ -113,6 +113,16 @@ public extension ConversationSession {
             }
         }
 
+        // Compact context if auto-compact is enabled and threshold is exceeded
+        if model.autoCompactEnabled {
+            await compactIfNeeded(
+                requestMessages: &requestMessages,
+                tools: tools,
+                model: model,
+                capabilities: modelCapabilities
+            )
+        }
+
         // Trim context
         await messageListView.loading(with: String.localized("Calculating context window..."))
         await trimToContextLength(

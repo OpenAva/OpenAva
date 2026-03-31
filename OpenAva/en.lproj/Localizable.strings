@@ -71,6 +71,7 @@
 "chat.command.newConversation" = "New";
 "chat.command.focusInput" = "Focus Input";
 "chat.quickSkill.prompt" = "Please use skill \"%@\" to handle the current task. If key information is missing, ask one most critical clarification question first.";
+"chat.menu.autoCompact" = "Auto-compact";
 "chat.menu.renameAgent" = "Rename";
 "chat.menu.deleteAgent" = "Delete";
 "chat.menu.renameAgentNamed" = "Rename %@";

@@ -72,7 +72,7 @@ extension ConversationSession {
         }
     }
 
-    private func estimateTokenCount(
+    func estimateTokenCount(
         messages: [ChatRequestBody.Message],
         tools: [ChatRequestBody.Tool]?
     ) async -> Int {
@@ -89,7 +89,7 @@ extension ConversationSession {
         return max(1, messageTokens + toolTokens)
     }
 
-    private func estimateTokens(for message: ChatRequestBody.Message) async -> Int {
+    func estimateTokens(for message: ChatRequestBody.Message) async -> Int {
         switch message {
         case let .assistant(content, toolCalls, reasoning, _):
             var total = 12

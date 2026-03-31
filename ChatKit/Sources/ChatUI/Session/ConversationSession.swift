@@ -35,15 +35,18 @@ public final class ConversationSession: Identifiable, Sendable {
         public var client: any ChatClient
         public var capabilities: Set<ModelCapability>
         public var contextLength: Int
+        public var autoCompactEnabled: Bool
 
         public init(
             client: any ChatClient,
             capabilities: Set<ModelCapability> = [],
-            contextLength: Int = 0
+            contextLength: Int = 0,
+            autoCompactEnabled: Bool = true
         ) {
             self.client = client
             self.capabilities = capabilities
             self.contextLength = contextLength
+            self.autoCompactEnabled = autoCompactEnabled
         }
     }
 
@@ -81,7 +84,7 @@ public final class ConversationSession: Identifiable, Sendable {
 
     public let id: String
 
-    private(set) var messages: [ConversationMessage] = []
+    var messages: [ConversationMessage] = []
     var currentTask: Task<Void, Never>?
 
     // MARK: - Providers

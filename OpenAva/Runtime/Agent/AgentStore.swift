@@ -1,6 +1,6 @@
 import Foundation
 
-struct AgentProfile: Codable, Equatable, Identifiable {
+struct AgentProfile: Equatable, Identifiable {
     var id: UUID
     var name: String
     var emoji: String
@@ -11,6 +11,8 @@ struct AgentProfile: Codable, Equatable, Identifiable {
     /// Per-agent selected chat session key.
     var selectedSessionKey: String?
     var createdAtMs: Int64
+    /// Whether to automatically compact context when nearing the context window limit.
+    var autoCompactEnabled: Bool
 
     var workspaceURL: URL {
         URL(fileURLWithPath: workspacePath, isDirectory: true)
@@ -28,7 +30,8 @@ struct AgentProfile: Codable, Equatable, Identifiable {
         localRuntimePath: String,
         selectedModelID: UUID? = nil,
         selectedSessionKey: String? = nil,
-        createdAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+        createdAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
+        autoCompactEnabled: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -38,6 +41,28 @@ struct AgentProfile: Codable, Equatable, Identifiable {
         self.selectedModelID = selectedModelID
         self.selectedSessionKey = selectedSessionKey
         self.createdAtMs = createdAtMs
+        self.autoCompactEnabled = autoCompactEnabled
+    }
+}
+
+extension AgentProfile: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, emoji, workspacePath, localRuntimePath
+        case selectedModelID, selectedSessionKey, createdAtMs
+        case autoCompactEnabled
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        emoji = try c.decode(String.self, forKey: .emoji)
+        workspacePath = try c.decode(String.self, forKey: .workspacePath)
+        localRuntimePath = try c.decode(String.self, forKey: .localRuntimePath)
+        selectedModelID = try c.decodeIfPresent(UUID.self, forKey: .selectedModelID)
+        selectedSessionKey = try c.decodeIfPresent(String.self, forKey: .selectedSessionKey)
+        createdAtMs = try c.decode(Int64.self, forKey: .createdAtMs)
+        autoCompactEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCompactEnabled) ?? true
     }
 }
 
@@ -287,6 +312,22 @@ enum AgentStore {
         }
 
         state.agents[index].selectedModelID = selectedModelID
+        persist(state: state, defaults: defaults)
+        return true
+    }
+
+    @discardableResult
+    static func setAutoCompact(
+        _ enabled: Bool,
+        for agentID: UUID,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        var state = load(defaults: defaults)
+        guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
+            return false
+        }
+
+        state.agents[index].autoCompactEnabled = enabled
         persist(state: state, defaults: defaults)
         return true
     }

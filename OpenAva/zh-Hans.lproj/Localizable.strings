@@ -71,6 +71,7 @@
 "chat.command.newConversation" = "新会话";
 "chat.command.focusInput" = "聚焦输入框";
 "chat.quickSkill.prompt" = "请使用技能 \"%@\" 处理当前任务。如果信息不足，请先提一个最关键的澄清问题。";
+"chat.menu.autoCompact" = "自动压缩";
 "chat.menu.renameAgent" = "重命名";
 "chat.menu.deleteAgent" = "删除";
 "chat.menu.renameAgentNamed" = "重命名「%@」";

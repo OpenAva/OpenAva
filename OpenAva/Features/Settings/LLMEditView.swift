@@ -385,7 +385,6 @@ final class LLMEditViewModel {
     var systemPrompt = ""
     var contextTokens = String(LLMProvider.openai.defaultContextTokens)
     var requestTimeoutMs = "60000"
-
     // UI state
     var errorText: String?
     var isTestingConnection = false

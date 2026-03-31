@@ -130,6 +130,16 @@ final class AppContainerStore {
     }
 
     @discardableResult
+    func setAutoCompact(_ enabled: Bool) -> Bool {
+        guard let activeAgentID = activeAgent?.id else { return false }
+        let changed = AgentStore.setAutoCompact(enabled, for: activeAgentID)
+        if changed {
+            agentState = AgentStore.load()
+        }
+        return changed
+    }
+
+    @discardableResult
     func deleteAgent(_ agentID: UUID) -> Bool {
         let changed = AgentStore.deleteAgent(agentID)
         if changed {
