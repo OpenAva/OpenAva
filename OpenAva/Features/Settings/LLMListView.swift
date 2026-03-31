@@ -10,6 +10,7 @@ struct LLMListView: View {
     @State private var isShowingAddSheet = false
     @State private var editingModel: AppConfig.LLMModel?
     @State private var modelToDelete: AppConfig.LLMModel?
+    @State private var showResetUsageConfirmation = false
 
     #if targetEnvironment(macCatalyst)
         @State private var editorMode: EditorMode?
@@ -160,6 +161,8 @@ struct LLMListView: View {
                     .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+
+                usageSummarySection
             #else
                 Section {
                     modelRows
@@ -168,6 +171,8 @@ struct LLMListView: View {
                 } footer: {
                     Text(configuredFooterText)
                 }
+
+                usageSummarySection
             #endif
         }
         #if targetEnvironment(macCatalyst)
@@ -177,6 +182,18 @@ struct LLMListView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(Color.white)
+        .confirmationDialog(
+            L10n.tr("settings.usage.reset.confirmTitle"),
+            isPresented: $showResetUsageConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.tr("settings.usage.reset.confirm"), role: .destructive) {
+                containerStore.resetUsageStats()
+            }
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.tr("settings.usage.reset.message"))
+        }
     }
 
     @ViewBuilder
@@ -280,6 +297,51 @@ struct LLMListView: View {
         #endif
     }
 
+    @ViewBuilder
+    private var usageSummarySection: some View {
+        let snapshot = containerStore.usageSnapshot
+        if !snapshot.byModel.isEmpty {
+            Section {
+                HStack {
+                    Text(L10n.tr("settings.usage.totalTokens"))
+                    Spacer()
+                    Text(formatUsageTokens(snapshot.totalTokens))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                if snapshot.totalCostUSD > 0 {
+                    HStack {
+                        Text(L10n.tr("settings.usage.totalCost"))
+                        Spacer()
+                        Text(formatUsageCost(snapshot.totalCostUSD))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                Button(role: .destructive) {
+                    showResetUsageConfirmation = true
+                } label: {
+                    Text(L10n.tr("settings.usage.reset"))
+                }
+            } header: {
+                Text(L10n.tr("settings.usage.navigationTitle"))
+            }
+        }
+    }
+
+    private func formatUsageTokens(_ n: Int) -> String {
+        switch n {
+        case 1_000_000...: return String(format: "%.2fM", Double(n) / 1_000_000)
+        case 1000...: return String(format: "%.1fK", Double(n) / 1000)
+        default: return "\(n)"
+        }
+    }
+
+    private func formatUsageCost(_ usd: Double) -> String {
+        if usd < 0.001 { return "< $0.001" }
+        return String(format: "$%.4f", usd)
+    }
+
     private func selectModel(_ model: AppConfig.LLMModel) {
         containerStore.selectLLMModel(id: model.id)
         selectedModelID = model.id
@@ -330,6 +392,13 @@ private struct ModelRow: View {
     let model: AppConfig.LLMModel
     let isSelected: Bool
 
+    @Environment(\.appContainerStore) private var containerStore
+
+    private var usageRecord: ModelUsageRecord? {
+        guard let key = model.model else { return nil }
+        return containerStore.usageSnapshot.byModel[key]
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -364,6 +433,10 @@ private struct ModelRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                if let record = usageRecord, record.totalTokens > 0 {
+                    ModelUsageChip(record: record)
+                }
             }
 
             Spacer()
@@ -383,6 +456,66 @@ private struct ModelRow: View {
                 .strokeBorder(isSelected ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06), lineWidth: 0.6)
         )
         .contentTransition(.opacity)
+    }
+}
+
+// MARK: - ModelUsageChip
+
+private struct ModelUsageChip: View {
+    let record: ModelUsageRecord
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 2) {
+            GridRow {
+                Text(L10n.tr("settings.usage.input"))
+                    .gridColumnAlignment(.leading)
+                Text(formatTokens(record.inputTokens))
+                    .monospacedDigit()
+                    .gridColumnAlignment(.trailing)
+            }
+            GridRow {
+                Text(L10n.tr("settings.usage.output"))
+                Text(formatTokens(record.outputTokens))
+                    .monospacedDigit()
+            }
+            if record.cacheReadTokens > 0 {
+                GridRow {
+                    Text(L10n.tr("settings.usage.cacheRead"))
+                    Text(formatTokens(record.cacheReadTokens))
+                        .monospacedDigit()
+                }
+            }
+            if record.cacheWriteTokens > 0 {
+                GridRow {
+                    Text(L10n.tr("settings.usage.cacheWrite"))
+                    Text(formatTokens(record.cacheWriteTokens))
+                        .monospacedDigit()
+                }
+            }
+            if record.costUSD > 0 {
+                GridRow {
+                    Text(L10n.tr("settings.usage.cost"))
+                    Text(formatCost(record.costUSD))
+                        .monospacedDigit()
+                }
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+
+    private func formatTokens(_ n: Int) -> String {
+        switch n {
+        case 1_000_000...: return String(format: "%.1fM", Double(n) / 1_000_000)
+        case 1000...: return String(format: "%.1fK", Double(n) / 1000)
+        default: return "\(n)"
+        }
+    }
+
+    private func formatCost(_ usd: Double) -> String {
+        if usd < 0.001 { return "<$0.001" }
+        if usd < 0.01 { return String(format: "$%.4f", usd) }
+        return String(format: "$%.3f", usd)
     }
 }
 

@@ -3,6 +3,31 @@ import Foundation
 /// Streamed chunk of a chat completion response.
 public struct ChatCompletionChunk: Sendable, Decodable {
     public var choices: [Choice]
+    /// Model identifier returned by the provider.
+    public var model: String?
+    /// Token usage reported by the provider in the final SSE chunk (optional).
+    public var usage: CompletionUsage?
+}
+
+/// Token usage block from a chat completion response.
+public struct CompletionUsage: Sendable, Decodable {
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let promptTokensDetails: PromptTokensDetails?
+
+    public struct PromptTokensDetails: Sendable, Decodable {
+        /// Tokens read from the provider's prompt cache.
+        public let cachedTokens: Int?
+        enum CodingKeys: String, CodingKey {
+            case cachedTokens = "cached_tokens"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
+    }
 }
 
 public extension ChatCompletionChunk {

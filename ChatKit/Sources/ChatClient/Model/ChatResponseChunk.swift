@@ -5,6 +5,8 @@ public enum ChatResponseChunk: Sendable, Equatable {
     case text(String)
     case image(ImageContent)
     case tool(ToolRequest)
+    /// Token usage emitted at the end of a streaming response.
+    case usage(TokenUsage)
 
     /// A complete thinking block with its verification signature.
     /// Emitted at the end of each Anthropic thinking block.
@@ -50,5 +52,9 @@ public extension ChatResponseChunk {
 
     var thinkingBlockValue: ThinkingBlock? {
         if case let .thinkingBlock(value) = self { value } else { nil }
+    }
+
+    var usageValue: TokenUsage? {
+        if case let .usage(value) = self { value } else { nil }
     }
 }

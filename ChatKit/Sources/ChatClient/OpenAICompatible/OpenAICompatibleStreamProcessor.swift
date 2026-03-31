@@ -11,15 +11,20 @@ struct OpenAICompatibleStreamProcessor {
     let eventSourceFactory: EventSourceProducing
     let chunkDecoder: JSONDecoding
     let errorExtractor: CompletionErrorExtractor
+    /// Model identifier known at request time; used as fallback when the SSE
+    /// chunks don't include a `model` field.
+    let fallbackModel: String?
 
     init(
         eventSourceFactory: EventSourceProducing = DefaultEventSourceFactory(),
         chunkDecoder: JSONDecoding = JSONDecoderWrapper(),
-        errorExtractor: CompletionErrorExtractor = CompletionErrorExtractor()
+        errorExtractor: CompletionErrorExtractor = CompletionErrorExtractor(),
+        fallbackModel: String? = nil
     ) {
         self.eventSourceFactory = eventSourceFactory
         self.chunkDecoder = chunkDecoder
         self.errorExtractor = errorExtractor
+        self.fallbackModel = fallbackModel
     }
 
     func stream(
@@ -31,10 +36,12 @@ struct OpenAICompatibleStreamProcessor {
         let errorExtractor = errorExtractor
 
         let stream = AsyncStream<ChatResponseChunk> { continuation in
-            Task.detached(priority: .userInitiated) { [collectError, eventSourceFactory, chunkDecoder, errorExtractor, request] in
+            Task.detached(priority: .userInitiated) { [collectError, eventSourceFactory, chunkDecoder, errorExtractor, request, fallbackModel] in
                 let toolCallCollector = CompletionToolCollector()
                 var chunkCount = 0
                 var totalContentLength = 0
+                var lastUsage: CompletionUsage?
+                var lastModel: String?
 
                 let streamTask = eventSourceFactory.makeDataTask(for: request)
 
@@ -58,6 +65,10 @@ struct OpenAICompatibleStreamProcessor {
 
                         do {
                             let response = try chunkDecoder.decode(ChatCompletionChunk.self, from: data)
+
+                            // Track usage from the last chunk that carries it.
+                            if let u = response.usage { lastUsage = u }
+                            if let m = response.model { lastModel = m }
 
                             for delta in response.choices {
                                 if let toolCalls = delta.delta.toolCalls {
@@ -105,6 +116,21 @@ struct OpenAICompatibleStreamProcessor {
                 for call in toolCallCollector.pendingRequests {
                     continuation.yield(.tool(call))
                 }
+
+                // Emit token usage if the provider returned it.
+                if let u = lastUsage,
+                   let input = u.promptTokens,
+                   let output = u.completionTokens
+                {
+                    let tokenUsage = TokenUsage(
+                        inputTokens: input,
+                        outputTokens: output,
+                        cacheReadTokens: u.promptTokensDetails?.cachedTokens ?? 0,
+                        model: lastModel ?? fallbackModel
+                    )
+                    continuation.yield(.usage(tokenUsage))
+                }
+
                 logger.info("streaming completed: received \(chunkCount) chunks, total content length: \(totalContentLength), tool calls: \(toolCallCollector.pendingRequests.count)")
                 continuation.finish()
             }

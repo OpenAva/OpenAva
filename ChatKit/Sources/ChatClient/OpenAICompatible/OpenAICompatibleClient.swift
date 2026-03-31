@@ -93,7 +93,8 @@ open class OpenAICompatibleClient: BaseChatClient, @unchecked Sendable {
         let processor = OpenAICompatibleStreamProcessor(
             eventSourceFactory: eventSourceFactory,
             chunkDecoder: chunkDecoderFactory(),
-            errorExtractor: errorExtractor
+            errorExtractor: errorExtractor,
+            fallbackModel: model
         )
 
         return processor.stream(request: request) { [weak self] error in

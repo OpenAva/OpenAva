@@ -5,6 +5,7 @@
 //  Callbacks for app-specific behaviors during conversation execution.
 //
 
+import ChatClient
 import Foundation
 import MemoryKit
 

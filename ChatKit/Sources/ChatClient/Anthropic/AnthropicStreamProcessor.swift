@@ -42,6 +42,13 @@ struct AnthropicStreamProcessor {
                 var currentThinkingText = ""
                 var currentSignature = ""
 
+                // Accumulate token usage across stream events.
+                // message_start supplies input tokens; message_delta supplies final output tokens.
+                var accumulatedInputTokens = 0
+                var accumulatedOutputTokens = 0
+                var accumulatedCacheReadTokens = 0
+                var accumulatedCacheWriteTokens = 0
+
                 let streamTask = eventSourceFactory.makeDataTask(for: request)
 
                 for await event in streamTask.events() {
@@ -62,7 +69,13 @@ struct AnthropicStreamProcessor {
 
                             switch payload.type {
                             case "message_start":
-                                break
+                                // Capture input token count (and cache info) from the opening message.
+                                if let msgUsage = payload.message?.usage {
+                                    accumulatedInputTokens += msgUsage.inputTokens ?? 0
+                                    accumulatedOutputTokens += msgUsage.outputTokens ?? 0
+                                    accumulatedCacheReadTokens += msgUsage.cacheReadInputTokens ?? 0
+                                    accumulatedCacheWriteTokens += msgUsage.cacheCreationInputTokens ?? 0
+                                }
 
                             case "content_block_start":
                                 if let block = payload.contentBlock {
@@ -140,8 +153,12 @@ struct AnthropicStreamProcessor {
                                 currentBlockType = nil
 
                             case "message_delta":
-                                // Contains stop_reason and final usage
-                                break
+                                // Contains final output_tokens count — override the running tally.
+                                if let deltaUsage = payload.usage {
+                                    if let out = deltaUsage.outputTokens {
+                                        accumulatedOutputTokens = out
+                                    }
+                                }
 
                             case "message_stop":
                                 break
@@ -177,6 +194,17 @@ struct AnthropicStreamProcessor {
 
                 for call in pendingToolCalls {
                     continuation.yield(.tool(call))
+                }
+
+                // Emit accumulated token usage as the final chunk.
+                if accumulatedInputTokens > 0 || accumulatedOutputTokens > 0 {
+                    let usage = TokenUsage(
+                        inputTokens: accumulatedInputTokens,
+                        outputTokens: accumulatedOutputTokens,
+                        cacheReadTokens: accumulatedCacheReadTokens,
+                        cacheWriteTokens: accumulatedCacheWriteTokens
+                    )
+                    continuation.yield(.usage(usage))
                 }
 
                 logger.info("Anthropic streaming completed: \(chunkCount) events, \(pendingToolCalls.count) tool calls")

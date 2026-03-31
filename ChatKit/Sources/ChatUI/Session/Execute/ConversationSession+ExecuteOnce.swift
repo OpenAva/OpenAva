@@ -114,6 +114,10 @@ extension ConversationSession {
             case .thinkingBlock, .redactedThinking:
                 // Thinking blocks are preserved for API round-tripping but don't need UI display.
                 break
+
+            case let .usage(tokenUsage):
+                // Forward usage to the session for cost tracking.
+                reportUsage(tokenUsage)
             }
         }
 

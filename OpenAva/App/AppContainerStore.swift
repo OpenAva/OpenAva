@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 
@@ -8,6 +9,8 @@ final class AppContainerStore {
     private(set) var agentState: AgentStateSnapshot
     private(set) var preferredLanguageCode: String?
     private(set) var resolvedLanguageCode: String
+    private(set) var usageSnapshot: UsageSnapshot = .init()
+    private var usageCancellable: AnyCancellable?
 
     var activeAgent: AgentProfile? {
         agentState.activeAgent
@@ -34,6 +37,26 @@ final class AppContainerStore {
         preferredLanguageCode = AppLanguagePreference.userPreferredLanguageCode()
         resolvedLanguageCode = LocaleResolver.currentLanguageCode()
         rebuildContainer(with: container.config)
+        subscribeToUsageTracker()
+    }
+
+    private func subscribeToUsageTracker() {
+        // Seed from persisted state immediately.
+        Task { @MainActor in
+            usageSnapshot = await LLMUsageTracker.shared.current
+        }
+        // Keep in sync with live updates.
+        usageCancellable = LLMUsageTracker.shared.snapshotDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in
+                self?.usageSnapshot = snapshot
+            }
+    }
+
+    func resetUsageStats() {
+        Task {
+            await LLMUsageTracker.shared.reset()
+        }
     }
 
     func setPreferredLanguageCode(_ languageCode: String?) {

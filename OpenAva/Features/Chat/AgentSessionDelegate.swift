@@ -61,7 +61,8 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
         coordinatorPool = MemoryCoordinatorPool(
             workspaceRoot: resolvedWorkspaceRootURL,
-            chatClient: chatClient
+            chatClient: chatClient,
+            memoryWindow: 20
         )
         stateRepository = MemoryStateRepository(runtimeRoot: resolvedRuntimeRootURL)
     }
@@ -148,6 +149,12 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
             }
         }
         triggerConversationHaptic(.warning)
+    }
+
+    func sessionDidReportUsage(_ usage: TokenUsage, for _: String) {
+        Task {
+            await LLMUsageTracker.shared.record(usage)
+        }
     }
 
     private func scheduleCompletionNotificationIfNeeded(for conversationID: String, success: Bool) {
