@@ -1241,6 +1241,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
             let input: String
             let preferredLanguage: String?
             let maxSegments: Int?
+            let format: String?
         }
 
         let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
@@ -1259,11 +1260,19 @@ final class LocalToolInvokeService: @unchecked Sendable {
             maxSegments: params.maxSegments ?? 500
         )
 
-        let segmentLines = result.segments.prefix(120).enumerated().map { index, segment in
-            "\(index + 1). [\(String(format: "%.2f", segment.startSeconds))s +\(String(format: "%.2f", segment.durationSeconds))s] \(segment.text)"
+        let header = "## YouTube Transcript\n- video_id: \(result.videoID)\n- title: \(result.title ?? "")\n- language: \(result.language)\n- track: \(result.trackName)\n- segments: \(result.segmentCount)\n- summary: \(result.message)"
+        let text: String
+        switch params.format ?? "transcript" {
+        case "segments":
+            let segmentLines = result.segments.enumerated().map { index, segment in
+                "\(index + 1). [\(String(format: "%.2f", segment.startSeconds))s +\(String(format: "%.2f", segment.durationSeconds))s] \(segment.text)"
+            }
+            let body = segmentLines.isEmpty ? "- (empty)" : segmentLines.joined(separator: "\n")
+            text = "\(header)\n\n\(body)"
+        default: // "transcript"
+            let transcriptBody = result.transcript.isEmpty ? "- (empty)" : result.transcript
+            text = "\(header)\n\n### Transcript\n\(transcriptBody)"
         }
-        let body = segmentLines.isEmpty ? "- (empty)" : segmentLines.joined(separator: "\n")
-        let text = "## YouTube Transcript\n- video_id: \(result.videoID)\n- title: \(result.title ?? "")\n- language: \(result.language)\n- track: \(result.trackName)\n- segments: \(result.segmentCount)\n- summary: \(result.message)\n\n\(body)\n\n### Full Transcript\n\(result.transcript)"
         return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
     }
 

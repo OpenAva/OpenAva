@@ -26,6 +26,11 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
                             "maximum": 2000,
                             "description": "Maximum transcript segments returned (default: 500).",
                         ],
+                        "format": [
+                            "type": "string",
+                            "enum": ["transcript", "segments"],
+                            "description": "Output format. 'transcript' (default): plain full transcript text. 'segments': numbered lines with timestamps for each segment.",
+                        ],
                     ],
                     "required": ["input"],
                     "additionalProperties": false,
