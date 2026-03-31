@@ -42,7 +42,8 @@ public struct LLMSaveMemoryConsolidator: MemoryConsolidator {
                 "memory_append": "string"
             }
         - `history_summary` must be 2-5 sentences and focus on key events, decisions, and useful searchable details.
-        - Set `should_update_memory` to true only when the conversation contains durable facts, preferences, constraints, or ongoing project context that should be injected into future prompts.
+        - Set `should_update_memory` to true only when the conversation contains durable facts, preferences, constraints, or ongoing goals that should be injected into future prompts.
+        - DO NOT store: real-time device data (weather, current location, today's calendar events, contact details, reminder contents) — these are always queryable via tools and will become stale. DO NOT store one-off task completions (sent a message, added a reminder, set an alarm) — the action is already done. DO NOT store transient search or web results. DO NOT store smalltalk or pleasantries.
         - When `should_update_memory` is false, set `memory_append` to an empty string.
         - When `should_update_memory` is true, `memory_append` must be a concise plain-text bullet fragment without a leading dash or date.
         - Do not duplicate information already present in Current Long-term Memory.

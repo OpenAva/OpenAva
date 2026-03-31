@@ -173,8 +173,11 @@ public extension ConversationSession {
         await requestUpdate(view: messageListView)
         persistMessages()
 
-        // Trigger asynchronous memory consolidation after turn persistence.
-        await scheduleMemoryConsolidationIfNeeded()
+        // Fire memory consolidation in the background so allowIdleTimer() is not delayed
+        // by coordinator setup or disk I/O. The consolidation Task is tracked on self.
+        Task { [weak self] in
+            await self?.scheduleMemoryConsolidationIfNeeded()
+        }
 
         sessionDelegate?.allowIdleTimer()
     }
