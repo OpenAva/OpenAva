@@ -23,6 +23,10 @@ public protocol ChatViewControllerMenuDelegate: AnyObject {
     /// Called when ChatUI requests a new conversation (e.g. `/new`).
     /// Return a new conversation ID to switch immediately, or nil to reject.
     func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from conversationID: String) -> String?
+
+    /// Called when ChatUI receives a local slash command that the host may want to handle.
+    /// Return true when handled and ChatUI should stop further processing.
+    func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool
 }
 
 public extension ChatViewControllerMenuDelegate {
@@ -47,5 +51,10 @@ public extension ChatViewControllerMenuDelegate {
     func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from _: String) -> String? {
         _ = controller
         return nil
+    }
+
+    func chatViewControllerHandleCommand(_ controller: ChatViewController, command _: String) -> Bool {
+        _ = controller
+        return false
     }
 }

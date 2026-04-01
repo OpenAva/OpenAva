@@ -589,6 +589,9 @@ public extension ChatViewController {
 
     private func handleCommand(_ command: String) {
         let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if menuDelegate?.chatViewControllerHandleCommand(self, command: normalized) == true {
+            return
+        }
         switch normalized {
         case "/new":
             guard let session = currentSession else { return }

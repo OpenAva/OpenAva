@@ -78,6 +78,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case openContext
         case openCron
         case openSkills
+        case runHeartbeatNow
     }
 
     let conversationID: String
@@ -224,6 +225,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
             .command(id: "new-conversation", title: L10n.tr("chat.command.newConversation"), icon: "plus", command: "/new"),
+            .command(id: "run-heartbeat", title: "Heartbeat", icon: "bolt.horizontal", command: "/heartbeat"),
         ]
 
         let frequentSkills = buildFrequentSkillItems()
@@ -831,6 +833,12 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onMenuAction?(.openCron)
             }
+            let heartbeatAction = UIAction(
+                title: "Run Heartbeat Now",
+                image: UIImage(systemName: "bolt.heart")
+            ) { [weak self] _ in
+                self?.onMenuAction?(.runHeartbeatNow)
+            }
             let isBackgroundEnabled = BackgroundExecutionPreferences.shared.isEnabled
             let backgroundAction = UIAction(
                 title: L10n.tr("settings.background.enabled"),
@@ -876,6 +884,7 @@ extension ChatViewControllerWrapper {
                     skillsAction,
                     contextAction,
                     cronAction,
+                    heartbeatAction,
                 ]
             )
             let agentManagementMenu = UIMenu(
@@ -962,6 +971,17 @@ extension ChatViewControllerWrapper {
         func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
             _ = controller
             onMenuAction?(.openLLM)
+        }
+
+        func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool {
+            _ = controller
+            switch command {
+            case "/heartbeat":
+                onMenuAction?(.runHeartbeatNow)
+                return true
+            default:
+                return false
+            }
         }
 
         func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from _: String) -> String? {

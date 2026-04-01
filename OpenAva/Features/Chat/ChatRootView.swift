@@ -93,11 +93,13 @@ struct ChatRootView: View {
             restoreAgentScopedState(for: containerStore.activeAgent?.id)
             refreshSessions()
             drainPendingAutoSend(for: containerStore.activeAgent?.id)
+            updateHeartbeatService()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 drainPendingAutoSend(for: containerStore.activeAgent?.id)
             }
+            updateHeartbeatService()
         }
         .onReceive(NotificationCenter.default.publisher(for: .OpenAvaIntentAutoSend)) { _ in
             // Re-read from persistent queue so filtering always follows current agent.
@@ -108,6 +110,7 @@ struct ChatRootView: View {
                 sessions = []
                 currentSessionKey = resolvedDefaultSessionKey
                 showsAgentOnboarding = true
+                HeartbeatService.shared.stop()
                 return
             }
             // Keep history panel in sync with the selected agent immediately.
@@ -115,6 +118,13 @@ struct ChatRootView: View {
             refreshSessions(for: newAgentID)
             drainPendingAutoSend(for: newAgentID)
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
+            updateHeartbeatService()
+        }
+        .onChange(of: containerAgent) { _, _ in
+            updateHeartbeatService()
+        }
+        .onChange(of: autoCompactEnabled) { _, _ in
+            updateHeartbeatService()
         }
     }
 
@@ -193,7 +203,7 @@ struct ChatRootView: View {
         let runtimeRootURL = activeAgent.runtimeURL
         // Read local sessions from TranscriptStorageProvider synchronously.
         let provider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
-        let loadedSessions = provider.listSessions()
+        let loadedSessions = provider.listSessions().filter { !HeartbeatSupport.isHiddenConversationID($0.key) }
         guard containerStore.activeAgent?.id == expectedAgentID else { return }
 
         sessions = loadedSessions
@@ -280,6 +290,34 @@ struct ChatRootView: View {
         sessionKey
     }
 
+    private func updateHeartbeatService() {
+        guard scenePhase == .active,
+              let activeAgent = containerStore.activeAgent,
+              let workspaceRootURL = containerStore.container.config.agent.workspaceRootURL,
+              let runtimeRootURL = containerStore.container.config.agent.runtimeRootURL,
+              let selectedModel = containerStore.container.config.selectedLLMModel,
+              let chatClient = containerStore.container.services.chatClient
+        else {
+            HeartbeatService.shared.stop()
+            return
+        }
+
+        HeartbeatService.shared.reconfigure(
+            .init(
+                agentID: activeAgent.id.uuidString,
+                agentName: activeAgent.name,
+                agentEmoji: activeAgent.emoji,
+                workspaceRootURL: workspaceRootURL,
+                runtimeRootURL: runtimeRootURL,
+                baseSystemPrompt: selectedModel.systemPrompt,
+                chatClient: chatClient,
+                modelConfig: selectedModel,
+                toolInvokeService: containerStore.container.services.localToolInvokeService,
+                autoCompactEnabled: autoCompactEnabled
+            )
+        )
+    }
+
     private func saveAgentScopedState(for agentID: UUID?) {
         let key = agentScopeKey(agentID)
         sessionsByAgentKey[key] = sessions
@@ -325,6 +363,11 @@ struct ChatRootView: View {
     }
 
     private func handleMenuAction(_ action: ChatViewControllerWrapper.MenuAction) {
+        if case .runHeartbeatNow = action {
+            triggerHeartbeatNow()
+            return
+        }
+
         #if targetEnvironment(macCatalyst)
             let section: SettingsWindowSection = switch action {
             case .openLLM:
@@ -335,6 +378,8 @@ struct ChatRootView: View {
                 .cron
             case .openSkills:
                 .skills
+            case .runHeartbeatNow:
+                .llm
             }
             windowCoordinator.openSettings(section)
             openWindow(id: AppWindowID.settings)
@@ -348,8 +393,17 @@ struct ChatRootView: View {
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
                 destinationPath.append(MenuDestination.skills)
+            case .runHeartbeatNow:
+                break
             }
         #endif
+    }
+
+    private func triggerHeartbeatNow() {
+        updateHeartbeatService()
+        Task { @MainActor in
+            _ = await HeartbeatService.shared.requestRunNow()
+        }
     }
 
     private func resolveSelectedProviderName() -> String {

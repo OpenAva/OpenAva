@@ -1,0 +1,271 @@
+import Foundation
+
+enum HeartbeatSupport {
+    struct ParsedDocument: Equatable {
+        var instructions: String
+        var configuration: Configuration
+    }
+
+    struct Configuration: Equatable {
+        var interval: TimeInterval
+        var activeHours: [ActiveHourRange]
+
+        static let `default` = Configuration(interval: HeartbeatSupport.defaultInterval, activeHours: [])
+
+        func isActive(at date: Date, calendar: Calendar = .current) -> Bool {
+            guard !activeHours.isEmpty else { return true }
+            return activeHours.contains { $0.contains(date: date, calendar: calendar) }
+        }
+
+        func delayUntilActive(from date: Date, calendar: Calendar = .current) -> TimeInterval? {
+            guard !activeHours.isEmpty else { return nil }
+            if isActive(at: date, calendar: calendar) {
+                return 0
+            }
+
+            let delays = activeHours.compactMap { $0.delayUntilActive(from: date, calendar: calendar) }
+            return delays.min()
+        }
+    }
+
+    struct ActiveHourRange: Equatable {
+        let startMinuteOfDay: Int
+        let endMinuteOfDay: Int
+
+        func contains(date: Date, calendar: Calendar = .current) -> Bool {
+            let minute = minuteOfDay(for: date, calendar: calendar)
+            if startMinuteOfDay == endMinuteOfDay {
+                return true
+            }
+            if startMinuteOfDay < endMinuteOfDay {
+                return minute >= startMinuteOfDay && minute < endMinuteOfDay
+            }
+            return minute >= startMinuteOfDay || minute < endMinuteOfDay
+        }
+
+        func delayUntilActive(from date: Date, calendar: Calendar = .current) -> TimeInterval? {
+            if contains(date: date, calendar: calendar) {
+                return 0
+            }
+
+            let minute = minuteOfDay(for: date, calendar: calendar)
+            let minutesUntilStart: Int
+            if startMinuteOfDay < endMinuteOfDay {
+                minutesUntilStart = minute < startMinuteOfDay
+                    ? startMinuteOfDay - minute
+                    : (24 * 60 - minute) + startMinuteOfDay
+            } else {
+                minutesUntilStart = startMinuteOfDay - minute
+            }
+
+            let seconds = TimeInterval(max(0, minutesUntilStart) * 60)
+            let secondsIntoCurrentMinute = TimeInterval(calendar.component(.second, from: date))
+            return max(0, seconds - secondsIntoCurrentMinute)
+        }
+
+        private func minuteOfDay(for date: Date, calendar: Calendar) -> Int {
+            let components = calendar.dateComponents([.hour, .minute], from: date)
+            return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        }
+    }
+
+    static let conversationPrefix = "__heartbeat__::"
+    static let heartbeatFileName = "HEARTBEAT.md"
+    static let ackToken = "HEARTBEAT_OK"
+    static let ackMaxChars = 300
+    static let retainMessageLimit = 20
+    static let defaultInterval: TimeInterval = 30 * 60
+
+    private static let promptTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let yamlDelimiter = "---"
+
+    static func conversationID(for agentID: String?) -> String {
+        let normalizedAgentID = AppConfig.nonEmpty(agentID) ?? "default"
+        return conversationPrefix + normalizedAgentID
+    }
+
+    static func isHiddenConversationID(_ conversationID: String) -> Bool {
+        conversationID.hasPrefix(conversationPrefix)
+    }
+
+    static func buildPrompt(heartbeatMarkdown: String, now: Date = Date()) -> String {
+        let normalizedMarkdown = heartbeatMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let timestamp = promptTimestampFormatter.string(from: now)
+
+        return """
+        Current time: \(timestamp)
+
+        You are running a scheduled heartbeat turn inside OpenAva.
+        Follow the instructions in HEARTBEAT.md below.
+        Use tools when needed.
+        If nothing needs attention, reply with exactly \(ackToken).
+
+        <HEARTBEAT_MD>
+        \(normalizedMarkdown)
+        </HEARTBEAT_MD>
+        """
+    }
+
+    static func parseDocument(_ rawMarkdown: String) -> ParsedDocument {
+        let normalizedInput = rawMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedInput.hasPrefix(yamlDelimiter) else {
+            return ParsedDocument(instructions: normalizedInput, configuration: .default)
+        }
+
+        let lines = normalizedInput.components(separatedBy: .newlines)
+        guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == yamlDelimiter,
+              let closingIndex = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == yamlDelimiter })
+        else {
+            return ParsedDocument(instructions: normalizedInput, configuration: .default)
+        }
+
+        let frontMatterLines = Array(lines[1..<closingIndex])
+        let bodyLines = Array(lines[(closingIndex + 1)...])
+        let frontMatter = parseFrontMatter(frontMatterLines)
+        let configuration = makeConfiguration(from: frontMatter)
+        let body = bodyLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return ParsedDocument(instructions: body.isEmpty ? normalizedInput : body, configuration: configuration)
+    }
+
+    static func normalizedAckRemainder(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed == ackToken {
+            return ""
+        }
+
+        if trimmed.hasPrefix(ackToken) {
+            return String(trimmed.dropFirst(ackToken.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if trimmed.hasSuffix(ackToken) {
+            return String(trimmed.dropLast(ackToken.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return nil
+    }
+
+    static func shouldSuppressAssistantMessage(_ text: String) -> Bool {
+        guard let remainder = normalizedAckRemainder(from: text) else {
+            return false
+        }
+        return remainder.count <= ackMaxChars
+    }
+
+    static func trimToRecent<T>(_ items: [T], limit: Int) -> [T] {
+        guard limit > 0, items.count > limit else {
+            return items
+        }
+        return Array(items.suffix(limit))
+    }
+
+    private static func parseFrontMatter(_ lines: [String]) -> [String: String] {
+        var result: [String: String] = [:]
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+                  let separatorIndex = trimmed.firstIndex(of: ":")
+            else {
+                continue
+            }
+
+            let rawKey = String(trimmed[..<separatorIndex])
+            let rawValue = String(trimmed[trimmed.index(after: separatorIndex)...])
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            result[key] = value
+        }
+        return result
+    }
+
+    private static func makeConfiguration(from frontMatter: [String: String]) -> Configuration {
+        var configuration = Configuration.default
+
+        if let every = frontMatter["every"] ?? frontMatter["heartbeat_every"],
+           let interval = parseInterval(every)
+        {
+            configuration.interval = interval
+        } else if let everyMinutes = frontMatter["every_minutes"] ?? frontMatter["heartbeat_every_minutes"],
+                  let minutes = Double(everyMinutes), minutes > 0
+        {
+            configuration.interval = minutes * 60
+        } else if let everySeconds = frontMatter["every_seconds"] ?? frontMatter["heartbeat_every_seconds"],
+                  let seconds = Double(everySeconds), seconds > 0
+        {
+            configuration.interval = seconds
+        }
+
+        if let activeHoursValue = frontMatter["active_hours"] ?? frontMatter["heartbeat_active_hours"] {
+            configuration.activeHours = parseActiveHours(activeHoursValue)
+        }
+
+        return configuration
+    }
+
+    private static func parseInterval(_ rawValue: String) -> TimeInterval? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty else { return nil }
+
+        if let minutes = Double(value), minutes > 0 {
+            return minutes * 60
+        }
+
+        let units: [(suffix: String, multiplier: Double)] = [
+            ("ms", 0.001),
+            ("s", 1),
+            ("m", 60),
+            ("h", 3600),
+        ]
+
+        for unit in units {
+            if value.hasSuffix(unit.suffix) {
+                let numberPart = String(value.dropLast(unit.suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let amount = Double(numberPart), amount > 0 {
+                    return amount * unit.multiplier
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func parseActiveHours(_ rawValue: String) -> [ActiveHourRange] {
+        rawValue
+            .split(separator: ",")
+            .compactMap { parseActiveHourRange(String($0)) }
+    }
+
+    private static func parseActiveHourRange(_ rawRange: String) -> ActiveHourRange? {
+        let parts = rawRange.split(separator: "-", maxSplits: 1).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard parts.count == 2,
+              let start = parseClock(parts[0]),
+              let end = parseClock(parts[1])
+        else {
+            return nil
+        }
+        return ActiveHourRange(startMinuteOfDay: start, endMinuteOfDay: end)
+    }
+
+    private static func parseClock(_ rawClock: String) -> Int? {
+        let parts = rawClock.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              let hour = Int(parts[0]),
+              let minute = Int(parts[1]),
+              (0..<24).contains(hour),
+              (0..<60).contains(minute)
+        else {
+            return nil
+        }
+        return hour * 60 + minute
+    }
+}

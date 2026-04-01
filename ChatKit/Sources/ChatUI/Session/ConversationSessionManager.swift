@@ -69,6 +69,10 @@ public final class ConversationSessionManager: @unchecked Sendable {
         executingSessionsSubject.send(executingSessions)
     }
 
+    public func hasExecutingSession() -> Bool {
+        !executingSessions.isEmpty
+    }
+
     /// Returns whether any executing session belongs to the given scoped prefix.
     public func hasExecutingSession(withPrefix prefix: String) -> Bool {
         guard !prefix.isEmpty else { return false }
