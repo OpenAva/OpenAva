@@ -9,6 +9,11 @@ struct RemoteControlSettingsView: View {
         #if targetEnvironment(macCatalyst)
             Form {
                 Section(L10n.tr("settings.remoteControl.host.title")) {
+                    if let advertiseStatusText = statusStore.advertiseStatusText {
+                        Text(advertiseStatusText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     if let port = statusStore.advertisedPort {
                         LabeledContent(L10n.tr("settings.remoteControl.status.hostPort"), value: String(port))
                     }

@@ -49,6 +49,7 @@ public actor LocalControlHost {
     private var hostInfo: LocalControlHostInfo?
     private var pairingStates: [String: PairingState] = [:]
     private var onReadyToAdvertise: (@Sendable (UInt16) async -> Void)?
+    private var onAdvertiserStatusChanged: (@Sendable (LocalControlAdvertiserStatus) async -> Void)?
 
     public init() {}
 
@@ -56,20 +57,27 @@ public actor LocalControlHost {
         hostInfo: LocalControlHostInfo,
         requestHandler: @escaping RequestHandler,
         pairChallengeHandler: PairChallengeHandler? = nil,
-        onReadyToAdvertise: (@Sendable (UInt16) async -> Void)? = nil
+        onReadyToAdvertise: (@Sendable (UInt16) async -> Void)? = nil,
+        onAdvertiserStatusChanged: (@Sendable (LocalControlAdvertiserStatus) async -> Void)? = nil
     ) throws {
         guard self.hostInfo == nil else { return }
         self.hostInfo = hostInfo
         self.requestHandler = requestHandler
         self.pairChallengeHandler = pairChallengeHandler
         self.onReadyToAdvertise = onReadyToAdvertise
+        self.onAdvertiserStatusChanged = onAdvertiserStatusChanged
         let config = LocalControlTransportConfig(serviceName: hostInfo.hello.displayName)
-        try advertiser.start(config: config) { [weak self] connection in
+        try advertiser.start(config: config, onStateChanged: { [weak self] status in
+            guard let self else { return }
+            Task {
+                if case let .ready(port: port) = status, let port {
+                    await self.onReadyToAdvertise?(port)
+                }
+                await self.onAdvertiserStatusChanged?(status)
+            }
+        }) { [weak self] connection in
             guard let self else { return }
             Task { await self.accept(connection: connection) }
-        }
-        if let port = advertiser.port {
-            Task { await onReadyToAdvertise?(port) }
         }
     }
 
@@ -84,6 +92,7 @@ public actor LocalControlHost {
         requestHandler = nil
         pairChallengeHandler = nil
         onReadyToAdvertise = nil
+        onAdvertiserStatusChanged = nil
     }
 
     private func accept(connection: NWConnection) {

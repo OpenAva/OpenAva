@@ -1,3 +1,4 @@
+import Network
 import Observation
 import OpenClawKit
 import SwiftUI
@@ -7,6 +8,7 @@ import SwiftUI
 final class RemoteControlClientViewModel {
     var services: [LocalControlDiscoveredService] = []
     var selectedServiceID: String?
+    var discoveryStatusText: String?
     var pairCode = ""
     var statusText: String?
     var agents: [LocalControlAgentSummary] = []
@@ -14,24 +16,66 @@ final class RemoteControlClientViewModel {
     var messageText = ""
     var isConnected = false
 
+    @ObservationIgnored private var browserState: NWBrowser.State?
     private let browser = LocalControlBrowser()
     private let client = LocalControlClient()
 
     init() {
         browser.onServicesChanged = { [weak self] services in
-            self?.services = services
-            if self?.selectedServiceID == nil {
-                self?.selectedServiceID = services.first?.id
+            guard let self else { return }
+            self.services = services
+            if let selectedServiceID = self.selectedServiceID,
+               services.contains(where: { $0.id == selectedServiceID })
+            {
+                self.selectedServiceID = selectedServiceID
+            } else {
+                self.selectedServiceID = services.first?.id
+            }
+            self.refreshDiscoveryStatus()
+        }
+        browser.onStateChanged = { [weak self] state in
+            self?.browserState = state
+            self?.refreshDiscoveryStatus()
+        }
+        Task { [weak self] in
+            await self?.client.setDisconnectHandler { reason in
+                await MainActor.run {
+                    self?.handleDisconnect(reason: reason)
+                }
             }
         }
     }
 
-    func startBrowsing() {
-        browser.start()
+    func startBrowsing(forceRefresh: Bool = false) {
+        if forceRefresh {
+            browser.restart()
+        } else {
+            browser.start()
+        }
+        refreshDiscoveryStatus()
     }
 
-    func stopBrowsing() {
+    func stopBrowsing(disconnect: Bool = false) {
         browser.stop()
+        browserState = nil
+        discoveryStatusText = nil
+        if disconnect {
+            Task { await client.disconnect(silently: true) }
+            resetConnectionState()
+        }
+    }
+
+    func handleScenePhaseChange(_ scenePhase: ScenePhase) {
+        switch scenePhase {
+        case .active:
+            startBrowsing(forceRefresh: true)
+        case .background:
+            stopBrowsing()
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
     }
 
     func connectAndPair() async {
@@ -54,9 +98,11 @@ final class RemoteControlClientViewModel {
             let challenge = try await client.beginPairing()
             statusText = L10n.tr("settings.remoteControl.pairChallengeReceived", formatDate(challenge.expiresAtMs))
             isConnected = true
+            refreshDiscoveryStatus()
             selectedServiceID = service.id
         } catch {
-            statusText = error.localizedDescription
+            resetConnectionState()
+            applyErrorState(error)
         }
     }
 
@@ -67,7 +113,7 @@ final class RemoteControlClientViewModel {
             await refreshAgents()
             await refreshSessions()
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -79,7 +125,7 @@ final class RemoteControlClientViewModel {
             let payload: LocalControlListAgentsPayload = try decodePayload(from: response)
             agents = payload.agents
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -95,7 +141,7 @@ final class RemoteControlClientViewModel {
             await refreshAgents()
             await refreshSessions()
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -107,7 +153,7 @@ final class RemoteControlClientViewModel {
             let payload: LocalControlListSessionsPayload = try decodePayload(from: response)
             sessions = payload.sessions
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -118,7 +164,7 @@ final class RemoteControlClientViewModel {
             _ = try await client.invoke(request)
             await refreshSessions()
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -134,7 +180,7 @@ final class RemoteControlClientViewModel {
             _ = try await client.invoke(request)
             await refreshSessions()
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -153,7 +199,7 @@ final class RemoteControlClientViewModel {
             messageText = ""
             statusText = L10n.tr("settings.remoteControl.messageSent")
         } catch {
-            statusText = error.localizedDescription
+            applyErrorState(error)
         }
     }
 
@@ -186,9 +232,64 @@ final class RemoteControlClientViewModel {
         formatter.timeStyle = .medium
         return formatter.string(from: date)
     }
+
+    private func applyErrorState(_ error: Error) {
+        if isConnectionError(error) {
+            handleDisconnect(reason: error.localizedDescription)
+        } else if isPairingTimeout(error) {
+            resetConnectionState()
+            statusText = L10n.tr("settings.remoteControl.pairing.timeout")
+        } else {
+            statusText = error.localizedDescription
+        }
+    }
+
+    private func handleDisconnect(reason: String) {
+        resetConnectionState()
+        statusText = reason == "Disconnected"
+            ? L10n.tr("settings.remoteControl.connection.disconnected")
+            : reason
+    }
+
+    private func resetConnectionState() {
+        isConnected = false
+        agents = []
+        sessions = []
+        refreshDiscoveryStatus()
+    }
+
+    private func refreshDiscoveryStatus() {
+        guard !isConnected else {
+            discoveryStatusText = nil
+            return
+        }
+        switch browserState {
+        case let .failed(error):
+            discoveryStatusText = L10n.tr("settings.remoteControl.discovery.failed", error.localizedDescription)
+        case let .waiting(error):
+            discoveryStatusText = L10n.tr("settings.remoteControl.discovery.waiting", error.localizedDescription)
+        case .ready, .setup, nil:
+            discoveryStatusText = services.isEmpty ? L10n.tr("settings.remoteControl.discovery.searching") : nil
+        case .cancelled:
+            discoveryStatusText = nil
+        @unknown default:
+            discoveryStatusText = services.isEmpty ? L10n.tr("settings.remoteControl.discovery.searching") : nil
+        }
+    }
+
+    private func isConnectionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "LocalControl" && [2, 3, 5].contains(nsError.code)
+    }
+
+    private func isPairingTimeout(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "LocalControl" && nsError.code == 8
+    }
 }
 
 struct RemoteControlClientView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = RemoteControlClientViewModel()
 
     var body: some View {
@@ -203,6 +304,11 @@ struct RemoteControlClientView: View {
                     Task { await viewModel.connectAndPair() }
                 }
                 .disabled(viewModel.selectedServiceID == nil)
+                if let discoveryStatusText = viewModel.discoveryStatusText {
+                    Text(discoveryStatusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section(L10n.tr("settings.remoteControl.pairing.title")) {
@@ -279,10 +385,13 @@ struct RemoteControlClientView: View {
         }
         .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
         .task {
-            viewModel.startBrowsing()
+            viewModel.startBrowsing(forceRefresh: true)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            viewModel.handleScenePhaseChange(newPhase)
         }
         .onDisappear {
-            viewModel.stopBrowsing()
+            viewModel.stopBrowsing(disconnect: true)
         }
     }
 }

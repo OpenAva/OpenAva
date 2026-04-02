@@ -18,6 +18,14 @@ public struct LocalControlTransportConfig: Sendable {
     }
 }
 
+public enum LocalControlAdvertiserStatus: Sendable {
+    case setup
+    case ready(port: UInt16?)
+    case waiting(String)
+    case failed(String)
+    case cancelled
+}
+
 public final class LocalControlAdvertiser {
     private var listener: NWListener?
     private let queue: DispatchQueue
@@ -28,6 +36,7 @@ public final class LocalControlAdvertiser {
 
     public func start(
         config: LocalControlTransportConfig,
+        onStateChanged: (@Sendable (LocalControlAdvertiserStatus) -> Void)? = nil,
         newConnectionHandler: @escaping @Sendable (NWConnection) -> Void
     ) throws {
         guard listener == nil else { return }
@@ -36,7 +45,25 @@ public final class LocalControlAdvertiser {
         let listener = try NWListener(using: parameters, on: .any)
         listener.service = NWListener.Service(name: config.serviceName, type: config.serviceType)
         listener.newConnectionHandler = newConnectionHandler
-        listener.stateUpdateHandler = { _ in }
+        listener.stateUpdateHandler = { [weak listener] state in
+            let port = listener?.port?.rawValue
+            let status: LocalControlAdvertiserStatus
+            switch state {
+            case .setup:
+                status = .setup
+            case .ready:
+                status = .ready(port: port)
+            case let .waiting(error):
+                status = .waiting(error.localizedDescription)
+            case let .failed(error):
+                status = .failed(error.localizedDescription)
+            case .cancelled:
+                status = .cancelled
+            @unknown default:
+                status = .failed("Unknown advertiser state")
+            }
+            onStateChanged?(status)
+        }
         listener.start(queue: queue)
         self.listener = listener
     }
@@ -135,20 +162,35 @@ public final class LocalControlBrowser: NSObject {
     private var browser: NWBrowser?
     private var servicesByID: [String: LocalControlDiscoveredService] = [:]
     private var pendingResolvers: [String: ServiceResolver] = [:]
+    private var restartTask: Task<Void, Never>?
+    private var isRunning = false
     private let queueLabelPrefix: String
     public var onServicesChanged: (([LocalControlDiscoveredService]) -> Void)?
+    public var onStateChanged: ((NWBrowser.State) -> Void)?
 
     public init(queueLabelPrefix: String = "ai.openava.local-control.browser") {
         self.queueLabelPrefix = queueLabelPrefix
     }
 
     public func start() {
+        isRunning = true
         guard browser == nil else { return }
+        startBrowser()
+    }
+
+    public func restart() {
+        stop()
+        start()
+    }
+
+    private func startBrowser() {
         browser = GatewayDiscoveryBrowserSupport.makeBrowser(
             serviceType: OpenClawBonjour.localControlServiceType,
             domain: OpenClawBonjour.gatewayServiceDomain,
             queueLabelPrefix: queueLabelPrefix,
-            onState: { _ in },
+            onState: { [weak self] state in
+                self?.handle(state: state)
+            },
             onResults: { [weak self] results in
                 self?.handle(results)
             }
@@ -156,17 +198,19 @@ public final class LocalControlBrowser: NSObject {
     }
 
     public func stop() {
-        browser?.cancel()
+        isRunning = false
+        restartTask?.cancel()
+        restartTask = nil
+        let activeBrowser = browser
         browser = nil
-        pendingResolvers.values.forEach { $0.cancel() }
-        pendingResolvers.removeAll()
-        servicesByID.removeAll()
-        onServicesChanged?([])
+        activeBrowser?.cancel()
+        clearResolvedServices()
     }
 
     private func handle(_ results: Set<NWBrowser.Result>) {
         let ids = Set(results.compactMap(Self.identifier(for:)))
-        let staleIDs = Set(servicesByID.keys).subtracting(ids)
+        let knownIDs = Set(servicesByID.keys).union(pendingResolvers.keys)
+        let staleIDs = knownIDs.subtracting(ids)
         for staleID in staleIDs {
             servicesByID.removeValue(forKey: staleID)
             pendingResolvers[staleID]?.cancel()
@@ -181,8 +225,12 @@ public final class LocalControlBrowser: NSObject {
                 continue
             }
             let resolver = ServiceResolver(id: id, name: name, domain: domain) { [weak self] resolved in
-                guard let self, let resolved else { return }
-                self.pendingResolvers[resolved.id] = nil
+                guard let self else { return }
+                self.pendingResolvers[id] = nil
+                guard let resolved else {
+                    self.publishServices()
+                    return
+                }
                 self.servicesByID[resolved.id] = resolved
                 self.publishServices()
             }
@@ -197,6 +245,40 @@ public final class LocalControlBrowser: NSObject {
         onServicesChanged?(services)
     }
 
+    private func clearResolvedServices() {
+        pendingResolvers.values.forEach { $0.cancel() }
+        pendingResolvers.removeAll()
+        servicesByID.removeAll()
+        publishServices()
+    }
+
+    private func handle(state: NWBrowser.State) {
+        onStateChanged?(state)
+        guard isRunning else { return }
+        switch state {
+        case .failed:
+            let activeBrowser = browser
+            browser = nil
+            activeBrowser?.cancel()
+            clearResolvedServices()
+            scheduleRestart()
+        default:
+            break
+        }
+    }
+
+    private func scheduleRestart() {
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.isRunning, self.browser == nil else { return }
+                self.startBrowser()
+            }
+        }
+    }
+
     private static func identifier(for result: NWBrowser.Result) -> String? {
         guard case let .service(name: name, type: type, domain: domain, interface: _) = result.endpoint else {
             return nil
@@ -207,25 +289,43 @@ public final class LocalControlBrowser: NSObject {
 
 @MainActor
 private final class ServiceResolver: NSObject, NetServiceDelegate {
+    private static let resolveTimeout: TimeInterval = 5.0
+    private static let maxAttempts = 3
+    private static let retryDelayNs: UInt64 = 750_000_000
+
     let id: String
-    private let service: NetService
+    private let name: String
+    private let domain: String
     private let completion: (LocalControlDiscoveredService?) -> Void
+    private var service: NetService?
     private var didFinish = false
+    private var attempts = 0
+    private var retryTask: Task<Void, Never>?
 
     init(id: String, name: String, domain: String, completion: @escaping (LocalControlDiscoveredService?) -> Void) {
         self.id = id
-        service = NetService(domain: domain, type: OpenClawBonjour.localControlServiceType, name: name)
+        self.name = name
+        self.domain = domain
         self.completion = completion
         super.init()
-        service.delegate = self
     }
 
     func start() {
-        BonjourServiceResolverSupport.start(service, timeout: 2.0)
+        beginResolve()
     }
 
     func cancel() {
         finish(nil)
+    }
+
+    private func beginResolve() {
+        guard !didFinish else { return }
+        attempts += 1
+        teardownService()
+        let service = NetService(domain: domain, type: OpenClawBonjour.localControlServiceType, name: name)
+        service.delegate = self
+        self.service = service
+        BonjourServiceResolverSupport.start(service, timeout: Self.resolveTimeout)
     }
 
     nonisolated func netServiceDidResolveAddress(_ sender: NetService) {
@@ -246,15 +346,40 @@ private final class ServiceResolver: NSObject, NetServiceDelegate {
         _ = sender
         _ = errorDict
         Task { @MainActor in
+            handleResolveFailure()
+        }
+    }
+
+    private func handleResolveFailure() {
+        guard !didFinish else { return }
+        teardownService()
+        guard attempts < Self.maxAttempts else {
             finish(nil)
+            return
+        }
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.retryDelayNs)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.beginResolve()
+            }
         }
     }
 
     private func finish(_ serviceInfo: LocalControlDiscoveredService?) {
         guard !didFinish else { return }
         didFinish = true
-        service.stop()
-        service.remove(from: .main, forMode: .common)
+        retryTask?.cancel()
+        retryTask = nil
+        teardownService()
         completion(serviceInfo)
+    }
+
+    private func teardownService() {
+        service?.stop()
+        service?.remove(from: .main, forMode: .common)
+        service?.delegate = nil
+        service = nil
     }
 }

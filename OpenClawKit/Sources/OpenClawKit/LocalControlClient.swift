@@ -2,19 +2,24 @@ import Foundation
 import Network
 
 public actor LocalControlClient {
+    private static let pairChallengeTimeoutNs: UInt64 = 15_000_000_000
+
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var connectionBox: ClientConnectionBox?
     private var pendingResponses: [String: CheckedContinuation<BridgeInvokeResponse, Error>] = [:]
     private var pendingPairChallenge: CheckedContinuation<LocalControlPairChallengePayload, Error>?
+    private var pairChallengeTimeoutTask: Task<Void, Never>?
     private var localHello: LocalControlHello?
     private var remoteHello: LocalControlHello?
     private var peerInstanceId: String?
     private var pairedToken: String?
+    private var onDisconnected: (@Sendable (String) async -> Void)?
 
     public init() {}
 
     public func connect(to service: LocalControlDiscoveredService, localHello: LocalControlHello) async throws {
+        disconnect(silently: true)
         let host = NWEndpoint.Host(service.host)
         guard let port = NWEndpoint.Port(rawValue: UInt16(service.port))
         else {
@@ -29,9 +34,20 @@ public actor LocalControlClient {
         box.start()
     }
 
-    public func disconnect() {
+    public func setDisconnectHandler(_ handler: (@Sendable (String) async -> Void)?) {
+        onDisconnected = handler
+    }
+
+    public func disconnect(silently: Bool = false) {
+        performDisconnect(reason: "Disconnected", shouldNotify: !silently)
+    }
+
+    private func performDisconnect(reason: String, shouldNotify: Bool) {
+        let hadActiveConnection = connectionBox != nil || pendingPairChallenge != nil || !pendingResponses.isEmpty || remoteHello != nil || pairedToken != nil
         connectionBox?.connection.cancel()
         connectionBox = nil
+        pairChallengeTimeoutTask?.cancel()
+        pairChallengeTimeoutTask = nil
         remoteHello = nil
         peerInstanceId = nil
         pairedToken = nil
@@ -41,6 +57,10 @@ public actor LocalControlClient {
         pendingPairChallenge = nil
         for continuation in pending.values {
             continuation.resume(throwing: NSError(domain: "LocalControl", code: 2, userInfo: [NSLocalizedDescriptionKey: "Disconnected"]))
+        }
+        guard shouldNotify, hadActiveConnection, let onDisconnected else { return }
+        Task {
+            await onDisconnected(reason)
         }
     }
 
@@ -52,7 +72,14 @@ public actor LocalControlClient {
         let text = try encodeText(request)
         connectionBox.connection.sendText(text)
         return try await withCheckedThrowingContinuation { continuation in
+            pendingPairChallenge?.resume(throwing: NSError(domain: "LocalControl", code: 7, userInfo: [NSLocalizedDescriptionKey: "Pairing request superseded"]))
             pendingPairChallenge = continuation
+            pairChallengeTimeoutTask?.cancel()
+            pairChallengeTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.pairChallengeTimeoutNs)
+                guard !Task.isCancelled else { return }
+                await self?.handlePairChallengeTimeout()
+            }
         }
     }
 
@@ -124,7 +151,8 @@ public actor LocalControlClient {
         }
     }
 
-    fileprivate func handle(text: String) async {
+    fileprivate func handle(text: String, from box: ClientConnectionBox) async {
+        guard connectionBox === box else { return }
         guard let data = text.data(using: .utf8),
               let base = try? decoder.decode(BridgeBaseFrame.self, from: data)
         else {
@@ -140,6 +168,8 @@ public actor LocalControlClient {
             else {
                 return
             }
+            pairChallengeTimeoutTask?.cancel()
+            pairChallengeTimeoutTask = nil
             pendingPairChallenge?.resume(returning: payload)
             pendingPairChallenge = nil
         case "invoke-res":
@@ -154,8 +184,16 @@ public actor LocalControlClient {
         }
     }
 
-    fileprivate func handleDisconnect() {
-        disconnect()
+    fileprivate func handleDisconnect(from box: ClientConnectionBox) {
+        guard connectionBox === box else { return }
+        performDisconnect(reason: "Disconnected", shouldNotify: true)
+    }
+
+    private func handlePairChallengeTimeout() {
+        guard let pendingPairChallenge else { return }
+        self.pendingPairChallenge = nil
+        pairChallengeTimeoutTask = nil
+        pendingPairChallenge.resume(throwing: NSError(domain: "LocalControl", code: 8, userInfo: [NSLocalizedDescriptionKey: "Pairing challenge timed out"]))
     }
 
     private func decodeParams(from json: String?) throws -> [String: String]? {
@@ -208,11 +246,11 @@ private final class ClientConnectionBox: NSObject, LocalControlConnectionDelegat
 
     func localControlConnection(_: LocalControlConnection, didReceiveText text: String) {
         guard let owner else { return }
-        Task { await owner.handle(text: text) }
+        Task { await owner.handle(text: text, from: self) }
     }
 
     func localControlConnectionDidClose(_: LocalControlConnection) {
         guard let owner else { return }
-        Task { await owner.handleDisconnect() }
+        Task { await owner.handleDisconnect(from: self) }
     }
 }

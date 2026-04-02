@@ -113,7 +113,7 @@ final class RemoteControlCoordinator {
     func sendMessage(_ message: String, sessionKey: String?) async -> LocalControlSendMessagePayload {
         let normalizedSession = normalizedSessionKey(sessionKey, fallback: currentSessionKey)
         setSessionKey?(normalizedSession)
-        await SkillInvocationService.enqueueAutoSend(message: message, conversationID: normalizedSession)
+        await SkillLaunchService.enqueueAutoSend(message: message, conversationID: normalizedSession)
         return .init(enqueued: true, sessionKey: normalizedSession)
     }
 

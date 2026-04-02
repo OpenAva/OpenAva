@@ -14,6 +14,7 @@ final class RemoteControlService {
         #if targetEnvironment(macCatalyst)
             guard !started else { return }
             started = true
+            RemoteControlStatusStore.shared.updateAdvertiseStatus(L10n.tr("settings.remoteControl.host.discovery.starting"))
             let hello = LocalControlHello(
                 role: .host,
                 instanceId: InstanceIdentity.instanceId,
@@ -40,11 +41,19 @@ final class RemoteControlService {
                             await MainActor.run {
                                 RemoteControlStatusStore.shared.updateAdvertisedPort(port)
                             }
+                        },
+                        onAdvertiserStatusChanged: { status in
+                            await MainActor.run {
+                                Self.applyAdvertiserStatus(status)
+                            }
                         }
                     )
                 } catch {
                     started = false
-                    RemoteControlStatusStore.shared.updateAdvertisedPort(nil)
+                    RemoteControlStatusStore.shared.clearAdvertiseState()
+                    RemoteControlStatusStore.shared.updateAdvertiseStatus(
+                        L10n.tr("settings.remoteControl.host.discovery.failed", error.localizedDescription)
+                    )
                 }
             }
         #endif
@@ -55,9 +64,34 @@ final class RemoteControlService {
             await host.stop()
             await MainActor.run {
                 self.started = false
-                RemoteControlStatusStore.shared.updateAdvertisedPort(nil)
+                RemoteControlStatusStore.shared.clearAdvertiseState()
                 RemoteControlStatusStore.shared.clearPairingCode()
             }
+        }
+    }
+
+    private static func applyAdvertiserStatus(_ status: LocalControlAdvertiserStatus) {
+        switch status {
+        case .setup:
+            RemoteControlStatusStore.shared.updateAdvertiseStatus(
+                L10n.tr("settings.remoteControl.host.discovery.starting")
+            )
+        case let .ready(port):
+            RemoteControlStatusStore.shared.updateAdvertisedPort(port)
+            RemoteControlStatusStore.shared.updateAdvertiseStatus(
+                L10n.tr("settings.remoteControl.host.discovery.ready")
+            )
+        case let .waiting(message):
+            RemoteControlStatusStore.shared.updateAdvertiseStatus(
+                L10n.tr("settings.remoteControl.host.discovery.waiting", message)
+            )
+        case let .failed(message):
+            RemoteControlStatusStore.shared.updateAdvertisedPort(nil)
+            RemoteControlStatusStore.shared.updateAdvertiseStatus(
+                L10n.tr("settings.remoteControl.host.discovery.failed", message)
+            )
+        case .cancelled:
+            RemoteControlStatusStore.shared.clearAdvertiseState()
         }
     }
 
