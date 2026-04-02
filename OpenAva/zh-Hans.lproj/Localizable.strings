@@ -167,6 +167,7 @@
 "settings.context.resetAll.message" = "这会清空所有上下文文件内容，且无法撤销。";
 "settings.context.error.noActiveAgent" = "当前未选择活跃 Agent。";
 "settings.context.filePurpose.agents" = "定义工作区规则、约束和运行约定。";
+"settings.context.filePurpose.heartbeat" = "定义心跳调度、活跃时段和自主检查指令。";
 "settings.context.filePurpose.soul" = "定义 Agent 的核心人格与行为原则。";
 "settings.context.filePurpose.tools" = "存放环境相关的工具说明和操作快捷方式。";
 "settings.context.filePurpose.identity" = "定义 Agent 的自我描述、风格和头像元数据。";

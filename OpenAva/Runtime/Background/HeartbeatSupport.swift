@@ -124,7 +124,7 @@ enum HeartbeatSupport {
             return ParsedDocument(instructions: normalizedInput, configuration: .default)
         }
 
-        let frontMatterLines = Array(lines[1..<closingIndex])
+        let frontMatterLines = Array(lines[1 ..< closingIndex])
         let bodyLines = Array(lines[(closingIndex + 1)...])
         let frontMatter = parseFrontMatter(frontMatterLines)
         let configuration = makeConfiguration(from: frontMatter)
@@ -261,8 +261,8 @@ enum HeartbeatSupport {
         guard parts.count == 2,
               let hour = Int(parts[0]),
               let minute = Int(parts[1]),
-              (0..<24).contains(hour),
-              (0..<60).contains(minute)
+              (0 ..< 24).contains(hour),
+              (0 ..< 60).contains(minute)
         else {
             return nil
         }

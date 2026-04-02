@@ -167,6 +167,7 @@
 "settings.context.resetAll.message" = "This clears the content of all context files. This action cannot be undone.";
 "settings.context.error.noActiveAgent" = "No active agent selected.";
 "settings.context.filePurpose.agents" = "Defines workspace rules, guardrails, and operating conventions.";
+"settings.context.filePurpose.heartbeat" = "Defines heartbeat schedule, active hours, and autonomous check instructions.";
 "settings.context.filePurpose.soul" = "Defines the agent's core personality and behavioral principles.";
 "settings.context.filePurpose.tools" = "Stores environment-specific tool notes and operational shortcuts.";
 "settings.context.filePurpose.identity" = "Defines the agent's self-description, vibe, and avatar metadata.";

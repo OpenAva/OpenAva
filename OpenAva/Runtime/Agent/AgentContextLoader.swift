@@ -2,6 +2,7 @@ import Foundation
 
 enum AgentContextDocumentKind: CaseIterable, Identifiable {
     case agents
+    case heartbeat
     case soul
     case tools
     case identity
@@ -17,6 +18,8 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
         switch self {
         case .agents:
             return "AGENTS.md"
+        case .heartbeat:
+            return "HEARTBEAT.md"
         case .soul:
             return "SOUL.md"
         case .tools:
@@ -36,6 +39,8 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
         switch self {
         case .agents:
             return "Defines workspace rules, guardrails, and operating conventions."
+        case .heartbeat:
+            return "Defines heartbeat schedule, active hours, and autonomous check instructions."
         case .soul:
             return "Defines the agent's core personality and behavioral principles."
         case .tools:
@@ -55,6 +60,8 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
         switch self {
         case .agents:
             return L10n.tr("settings.context.filePurpose.agents")
+        case .heartbeat:
+            return L10n.tr("settings.context.filePurpose.heartbeat")
         case .soul:
             return L10n.tr("settings.context.filePurpose.soul")
         case .tools:
@@ -74,7 +81,7 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
         switch self {
         case .memory, .history:
             return false
-        case .agents, .soul, .tools, .identity, .user:
+        case .agents, .heartbeat, .soul, .tools, .identity, .user:
             return true
         }
     }
@@ -95,6 +102,7 @@ enum AgentContextLoader {
     /// Each nested array is a priority group where the first existing file wins.
     private static let bootstrapDocumentFileGroups: [[String]] = [
         ["AGENTS.md"],
+        ["HEARTBEAT.md"],
         ["SOUL.md"],
         ["TOOLS.md"],
         ["IDENTITY.md"],

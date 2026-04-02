@@ -250,13 +250,13 @@ final class HeartbeatService {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         switch outcome {
-        case .failure(let errorDescription):
-            Self.logger.error("heartbeat session failed: \((errorDescription ?? "unknown"), privacy: .public)")
+        case let .failure(errorDescription):
+            Self.logger.error("heartbeat session failed: \(errorDescription ?? "unknown", privacy: .public)")
             persistMessages(latestMessages, for: conversationID, storageProvider: storageProvider)
             ConversationSessionManager.shared.removeSession(for: conversationID)
             return RunResult(notificationBody: nil)
 
-        case .interrupted(let reason):
+        case let .interrupted(reason):
             Self.logger.debug("heartbeat session interrupted: \(reason, privacy: .public)")
             persistMessages(latestMessages, for: conversationID, storageProvider: storageProvider)
             ConversationSessionManager.shared.removeSession(for: conversationID)
