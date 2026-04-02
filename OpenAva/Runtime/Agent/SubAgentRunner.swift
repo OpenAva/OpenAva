@@ -2,7 +2,7 @@ import ChatClient
 import Foundation
 import OpenClawKit
 
-struct SubAgentRunOutput: Sendable {
+struct SubAgentRunOutput {
     let agentType: String
     let totalTurns: Int
     let totalToolCalls: Int

@@ -1,7 +1,7 @@
 import Foundation
 
-struct SubAgentDefinition: Equatable, Sendable {
-    enum ToolPolicy: Equatable, Sendable {
+struct SubAgentDefinition: Equatable {
+    enum ToolPolicy: Equatable {
         case all
         case readOnly
         case custom(Set<String>)

@@ -1,14 +1,14 @@
 import Foundation
 
 actor SubAgentTaskStore {
-    enum Status: String, Codable, Sendable {
+    enum Status: String, Codable {
         case running
         case completed
         case failed
         case cancelled
     }
 
-    struct TaskRecord: Codable, Sendable, Equatable {
+    struct TaskRecord: Codable, Equatable {
         let id: String
         let agentType: String
         let description: String
