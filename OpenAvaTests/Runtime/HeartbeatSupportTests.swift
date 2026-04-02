@@ -37,6 +37,7 @@ final class HeartbeatSupportTests: XCTestCase {
             ---
             every: 45m
             active_hours: 09:00-12:00, 14:00-18:00
+            notify: silent
             ---
             - Check reminders
             """
@@ -45,6 +46,7 @@ final class HeartbeatSupportTests: XCTestCase {
         XCTAssertEqual(parsed.instructions, "- Check reminders")
         XCTAssertEqual(parsed.configuration.interval, 45 * 60)
         XCTAssertEqual(parsed.configuration.activeHours.count, 2)
+        XCTAssertEqual(parsed.configuration.notify, .silent)
     }
 
     func testParseDocumentWithoutFrontMatterUsesDefaults() {
@@ -53,6 +55,20 @@ final class HeartbeatSupportTests: XCTestCase {
         XCTAssertEqual(parsed.instructions, "- Check reminders")
         XCTAssertEqual(parsed.configuration.interval, HeartbeatSupport.defaultInterval)
         XCTAssertTrue(parsed.configuration.activeHours.isEmpty)
+        XCTAssertEqual(parsed.configuration.notify, .always)
+    }
+
+    func testParseDocumentSupportsAlwaysNotifyMode() {
+        let parsed = HeartbeatSupport.parseDocument(
+            """
+            ---
+            notify: always
+            ---
+            - Check reminders
+            """
+        )
+
+        XCTAssertEqual(parsed.configuration.notify, .always)
     }
 
     func testActiveHoursDetectOvernightWindow() {

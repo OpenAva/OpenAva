@@ -7,10 +7,20 @@ enum HeartbeatSupport {
     }
 
     struct Configuration: Equatable {
+        enum NotificationMode: String, Equatable {
+            case silent
+            case always
+        }
+
         var interval: TimeInterval
         var activeHours: [ActiveHourRange]
+        var notify: NotificationMode
 
-        static let `default` = Configuration(interval: HeartbeatSupport.defaultInterval, activeHours: [])
+        static let `default` = Configuration(
+            interval: HeartbeatSupport.defaultInterval,
+            activeHours: [],
+            notify: .always
+        )
 
         func isActive(at date: Date, calendar: Calendar = .current) -> Bool {
             guard !activeHours.isEmpty else { return true }
@@ -207,7 +217,25 @@ enum HeartbeatSupport {
             configuration.activeHours = parseActiveHours(activeHoursValue)
         }
 
+        if let notifyValue = frontMatter["notify"] ?? frontMatter["heartbeat_notify"],
+           let notifyMode = parseNotificationMode(notifyValue)
+        {
+            configuration.notify = notifyMode
+        }
+
         return configuration
+    }
+
+    private static func parseNotificationMode(_ rawValue: String) -> Configuration.NotificationMode? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch value {
+        case Configuration.NotificationMode.silent.rawValue:
+            return .silent
+        case Configuration.NotificationMode.always.rawValue:
+            return .always
+        default:
+            return nil
+        }
     }
 
     private static func parseInterval(_ rawValue: String) -> TimeInterval? {

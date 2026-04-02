@@ -36,6 +36,7 @@ final class HeartbeatService {
 
     private struct RunResult {
         let notificationBody: String?
+        let shouldNotify: Bool
     }
 
     private static let logger = Logger(subsystem: "com.day1-labs.openava", category: "runtime.heartbeat")
@@ -166,9 +167,15 @@ final class HeartbeatService {
         let runStartedAt = Date().timeIntervalSince1970
 
         do {
-            let result = try await executeHeartbeat(configuration, heartbeatMarkdown: parsedDocument.instructions)
+            let result = try await executeHeartbeat(
+                configuration,
+                heartbeatMarkdown: parsedDocument.instructions,
+                notificationMode: parsedDocument.configuration.notify
+            )
             persistState(.init(lastCheckAt: runStartedAt), for: configuration.runtimeRootURL)
-            guard let notificationBody = result.notificationBody else {
+            guard result.shouldNotify,
+                  let notificationBody = result.notificationBody
+            else {
                 return true
             }
             try await postNotification(agentName: configuration.agentName, agentEmoji: configuration.agentEmoji, body: notificationBody)
@@ -182,7 +189,8 @@ final class HeartbeatService {
 
     private func executeHeartbeat(
         _ configuration: HeartbeatRuntimeConfiguration,
-        heartbeatMarkdown: String
+        heartbeatMarkdown: String,
+        notificationMode: HeartbeatSupport.Configuration.NotificationMode
     ) async throws -> RunResult {
         let conversationID = HeartbeatSupport.conversationID(for: configuration.agentID)
         let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
@@ -254,13 +262,13 @@ final class HeartbeatService {
             Self.logger.error("heartbeat session failed: \(errorDescription ?? "unknown", privacy: .public)")
             persistMessages(latestMessages, for: conversationID, storageProvider: storageProvider)
             ConversationSessionManager.shared.removeSession(for: conversationID)
-            return RunResult(notificationBody: nil)
+            return RunResult(notificationBody: nil, shouldNotify: false)
 
         case let .interrupted(reason):
             Self.logger.debug("heartbeat session interrupted: \(reason, privacy: .public)")
             persistMessages(latestMessages, for: conversationID, storageProvider: storageProvider)
             ConversationSessionManager.shared.removeSession(for: conversationID)
-            return RunResult(notificationBody: nil)
+            return RunResult(notificationBody: nil, shouldNotify: false)
 
         case .success, .none:
             break
@@ -269,17 +277,20 @@ final class HeartbeatService {
         if HeartbeatSupport.shouldSuppressAssistantMessage(latestAssistantText) {
             replaceConversation(conversationID: conversationID, with: baselineMessages, storageProvider: storageProvider)
             ConversationSessionManager.shared.removeSession(for: conversationID)
-            return RunResult(notificationBody: nil)
+            return RunResult(notificationBody: nil, shouldNotify: false)
         }
 
         persistMessages(latestMessages, for: conversationID, storageProvider: storageProvider)
         ConversationSessionManager.shared.removeSession(for: conversationID)
 
         guard !latestAssistantText.isEmpty else {
-            return RunResult(notificationBody: nil)
+            return RunResult(notificationBody: nil, shouldNotify: false)
         }
 
-        return RunResult(notificationBody: String(latestAssistantText.prefix(240)))
+        return RunResult(
+            notificationBody: String(latestAssistantText.prefix(240)),
+            shouldNotify: notificationMode == .always
+        )
     }
 
     private func replaceConversation(
