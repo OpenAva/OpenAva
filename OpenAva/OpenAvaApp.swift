@@ -100,6 +100,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
         #if targetEnvironment(macCatalyst)
             CatalystWindowCoordinator.shared.install()
+            RemoteControlService.shared.startIfNeeded()
         #endif
 
         return true

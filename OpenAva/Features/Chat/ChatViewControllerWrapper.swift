@@ -78,6 +78,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case openContext
         case openCron
         case openSkills
+        case openRemoteControl
         case runHeartbeatNow
     }
 
@@ -833,6 +834,12 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onMenuAction?(.openCron)
             }
+            let remoteControlAction = UIAction(
+                title: L10n.tr("settings.remoteControl.navigationTitle"),
+                image: UIImage(systemName: "dot.radiowaves.left.and.right")
+            ) { [weak self] _ in
+                self?.onMenuAction?(.openRemoteControl)
+            }
             let heartbeatAction = UIAction(
                 title: "Run Heartbeat Now",
                 image: UIImage(systemName: "bolt.heart")
@@ -884,6 +891,7 @@ extension ChatViewControllerWrapper {
                     skillsAction,
                     contextAction,
                     cronAction,
+                    remoteControlAction,
                     heartbeatAction,
                 ]
             )

@@ -3,6 +3,7 @@ import Foundation
 public enum OpenClawBonjour {
     // v0: internal-only, subject to rename.
     public static let gatewayServiceType = "_openava-gw._tcp"
+    public static let localControlServiceType = "_openava-rc._tcp"
     public static let gatewayServiceDomain = "local."
     public static var wideAreaGatewayServiceDomain: String? {
         let env = ProcessInfo.processInfo.environment

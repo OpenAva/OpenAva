@@ -35,6 +35,7 @@ struct ChatRootView: View {
         case context
         case cron
         case skills
+        case remoteControl
     }
 
     var body: some View {
@@ -89,6 +90,9 @@ struct ChatRootView: View {
         }
         .onAppear {
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
+            RemoteControlCoordinator.shared.bind(containerStore: containerStore) { sessionKey in
+                handleSessionSwitch(sessionKey)
+            }
             presentOnboardingIfNeeded()
             restoreAgentScopedState(for: containerStore.activeAgent?.id)
             refreshSessions()
@@ -220,12 +224,26 @@ struct ChatRootView: View {
         currentSessionKey = resolvedSessionKey
         currentSessionKeyByAgentKey[agentKey] = resolvedSessionKey
         persistSelectedSessionKey(resolvedSessionKey, for: activeAgent.id)
+        RemoteControlCoordinator.shared.refresh(
+            activeAgentID: activeAgent.id,
+            activeSessionKey: resolvedSessionKey,
+            defaultSessionKey: resolvedDefaultSessionKey,
+            sessions: loadedSessions,
+            runtimeRootURL: runtimeRootURL
+        )
     }
 
     private func handleSessionSwitch(_ sessionKey: String) {
         currentSessionKey = sessionKey
         currentSessionKeyByAgentKey[currentAgentScopeKey] = sessionKey
         persistSelectedSessionKey(sessionKey, for: containerStore.activeAgent?.id)
+        RemoteControlCoordinator.shared.refresh(
+            activeAgentID: containerStore.activeAgent?.id,
+            activeSessionKey: sessionKey,
+            defaultSessionKey: resolvedDefaultSessionKey,
+            sessions: sessions,
+            runtimeRootURL: containerStore.activeAgent?.runtimeURL
+        )
     }
 
     private func handleAgentSwitch(_ agentID: UUID) {
@@ -378,6 +396,8 @@ struct ChatRootView: View {
                 .cron
             case .openSkills:
                 .skills
+            case .openRemoteControl:
+                .remoteControl
             case .runHeartbeatNow:
                 .llm
             }
@@ -393,6 +413,8 @@ struct ChatRootView: View {
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
                 destinationPath.append(MenuDestination.skills)
+            case .openRemoteControl:
+                destinationPath.append(MenuDestination.remoteControl)
             case .runHeartbeatNow:
                 break
             }
@@ -431,6 +453,9 @@ struct ChatRootView: View {
             case .skills:
                 SkillListView()
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
+            case .remoteControl:
+                RemoteControlSettingsView()
+                    .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
             }
         }
         // Re-enable nav bar on pushed pages for standard back navigation.

@@ -18,6 +18,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_openava-gw._tcp</string>
+		<string>_openava-rc._tcp</string>
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
@@ -36,7 +37,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>OpenAva uses contacts access to run local contact tools for your agent.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>OpenAva uses the local network to discover and connect to nearby OpenClaw gateways.</string>
+	<string>OpenAva uses the local network to discover nearby OpenAva devices and OpenClaw gateways.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>OpenAva can use location in the background when always-on location tools are enabled.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

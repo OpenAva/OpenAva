@@ -11,6 +11,7 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
     case skills
     case context
     case cron
+    case remoteControl
 
     var id: String {
         rawValue
@@ -26,6 +27,8 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
             L10n.tr("settings.context.navigationTitle")
         case .cron:
             L10n.tr("settings.cron.navigationTitle")
+        case .remoteControl:
+            L10n.tr("settings.remoteControl.navigationTitle")
         }
     }
 }
@@ -75,6 +78,8 @@ struct SettingsWindowRootView: View {
             ContextSettingsView()
         case .cron:
             CronListView()
+        case .remoteControl:
+            RemoteControlSettingsView()
         }
     }
 }
