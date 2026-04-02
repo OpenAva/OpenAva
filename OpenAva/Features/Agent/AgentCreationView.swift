@@ -155,6 +155,44 @@ struct AgentCreationView: View {
                 }
             }
 
+            if !viewModel.defaultTeamPresets.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(L10n.tr("agent.creation.team.description"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        teamPresetPicker
+
+                        Button {
+                            Task {
+                                await createDefaultTeam()
+                            }
+                        } label: {
+                            Text(L10n.tr("agent.creation.team.create"))
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    (viewModel.canCreateDefaultTeam && !viewModel.isCreating)
+                                        ? Color.accentColor
+                                        : Color(uiColor: .tertiarySystemFill)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!viewModel.canCreateDefaultTeam || viewModel.isCreating)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text(L10n.tr("agent.creation.team.header"))
+                } footer: {
+                    Text(L10n.tr("agent.creation.team.footer"))
+                }
+            }
+
             Section {
                 HStack {
                     TextField(L10n.tr("common.name"), text: $viewModel.data.agentName, prompt: Text(L10n.tr("agent.creation.agentName.placeholder")))
@@ -328,6 +366,15 @@ struct AgentCreationView: View {
         }
     }
 
+    private func createDefaultTeam() async {
+        do {
+            try await viewModel.createDefaultTeam(containerStore: containerStore)
+            onComplete()
+        } catch {
+            viewModel.errorText = error.localizedDescription
+        }
+    }
+
     private var emojiPickerGrid: some View {
         // Keep a simple local picker to avoid adding new dependencies.
         ScrollView {
@@ -397,6 +444,39 @@ struct AgentCreationView: View {
                 .stroke(borderColor, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var teamPresetPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(viewModel.defaultTeamPresets, id: \.id) { preset in
+                    let isSelected = viewModel.containsDefaultTeamPreset(preset)
+
+                    Button {
+                        viewModel.toggleDefaultTeamPreset(preset)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                            Text(displayEmoji(for: preset))
+                            Text(preset.title)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            isSelected ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 1)
+            .padding(.horizontal, 2)
+        }
     }
 
     private func displayEmoji(for preset: AgentPreset) -> String {

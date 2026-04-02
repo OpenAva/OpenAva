@@ -11,6 +11,7 @@ final class AgentCreationViewModel {
     var errorText: String?
     var emojiNoticeText: String?
     var selectedPresetID: String?
+    var selectedDefaultTeamPresetIDs = Set(AgentPresetCatalog.defaultTeamPresetIDs)
     private let defaults: UserDefaults
     let presets: [AgentPreset]
 
@@ -87,6 +88,18 @@ final class AgentCreationViewModel {
             !data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var defaultTeamPresets: [AgentPreset] {
+        AgentPresetCatalog.defaultTeamPresets(in: presets)
+    }
+
+    var selectedDefaultTeamPresets: [AgentPreset] {
+        defaultTeamPresets.filter { selectedDefaultTeamPresetIDs.contains($0.id) }
+    }
+
+    var canCreateDefaultTeam: Bool {
+        canProceedFromUserInfo && !selectedDefaultTeamPresets.isEmpty
+    }
+
     // MARK: - Navigation
 
     func goToNextStep(avoiding usedEmojis: Set<String>) {
@@ -138,6 +151,18 @@ final class AgentCreationViewModel {
 
     func containsTruthOption(_ option: String) -> Bool {
         truthLines.contains(option)
+    }
+
+    func toggleDefaultTeamPreset(_ preset: AgentPreset) {
+        if selectedDefaultTeamPresetIDs.contains(preset.id) {
+            selectedDefaultTeamPresetIDs.remove(preset.id)
+        } else {
+            selectedDefaultTeamPresetIDs.insert(preset.id)
+        }
+    }
+
+    func containsDefaultTeamPreset(_ preset: AgentPreset) -> Bool {
+        selectedDefaultTeamPresetIDs.contains(preset.id)
     }
 
     /// Randomly picks an emoji and avoids existing agents when possible.
@@ -192,6 +217,28 @@ final class AgentCreationViewModel {
             name: data.agentName,
             emoji: data.agentEmoji,
             vibe: data.agentVibe
+        )
+
+        AgentUserInfoDefaults.save(
+            callName: data.userCallName,
+            context: data.userContext,
+            defaults: defaults
+        )
+    }
+
+    func createDefaultTeam(containerStore: AppContainerStore) async throws {
+        errorText = nil
+        emojiNoticeText = nil
+        isCreating = true
+        defer { isCreating = false }
+
+        let presets = selectedDefaultTeamPresets
+        guard !presets.isEmpty else { return }
+
+        _ = try containerStore.createAgents(
+            from: presets,
+            callName: data.userCallName,
+            context: data.userContext
         )
 
         AgentUserInfoDefaults.save(

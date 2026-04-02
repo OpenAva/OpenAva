@@ -6,12 +6,23 @@ final class AgentPresetCatalogTests: XCTestCase {
         let presets = AgentPresetCatalog.builtInPresets()
         let ids = Set(presets.map(\.id))
 
-        XCTAssertTrue(ids.contains("general"))
-        XCTAssertTrue(ids.contains("coding"))
-        XCTAssertTrue(ids.contains("writing"))
-        XCTAssertTrue(ids.contains("research"))
+        XCTAssertTrue(ids.contains("marketing"))
+        XCTAssertTrue(ids.contains("sales"))
+        XCTAssertTrue(ids.contains("support"))
+        XCTAssertTrue(ids.contains("hr"))
+        XCTAssertTrue(ids.contains("finance"))
+        XCTAssertTrue(ids.contains("legal"))
+        XCTAssertTrue(ids.contains("design"))
         XCTAssertTrue(ids.contains("product"))
-        XCTAssertTrue(ids.contains("meeting"))
+        XCTAssertTrue(ids.contains("engineering"))
+        XCTAssertTrue(ids.contains("operations"))
+    }
+
+    func testDefaultTeamPresetsFollowDefaultTeamOrder() {
+        let presets = AgentPresetCatalog.builtInPresets()
+        let teamPresets = AgentPresetCatalog.defaultTeamPresets(in: presets)
+
+        XCTAssertEqual(teamPresets.map(\.id), AgentPresetCatalog.defaultTeamPresetIDs)
     }
 
     func testLoadMergesExternalPresetsAndOverridesDuplicates() throws {
@@ -21,10 +32,10 @@ final class AgentPresetCatalogTests: XCTestCase {
 
         let externalPresets = [
             AgentPreset(
-                id: "coding",
-                title: "Custom Coding",
-                subtitle: "Custom coding subtitle",
-                agentName: "Custom Coding Agent",
+                id: "marketing",
+                title: "Custom Marketing",
+                subtitle: "Custom marketing subtitle",
+                agentName: "Custom Marketing Agent",
                 agentEmoji: "🧪",
                 agentVibe: "Direct",
                 soulCoreTruths: "Test quickly"
@@ -47,9 +58,9 @@ final class AgentPresetCatalogTests: XCTestCase {
             AgentPresetCatalog.environmentPathKey: tempURL.path,
         ])
 
-        let coding = try XCTUnwrap(loaded.first(where: { $0.id == "coding" }))
-        XCTAssertEqual(coding.title, "Custom Coding")
-        XCTAssertEqual(coding.agentEmoji, "🧪")
+        let marketing = try XCTUnwrap(loaded.first(where: { $0.id == "marketing" }))
+        XCTAssertEqual(marketing.title, "Custom Marketing")
+        XCTAssertEqual(marketing.agentEmoji, "🧪")
 
         let ops = loaded.first(where: { $0.id == "ops" })
         XCTAssertNotNil(ops)
