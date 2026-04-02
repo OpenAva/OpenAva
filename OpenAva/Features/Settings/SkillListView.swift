@@ -530,7 +530,7 @@ struct SkillListView: View {
     private func updateSkillEnabledState(for skill: SkillListItem, isEnabled: Bool) {
         AgentSkillToggleStore.setEnabled(
             isEnabled,
-            for: skill.record,
+            for: skill.definition,
             workspaceRootURL: containerStore.activeAgentWorkspaceURL
         )
 
@@ -563,6 +563,8 @@ struct SkillListView: View {
     private static let defaultSkillTemplate = """
     ---
     description: Briefly describe what this skill does.
+    user-invocable: true
+    context: inline
     metadata:
       emoji: 🧩
     ---
@@ -637,8 +639,8 @@ private struct SkillListItem: Identifiable, Equatable {
         source == "workspace"
     }
 
-    var record: AgentSkillsLoader.SkillRecord {
-        AgentSkillsLoader.SkillRecord(
+    var definition: AgentSkillsLoader.SkillDefinition {
+        AgentSkillsLoader.SkillDefinition(
             name: name,
             displayName: displayName,
             path: path,

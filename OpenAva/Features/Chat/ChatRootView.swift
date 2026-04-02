@@ -176,7 +176,7 @@ struct ChatRootView: View {
             for: currentSessionKey ?? resolvedDefaultSessionKey,
             agentID: activeAgentID
         )
-        guard let request = SkillInvocationService.dequeuePendingAutoSend(
+        guard let request = SkillLaunchService.dequeuePendingAutoSend(
             for: activeAgentID,
             activeConversationID: activeConversationID
         ),

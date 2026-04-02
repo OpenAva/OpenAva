@@ -242,7 +242,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         // Quick skills follow the available skill order directly.
         let availableSkills = AgentSkillsLoader
-            .listSkills(filterUnavailable: true, workspaceRootURL: workspaceRootURL)
+            .listSkills(filterUnavailable: true, visibility: .userInvocable, workspaceRootURL: workspaceRootURL)
 
         // Return all available skills without limit
         return availableSkills.map { skill in
@@ -250,7 +250,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                 id: "skill-\(quickSettingSafeID(skill.name))",
                 title: skill.displayName,
                 icon: skill.emoji ?? "asterisk",
-                prompt: L10n.tr("chat.quickSkill.prompt", skill.displayName),
+                prompt: SkillLaunchService.makeInvocationMessage(skillName: skill.name, task: nil),
                 autoSubmit: false
             )
         }

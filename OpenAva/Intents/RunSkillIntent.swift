@@ -32,6 +32,7 @@ struct RunSkillIntent: AppIntent {
         }
         let availableSkills = AgentSkillsLoader.listSkills(
             filterUnavailable: true,
+            visibility: .userInvocable,
             workspaceRootURL: container.config.agent.workspaceRootURL
         )
         let resolvedSkill = availableSkills.first(where: { $0.name == normalizedSkill })
@@ -40,14 +41,15 @@ struct RunSkillIntent: AppIntent {
             throw SkillInvocationError.skillNotFound(normalizedSkill)
         }
 
-        // Build message identical to what a user would type manually.
-        let message = SkillInvocationService.makeSkillRequestMessage(
-            skillName: resolvedSkill.displayName,
+        // Build a structured invocation block so the runtime can treat this as
+        // an explicit skill request instead of a best-effort natural-language hint.
+        let message = SkillLaunchService.makeInvocationMessage(
+            skillName: resolvedSkill.name,
             task: normalizedTask.isEmpty ? nil : normalizedTask
         )
 
         // Enqueue for auto-send via the chat UI (same agentic loop as manual input).
-        await SkillInvocationService.enqueueAutoSend(message: message)
+        await SkillLaunchService.enqueueAutoSend(message: message)
 
         return .result(value: L10n.tr("intent.runSkill.triggeredFallback", resolvedSkill.displayName))
     }
@@ -93,7 +95,7 @@ struct SkillNameOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> [String] {
         let workspaceRoot = AgentStore.load().activeAgent?.workspaceURL
         return AgentSkillsLoader
-            .listSkills(filterUnavailable: true, workspaceRootURL: workspaceRoot)
+            .listSkills(filterUnavailable: true, visibility: .userInvocable, workspaceRootURL: workspaceRoot)
             .map { skill in
                 if let emoji = skill.emoji {
                     return "\(emoji) \(skill.displayName)"
@@ -103,7 +105,7 @@ struct SkillNameOptionsProvider: DynamicOptionsProvider {
     }
 }
 
-enum SkillInvocationService {
+enum SkillLaunchService {
     static func handleDeepLink(url: URL, container _: AppContainer) async {
         guard let route = DeepLinkParser.parse(url) else { return }
         guard case let .agent(link) = route else { return }
@@ -178,24 +180,26 @@ enum SkillInvocationService {
         return request
     }
 
-    static func makeSkillRequestMessage(skillName: String, task: String?) -> String {
-        var lines = [
-            L10n.tr("intent.runSkill.request.useSkill", skillName),
-            L10n.tr("intent.runSkill.request.unavailableHint"),
-        ]
-
-        if let task = nonEmpty(task) {
-            lines.append(L10n.tr("intent.runSkill.request.task", task))
-        } else {
-            lines.append(L10n.tr("intent.runSkill.request.defaultTask"))
-        }
-
-        return lines.joined(separator: "\n\n")
+    static func makeInvocationMessage(skillName: String, task: String?) -> String {
+        let resolvedTask = nonEmpty(task) ?? L10n.tr("intent.runSkill.request.defaultTask")
+        return [
+            "<openava-skill-invocation>",
+            "<skill>\(escapeXML(skillName))</skill>",
+            "<task>\(escapeXML(resolvedTask))</task>",
+            "</openava-skill-invocation>",
+        ].joined(separator: "\n")
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
         let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func escapeXML(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private static func loadPendingQueue() -> [PendingAutoSendRequest] {

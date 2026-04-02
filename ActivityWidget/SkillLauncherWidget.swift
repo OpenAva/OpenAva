@@ -137,6 +137,9 @@ struct SkillLauncherWidgetIntent: WidgetConfigurationIntent {
             guard let normalizedSkill = Self.nonEmpty(skill) else {
                 continue
             }
+            guard SkillLauncherSkillCatalog.isUserInvocable(normalizedSkill) else {
+                continue
+            }
 
             actions.append(
                 SkillWidgetAction(
@@ -198,22 +201,24 @@ private struct SkillWidgetAction: Identifiable {
             URLQueryItem(name: "thinking", value: "low"),
             URLQueryItem(name: "message", value: message),
         ]
-        return components.url ?? URL(string: "openava://agent?message=run%20skill")!
+        return components.url ?? URL(string: "openava://agent?message=%3Copenava-skill-invocation%3E%0A%3Cskill%3Eskill%3C%2Fskill%3E%0A%3Ctask%3ERun%20a%20minimal%20example.%3C%2Ftask%3E%0A%3C%2Fopenava-skill-invocation%3E")!
     }
 
     private var message: String {
-        var lines = [
-            "请使用技能 \"\(skill)\" 执行下面任务。",
-            "如果该技能不可用，请给出最接近的可用技能并继续完成任务。",
-        ]
+        let resolvedTask = task ?? "执行一个最小可行示例，并简要说明结果。"
+        return [
+            "<openava-skill-invocation>",
+            "<skill>\(escapeXML(skill))</skill>",
+            "<task>\(escapeXML(resolvedTask))</task>",
+            "</openava-skill-invocation>",
+        ].joined(separator: "\n")
+    }
 
-        if let task {
-            lines.append("任务：\(task)")
-        } else {
-            lines.append("任务：执行一个最小可行示例，并简要说明结果。")
-        }
-
-        return lines.joined(separator: "\n\n")
+    private func escapeXML(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
 
@@ -221,6 +226,7 @@ private enum SkillLauncherSkillCatalog {
     private struct SkillMetadata {
         let title: String?
         let emoji: String?
+        let userInvocable: Bool
     }
 
     private static let skillFileName = "SKILL.md"
@@ -284,7 +290,7 @@ private enum SkillLauncherSkillCatalog {
                 }
 
                 let name = entry.lastPathComponent
-                if !names.contains(name) {
+                if isUserInvocableSkill(at: skillPath), !names.contains(name) {
                     names.append(name)
                 }
             }
@@ -319,6 +325,10 @@ private enum SkillLauncherSkillCatalog {
 
     static func emoji(for skill: String) -> String? {
         discoveredSkills()[skill]?.emoji
+    }
+
+    static func isUserInvocable(_ skill: String) -> Bool {
+        discoveredSkills()[skill]?.userInvocable ?? false
     }
 
     static func iconName(for skill: String) -> String {
@@ -362,7 +372,7 @@ private enum SkillLauncherSkillCatalog {
 
     private static func metadata(at url: URL, fallbackName: String) -> SkillMetadata {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-            return SkillMetadata(title: nil, emoji: nil)
+            return SkillMetadata(title: nil, emoji: nil, userInvocable: true)
         }
 
         let frontmatter = parseFrontmatter(content)
@@ -371,7 +381,13 @@ private enum SkillLauncherSkillCatalog {
             ?? (declaredName?.localizedCaseInsensitiveCompare(fallbackName) == .orderedSame ? nil : declaredName)
             ?? titleMappings[fallbackName]
         let emoji = nonEmpty(frontmatter["metadata.emoji"]) ?? nonEmpty(frontmatter["emoji"])
-        return SkillMetadata(title: title, emoji: emoji)
+        let userInvocable = parseBoolean(frontmatter["user-invocable"]) ?? true
+        return SkillMetadata(title: title, emoji: emoji, userInvocable: userInvocable)
+    }
+
+    private static func isUserInvocableSkill(at url: URL) -> Bool {
+        let metadata = metadata(at: url, fallbackName: url.deletingLastPathComponent().lastPathComponent)
+        return metadata.userInvocable
     }
 
     private static func parseFrontmatter(_ content: String) -> [String: String] {
@@ -496,6 +512,21 @@ private enum SkillLauncherSkillCatalog {
     private static func nonEmpty(_ value: String?) -> String? {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func parseBoolean(_ value: String?) -> Bool? {
+        guard let normalized = nonEmpty(value)?.lowercased() else {
+            return nil
+        }
+
+        switch normalized {
+        case "true", "1", "yes", "y", "on":
+            return true
+        case "false", "0", "no", "n", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func candidateDirectories(fileManager: FileManager) -> [URL] {

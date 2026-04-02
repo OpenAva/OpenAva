@@ -21,7 +21,6 @@ struct SubAgentDefinition: Equatable {
         "fs_list",
         "fs_find",
         "fs_grep",
-        "skill_load",
         "memory_history_search",
         "web_fetch",
         "web_search",

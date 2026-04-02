@@ -138,6 +138,7 @@ enum AgentContextLoader {
 
         // Build skills context from workspace and built-in skill directories.
         let skillCatalog = AgentSkillsLoader.buildSkillCatalog(
+            visibility: .modelInvocable,
             workspaceRootURL: rootDirectory,
             environment: environment,
             fileManager: fileManager

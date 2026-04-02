@@ -52,7 +52,7 @@ struct OpenAvaApp: App {
                 .onOpenURL { url in
                     let container = containerStore.container
                     Task {
-                        await SkillInvocationService.handleDeepLink(url: url, container: container)
+                        await SkillLaunchService.handleDeepLink(url: url, container: container)
                     }
                 }
         }

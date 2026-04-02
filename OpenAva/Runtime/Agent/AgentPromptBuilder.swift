@@ -26,7 +26,7 @@ enum AgentPromptBuilder {
     static func composeSystemPrompt(
         baseSystemPrompt: String?,
         context: AgentContextLoader.LoadedContext?,
-        skillCatalog: [AgentSkillsLoader.SkillRecord] = [],
+        skillCatalog: [AgentSkillsLoader.SkillDefinition] = [],
         memoryContext: String? = nil,
         rootDirectory: URL?
     ) -> String {
@@ -105,14 +105,29 @@ enum AgentPromptBuilder {
     }
 
     /// Returns nil when no skills are available so the section is omitted entirely.
-    private static func buildSkillsSection(skillCatalog: [AgentSkillsLoader.SkillRecord]) -> PromptSection? {
+    private static func buildSkillsSection(skillCatalog: [AgentSkillsLoader.SkillDefinition]) -> PromptSection? {
         guard !skillCatalog.isEmpty else { return nil }
 
         var blocks = [
             """
-            Skills are optional markdown playbooks.
-            Load a skill only when it clearly matches the current task; do not preload every skill.
-            Use `skill_load` with the skill `id` from the catalog below when you need full skill content.
+            When users ask you to perform tasks, check whether any available skill matches. Skills provide specialized capabilities and domain knowledge.
+
+            How to invoke skills:
+            - Use `skill_invoke` with the exact skill `name` from the catalog below.
+            - Pass the user request or concrete task in `task` when it helps the skill execute correctly.
+
+            When the latest user message contains an explicit skill invocation block in this form:
+            <openava-skill-invocation>
+            <skill>skill-name</skill>
+            <task>...</task>
+            </openava-skill-invocation>
+            treat it as an authoritative user request and call `skill_invoke` with the exact skill name before doing any other work.
+
+            Important:
+            - Available skills are listed in the catalog below.
+            - When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke `skill_invoke` before generating any other response about the task.
+            - NEVER mention a skill without actually calling `skill_invoke`.
+            - Do not invoke a skill speculatively when no listed skill clearly matches the task.
             """,
         ]
 
@@ -256,7 +271,7 @@ enum AgentPromptBuilder {
         return PromptSection(title: "## Workspace Files (injected)", content: content)
     }
 
-    private static func formatSkillsCatalog(_ entries: [AgentSkillsLoader.SkillRecord]) -> String {
+    private static func formatSkillsCatalog(_ entries: [AgentSkillsLoader.SkillDefinition]) -> String {
         let availableEntries = entries.filter(\.available)
         var sections: [String] = []
 
@@ -274,9 +289,14 @@ enum AgentPromptBuilder {
                 let requires = (entry.requires ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: "\n", with: " ")
+                let whenToUse = (entry.whenToUse ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "\n", with: " ")
+                let allowedTools = entry.allowedTools.joined(separator: ", ")
+                let paths = entry.paths.joined(separator: ", ")
 
                 var block = [
-                    "<skill id=\(entry.name) source=\(entry.source)>",
+                    "<skill id=\(entry.name) source=\(entry.source) execution_context=\(entry.executionContext.rawValue)>",
                     "name: \(entry.displayName)",
                 ]
 
@@ -290,6 +310,26 @@ enum AgentPromptBuilder {
 
                 if !description.isEmpty {
                     block.append("description: \(description)")
+                }
+
+                if !whenToUse.isEmpty {
+                    block.append("when_to_use: \(whenToUse)")
+                }
+
+                if let agent = entry.agent, !agent.isEmpty {
+                    block.append("agent: \(agent)")
+                }
+
+                if let effort = entry.effort, !effort.isEmpty {
+                    block.append("effort: \(effort)")
+                }
+
+                if !allowedTools.isEmpty {
+                    block.append("allowed_tools: \(allowedTools)")
+                }
+
+                if !paths.isEmpty {
+                    block.append("paths: \(paths)")
                 }
 
                 block.append("</skill>")

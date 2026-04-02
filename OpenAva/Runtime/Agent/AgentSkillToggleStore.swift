@@ -4,7 +4,7 @@ enum AgentSkillToggleStore {
     private static let defaultsKey = "agent.skill.disabledRecords"
 
     static func isEnabled(
-        _ skill: AgentSkillsLoader.SkillRecord,
+        _ skill: AgentSkillsLoader.SkillDefinition,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
@@ -20,7 +20,7 @@ enum AgentSkillToggleStore {
 
     static func setEnabled(
         _ isEnabled: Bool,
-        for skill: AgentSkillsLoader.SkillRecord,
+        for skill: AgentSkillsLoader.SkillDefinition,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
@@ -78,7 +78,7 @@ enum AgentSkillToggleStore {
         return rootDirectory?.standardizedFileURL.path ?? "global"
     }
 
-    private static func skillIdentifier(for skill: AgentSkillsLoader.SkillRecord) -> String {
+    private static func skillIdentifier(for skill: AgentSkillsLoader.SkillDefinition) -> String {
         "\(skill.source)::\(skill.name)"
     }
 }

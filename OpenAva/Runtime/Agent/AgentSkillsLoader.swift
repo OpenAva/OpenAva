@@ -2,7 +2,18 @@ import Foundation
 
 /// Loads workspace and built-in skills using nanobot-style conventions.
 enum AgentSkillsLoader {
-    struct SkillRecord: Equatable {
+    enum SkillVisibility {
+        case all
+        case modelInvocable
+        case userInvocable
+    }
+
+    enum SkillExecutionContext: String {
+        case inline
+        case fork
+    }
+
+    struct SkillDefinition: Equatable {
         let name: String
         let displayName: String
         let path: String
@@ -11,6 +22,14 @@ enum AgentSkillsLoader {
         let description: String
         let emoji: String?
         let requires: String?
+        let whenToUse: String?
+        let userInvocable: Bool
+        let disableModelInvocation: Bool
+        let executionContext: SkillExecutionContext
+        let agent: String?
+        let effort: String?
+        let allowedTools: [String]
+        let paths: [String]
 
         init(
             name: String,
@@ -20,7 +39,15 @@ enum AgentSkillsLoader {
             available: Bool = true,
             description: String = "",
             emoji: String? = nil,
-            requires: String? = nil
+            requires: String? = nil,
+            whenToUse: String? = nil,
+            userInvocable: Bool = true,
+            disableModelInvocation: Bool = false,
+            executionContext: SkillExecutionContext = .inline,
+            agent: String? = nil,
+            effort: String? = nil,
+            allowedTools: [String] = [],
+            paths: [String] = []
         ) {
             self.name = name
             self.displayName = displayName
@@ -30,6 +57,14 @@ enum AgentSkillsLoader {
             self.description = description
             self.emoji = Self.normalizedEmoji(emoji)
             self.requires = requires
+            self.whenToUse = AppConfig.nonEmpty(whenToUse)
+            self.userInvocable = userInvocable
+            self.disableModelInvocation = disableModelInvocation
+            self.executionContext = executionContext
+            self.agent = AppConfig.nonEmpty(agent)
+            self.effort = AppConfig.nonEmpty(effort)
+            self.allowedTools = allowedTools
+            self.paths = paths
         }
 
         private static func normalizedEmoji(_ value: String?) -> String? {
@@ -51,12 +86,18 @@ enum AgentSkillsLoader {
     static func listSkills(
         filterUnavailable: Bool = true,
         includeDisabled: Bool = false,
+        visibility: SkillVisibility = .all,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         bundle: Bundle = .main
-    ) -> [SkillRecord] {
-        var skills: [SkillRecord] = []
+    ) -> [SkillDefinition] {
+        var skills: [SkillDefinition] = []
+        let resolvedWorkspaceRoot = AgentContextLoader.resolvedRootDirectory(
+            workspaceRootURL: workspaceRootURL,
+            environment: environment,
+            fileManager: fileManager
+        )
 
         if let workspaceDirectory = workspaceSkillsDirectory(
             workspaceRootURL: workspaceRootURL,
@@ -86,61 +127,52 @@ enum AgentSkillsLoader {
             }
         }
 
+        skills = skills.filter { shouldInclude($0, visibility: visibility) }
+
         guard filterUnavailable else {
             return skills
         }
 
         return skills.filter { skill in
-            let metadata = skillMetadata(for: skill)
-            return checkRequirements(skillMetadata: metadata.skillMetadata, environment: environment, fileManager: fileManager)
+            isSkillAvailable(
+                skill,
+                workspaceRootURL: resolvedWorkspaceRoot,
+                environment: environment,
+                fileManager: fileManager
+            )
         }
     }
 
-    static func loadSkill(
-        named name: String,
+    static func resolveSkill(
+        named requestedName: String,
+        visibility: SkillVisibility = .all,
+        filterUnavailable: Bool = true,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         bundle: Bundle = .main
-    ) -> String? {
+    ) -> SkillDefinition? {
         let allSkills = listSkills(
-            filterUnavailable: false,
+            filterUnavailable: filterUnavailable,
             includeDisabled: false,
+            visibility: visibility,
             workspaceRootURL: workspaceRootURL,
             environment: environment,
             fileManager: fileManager,
             bundle: bundle
         )
-        guard let match = resolveSkill(named: name, from: allSkills) else {
-            return nil
-        }
-        return readText(atPath: match.path)
+        return resolveSkillDefinition(named: requestedName, from: allSkills)
     }
 
-    static func loadSkill(
-        id: String,
-        workspaceRootURL: URL? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default,
-        bundle: Bundle = .main
-    ) -> String? {
-        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedID.isEmpty else {
-            return nil
-        }
+    static func rawSkillContent(for skill: SkillDefinition) -> String? {
+        readText(atPath: skill.path)
+    }
 
-        let allSkills = listSkills(
-            filterUnavailable: false,
-            includeDisabled: false,
-            workspaceRootURL: workspaceRootURL,
-            environment: environment,
-            fileManager: fileManager,
-            bundle: bundle
-        )
-        guard let match = allSkills.first(where: { $0.name == normalizedID }) else {
+    static func skillBody(for skill: SkillDefinition) -> String? {
+        guard let content = rawSkillContent(for: skill) else {
             return nil
         }
-        return readText(atPath: match.path)
+        return stripFrontmatter(content)
     }
 
     static func buildSkillsSummary(
@@ -182,24 +214,32 @@ enum AgentSkillsLoader {
     }
 
     static func buildSkillCatalog(
+        visibility: SkillVisibility = .all,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         bundle: Bundle = .main
-    ) -> [SkillRecord] {
+    ) -> [SkillDefinition] {
         let allSkills = listSkills(
             filterUnavailable: false,
             includeDisabled: false,
+            visibility: visibility,
             workspaceRootURL: workspaceRootURL,
             environment: environment,
             fileManager: fileManager,
             bundle: bundle
         )
+        let resolvedWorkspaceRoot = AgentContextLoader.resolvedRootDirectory(
+            workspaceRootURL: workspaceRootURL,
+            environment: environment,
+            fileManager: fileManager
+        )
         return allSkills.map { skill in
             let metadata = skillMetadata(for: skill)
             let description = skillDescription(name: skill.name, metadata: metadata.frontmatter)
-            let available = checkRequirements(
-                skillMetadata: metadata.skillMetadata,
+            let available = isSkillAvailable(
+                skill,
+                workspaceRootURL: resolvedWorkspaceRoot,
                 environment: environment,
                 fileManager: fileManager
             )
@@ -209,12 +249,14 @@ enum AgentSkillsLoader {
                 : AppConfig.nonEmpty(
                     missingRequirements(
                         skillMetadata: metadata.skillMetadata,
+                        skillPaths: skill.paths,
+                        workspaceRootURL: resolvedWorkspaceRoot,
                         environment: environment,
                         fileManager: fileManager
                     )
                 )
 
-            return SkillRecord(
+            return SkillDefinition(
                 name: skill.name,
                 displayName: skill.displayName,
                 path: skill.path,
@@ -222,7 +264,15 @@ enum AgentSkillsLoader {
                 available: available,
                 description: description,
                 emoji: skill.emoji,
-                requires: requires
+                requires: requires,
+                whenToUse: skill.whenToUse,
+                userInvocable: skill.userInvocable,
+                disableModelInvocation: skill.disableModelInvocation,
+                executionContext: skill.executionContext,
+                agent: skill.agent,
+                effort: skill.effort,
+                allowedTools: skill.allowedTools,
+                paths: skill.paths
             )
         }
     }
@@ -232,7 +282,7 @@ enum AgentSkillsLoader {
         let skillMetadata: [String: Any]
     }
 
-    private static func skillMetadata(for skill: SkillRecord) -> ParsedSkillMetadata {
+    private static func skillMetadata(for skill: SkillDefinition) -> ParsedSkillMetadata {
         guard let content = readText(atPath: skill.path) else {
             return ParsedSkillMetadata(frontmatter: [:], skillMetadata: [:])
         }
@@ -283,6 +333,8 @@ enum AgentSkillsLoader {
 
     private static func missingRequirements(
         skillMetadata: [String: Any],
+        skillPaths: [String],
+        workspaceRootURL: URL?,
         environment: [String: String],
         fileManager: FileManager
     ) -> String {
@@ -304,11 +356,73 @@ enum AgentSkillsLoader {
             }
         }
 
+        if !skillPaths.isEmpty,
+           !matchesPathRequirements(skillPaths, workspaceRootURL: workspaceRootURL, fileManager: fileManager)
+        {
+            let joined = skillPaths.joined(separator: ", ")
+            missing.append("PATHS: \(joined)")
+        }
+
         return missing.joined(separator: ", ")
     }
 
     private static func skillDescription(name: String, metadata: [String: String]) -> String {
         AppConfig.nonEmpty(metadata["description"]) ?? skillDisplayName(identifier: name, metadata: metadata)
+    }
+
+    private static func skillWhenToUse(metadata: [String: String], skillMetadata: [String: Any]) -> String? {
+        if let value = metadataString(anyOf: ["when_to_use", "whenToUse"], in: skillMetadata) {
+            return value
+        }
+        return AppConfig.nonEmpty(metadata["when_to_use"])
+    }
+
+    private static func skillUserInvocable(metadata: [String: String], skillMetadata: [String: Any]) -> Bool {
+        if let bool = metadataBool(anyOf: ["user-invocable", "user_invocable", "userInvocable"], in: skillMetadata) {
+            return bool
+        }
+        return parseBoolean(metadata["user-invocable"]) ?? true
+    }
+
+    private static func skillDisableModelInvocation(metadata: [String: String], skillMetadata: [String: Any]) -> Bool {
+        if let bool = metadataBool(anyOf: ["disable-model-invocation", "disable_model_invocation", "disableModelInvocation"], in: skillMetadata) {
+            return bool
+        }
+        return parseBoolean(metadata["disable-model-invocation"]) ?? false
+    }
+
+    private static func skillExecutionContext(metadata: [String: String], skillMetadata: [String: Any]) -> SkillExecutionContext {
+        let rawValue = metadataString(anyOf: ["context"], in: skillMetadata) ?? metadata["context"]
+        switch AppConfig.nonEmpty(rawValue)?.lowercased() {
+        case SkillExecutionContext.fork.rawValue:
+            return .fork
+        default:
+            return .inline
+        }
+    }
+
+    private static func skillAgent(metadata: [String: String], skillMetadata: [String: Any]) -> String? {
+        metadataString(anyOf: ["agent", "agent_type", "agentType"], in: skillMetadata) ?? AppConfig.nonEmpty(metadata["agent"])
+    }
+
+    private static func skillEffort(metadata: [String: String], skillMetadata: [String: Any]) -> String? {
+        metadataString(anyOf: ["effort"], in: skillMetadata) ?? AppConfig.nonEmpty(metadata["effort"])
+    }
+
+    private static func skillAllowedTools(metadata: [String: String], skillMetadata: [String: Any]) -> [String] {
+        let metadataValues = metadataArray(anyOf: ["allowed-tools", "allowed_tools", "allowedTools"], in: skillMetadata)
+        if !metadataValues.isEmpty {
+            return metadataValues
+        }
+        return frontmatterStringArray(from: metadata["allowed-tools"])
+    }
+
+    private static func skillPaths(metadata: [String: String], skillMetadata: [String: Any]) -> [String] {
+        let metadataValues = metadataArray(anyOf: ["paths"], in: skillMetadata)
+        if !metadataValues.isEmpty {
+            return metadataValues
+        }
+        return frontmatterStringArray(from: metadata["paths"])
     }
 
     private static func skillEmoji(metadata: [String: String], skillMetadata: [String: Any]) -> String? {
@@ -347,6 +461,36 @@ enum AgentSkillsLoader {
         return nil
     }
 
+    private static func metadataBool(anyOf keys: [String], in skillMetadata: [String: Any]) -> Bool? {
+        for key in keys {
+            if let value = skillMetadata[key] as? Bool {
+                return value
+            }
+            if let value = skillMetadata[key] as? String,
+               let parsed = parseBoolean(value)
+            {
+                return parsed
+            }
+        }
+        return nil
+    }
+
+    private static func metadataArray(anyOf keys: [String], in skillMetadata: [String: Any]) -> [String] {
+        for key in keys {
+            let values = stringArray(from: skillMetadata[key])
+            if !values.isEmpty {
+                return values
+            }
+            if let value = skillMetadata[key] as? String {
+                let parsed = frontmatterStringArray(from: value)
+                if !parsed.isEmpty {
+                    return parsed
+                }
+            }
+        }
+        return []
+    }
+
     private static func parseFrontmatter(_ content: String) -> [String: String] {
         let normalized = normalizedNewlines(content)
         guard let range = frontmatterRange(in: normalized) else {
@@ -382,38 +526,24 @@ enum AgentSkillsLoader {
             let rawValue = String(rawLine[valueStart...]).trimmingCharacters(in: .whitespaces)
             let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
 
-            if key == "metadata", value.isEmpty {
+            if value.isEmpty {
                 let metadataIndent = leadingWhitespaceCount(in: rawLine)
-                var blockLines: [String] = []
-                var scanIndex = index + 1
+                let (blockLines, scanIndex) = collectIndentedBlock(lines: lines, startIndex: index + 1, parentIndent: metadataIndent)
 
-                while scanIndex < lines.count {
-                    let candidate = lines[scanIndex]
-                    let trimmedCandidate = candidate.trimmingCharacters(in: .whitespaces)
+                if key == "metadata" {
+                    let metadataBlock = parseMetadataBlock(blockLines)
+                    if !metadataBlock.isEmpty {
+                        if let metadataJSONString = metadataJSONString(from: metadataBlock) {
+                            metadata["metadata"] = metadataJSONString
+                        }
 
-                    if trimmedCandidate.isEmpty {
-                        blockLines.append(candidate)
-                        scanIndex += 1
-                        continue
+                        for (nestedKey, nestedValue) in metadataBlock {
+                            metadata["metadata.\(nestedKey)"] = nestedValue
+                        }
                     }
 
-                    if leadingWhitespaceCount(in: candidate) <= metadataIndent {
-                        break
-                    }
-
-                    blockLines.append(candidate)
-                    scanIndex += 1
-                }
-
-                let metadataBlock = parseMetadataBlock(blockLines)
-                if !metadataBlock.isEmpty {
-                    if let metadataJSONString = metadataJSONString(from: metadataBlock) {
-                        metadata["metadata"] = metadataJSONString
-                    }
-
-                    for (nestedKey, nestedValue) in metadataBlock {
-                        metadata["metadata.\(nestedKey)"] = nestedValue
-                    }
+                } else if let blockValue = structuredFrontmatterValue(from: blockLines) {
+                    metadata[key] = blockValue
                 }
 
                 index = scanIndex
@@ -465,6 +595,46 @@ enum AgentSkillsLoader {
         }
 
         return parsed
+    }
+
+    private static func collectIndentedBlock(lines: [String], startIndex: Int, parentIndent: Int) -> ([String], Int) {
+        var blockLines: [String] = []
+        var scanIndex = startIndex
+
+        while scanIndex < lines.count {
+            let candidate = lines[scanIndex]
+            let trimmedCandidate = candidate.trimmingCharacters(in: .whitespaces)
+
+            if trimmedCandidate.isEmpty {
+                blockLines.append(candidate)
+                scanIndex += 1
+                continue
+            }
+
+            if leadingWhitespaceCount(in: candidate) <= parentIndent {
+                break
+            }
+
+            blockLines.append(candidate)
+            scanIndex += 1
+        }
+
+        return (blockLines, scanIndex)
+    }
+
+    private static func structuredFrontmatterValue(from lines: [String]) -> String? {
+        let values = lines.compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            if trimmed.hasPrefix("- ") {
+                return AppConfig.nonEmpty(String(trimmed.dropFirst(2)))
+            }
+            return AppConfig.nonEmpty(trimmed)
+        }
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.joined(separator: "\n")
     }
 
     private static func metadataJSONString(from values: [String: String]) -> String? {
@@ -586,7 +756,7 @@ enum AgentSkillsLoader {
         return nil
     }
 
-    private static func collectSkills(from directory: URL, source: String, fileManager: FileManager) -> [SkillRecord] {
+    private static func collectSkills(from directory: URL, source: String, fileManager: FileManager) -> [SkillDefinition] {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -596,7 +766,7 @@ enum AgentSkillsLoader {
             return []
         }
 
-        var skills: [SkillRecord] = []
+        var skills: [SkillDefinition] = []
 
         for entry in entries {
             var isDirectory: ObjCBool = false
@@ -620,21 +790,37 @@ enum AgentSkillsLoader {
 
             let description = skillDescription(name: identifier, metadata: frontmatter)
             let emoji = skillEmoji(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let whenToUse = skillWhenToUse(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let userInvocable = skillUserInvocable(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let disableModelInvocation = skillDisableModelInvocation(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let executionContext = skillExecutionContext(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let agent = skillAgent(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let effort = skillEffort(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let allowedTools = skillAllowedTools(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let paths = skillPaths(metadata: frontmatter, skillMetadata: parsedMetadata)
 
-            skills.append(SkillRecord(
+            skills.append(SkillDefinition(
                 name: identifier,
                 displayName: displayName,
                 path: skillPath.path,
                 source: source,
                 description: description,
-                emoji: emoji
+                emoji: emoji,
+                whenToUse: whenToUse,
+                userInvocable: userInvocable,
+                disableModelInvocation: disableModelInvocation,
+                executionContext: executionContext,
+                agent: agent,
+                effort: effort,
+                allowedTools: allowedTools,
+                paths: paths
             ))
         }
 
         return skills.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    private static func resolveSkill(named requestedName: String, from skills: [SkillRecord]) -> SkillRecord? {
+    private static func resolveSkillDefinition(named requestedName: String, from skills: [SkillDefinition]) -> SkillDefinition? {
         if let directMatch = skills.first(where: { $0.name == requestedName }) {
             return directMatch
         }
@@ -712,6 +898,176 @@ enum AgentSkillsLoader {
             }
         }
         return []
+    }
+
+    private static func shouldInclude(_ skill: SkillDefinition, visibility: SkillVisibility) -> Bool {
+        switch visibility {
+        case .all:
+            return true
+        case .modelInvocable:
+            return !skill.disableModelInvocation
+        case .userInvocable:
+            return skill.userInvocable
+        }
+    }
+
+    private static func isSkillAvailable(
+        _ skill: SkillDefinition,
+        workspaceRootURL: URL?,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> Bool {
+        let metadata = skillMetadata(for: skill)
+        guard checkRequirements(skillMetadata: metadata.skillMetadata, environment: environment, fileManager: fileManager) else {
+            return false
+        }
+        return matchesPathRequirements(skill.paths, workspaceRootURL: workspaceRootURL, fileManager: fileManager)
+    }
+
+    private static func frontmatterStringArray(from rawValue: String?) -> [String] {
+        guard let rawValue = AppConfig.nonEmpty(rawValue) else {
+            return []
+        }
+
+        let normalized = normalizedNewlines(rawValue)
+        if normalized.contains("\n") {
+            return normalized
+                .components(separatedBy: "\n")
+                .compactMap { line in
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return nil }
+                    if trimmed.hasPrefix("- ") {
+                        return AppConfig.nonEmpty(String(trimmed.dropFirst(2)))
+                    }
+                    return AppConfig.nonEmpty(trimmed)
+                }
+        }
+
+        if rawValue.contains(",") {
+            return rawValue
+                .split(separator: ",")
+                .compactMap { part in
+                    AppConfig.nonEmpty(String(part).trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+        }
+
+        return [rawValue]
+    }
+
+    private static func parseBoolean(_ rawValue: String?) -> Bool? {
+        guard let normalized = AppConfig.nonEmpty(rawValue)?.lowercased() else {
+            return nil
+        }
+
+        switch normalized {
+        case "true", "1", "yes", "y", "on":
+            return true
+        case "false", "0", "no", "n", "off":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private static func matchesPathRequirements(
+        _ skillPaths: [String],
+        workspaceRootURL: URL?,
+        fileManager: FileManager
+    ) -> Bool {
+        guard !skillPaths.isEmpty else {
+            return true
+        }
+        guard let workspaceRootURL else {
+            return false
+        }
+
+        let patterns = skillPaths.compactMap(globPatternToRegex)
+        guard !patterns.isEmpty else {
+            return false
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: workspaceRootURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+
+        while let candidate = enumerator.nextObject() as? URL {
+            guard let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey]),
+                  values.isRegularFile == true
+            else {
+                continue
+            }
+
+            let relativePath = candidate.path.replacingOccurrences(of: workspaceRootURL.path + "/", with: "")
+            if patterns.contains(where: { regex in
+                let range = NSRange(relativePath.startIndex ..< relativePath.endIndex, in: relativePath)
+                return regex.firstMatch(in: relativePath, options: [], range: range) != nil
+            }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func globPatternToRegex(_ pattern: String) -> NSRegularExpression? {
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        var regex = "^"
+        let characters = Array(trimmed)
+        var index = 0
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if character == "*" {
+                let nextIndex = index + 1
+                if nextIndex < characters.count, characters[nextIndex] == "*" {
+                    regex += ".*"
+                    index += 2
+                } else {
+                    regex += "[^/]*"
+                    index += 1
+                }
+                continue
+            }
+
+            if character == "?" {
+                regex += "."
+                index += 1
+                continue
+            }
+
+            if character == "{" {
+                var cursor = index + 1
+                var buffer = ""
+                while cursor < characters.count, characters[cursor] != "}" {
+                    buffer.append(characters[cursor])
+                    cursor += 1
+                }
+                if cursor < characters.count, !buffer.isEmpty {
+                    let alternatives = buffer
+                        .split(separator: ",")
+                        .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                        .joined(separator: "|")
+                    regex += "(?:\(alternatives))"
+                    index = cursor + 1
+                    continue
+                }
+            }
+
+            regex += NSRegularExpression.escapedPattern(for: String(character))
+            index += 1
+        }
+
+        regex += "$"
+        return try? NSRegularExpression(pattern: regex)
     }
 
     private static func commandExists(

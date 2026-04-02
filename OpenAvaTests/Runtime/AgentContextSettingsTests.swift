@@ -154,8 +154,8 @@ final class AgentContextSettingsTests: XCTestCase {
 
         XCTAssertNotNil(prompt)
         XCTAssertTrue(prompt?.contains("Available skills (") == true)
-        XCTAssertTrue(prompt?.contains("Use `skill_load` with the skill `id`") == true)
-        XCTAssertTrue(prompt?.contains("<skill id=alpha source=workspace>") == true)
+        XCTAssertTrue(prompt?.contains("BLOCKING REQUIREMENT: invoke `skill_invoke`") == true)
+        XCTAssertTrue(prompt?.contains("<skill id=alpha source=workspace execution_context=inline>") == true)
         XCTAssertTrue(prompt?.contains("description: Workspace alpha") == true)
         XCTAssertFalse(prompt?.contains("Always-loaded skills:") == true)
         XCTAssertFalse(prompt?.contains("# Workspace Alpha") == true)
@@ -180,7 +180,7 @@ final class AgentContextSettingsTests: XCTestCase {
     }
 
     func testPromptBuilderFormatsSkillsCatalogWithSkillIDsOnly() {
-        let catalog: [AgentSkillsLoader.SkillRecord] = [
+        let catalog: [AgentSkillsLoader.SkillDefinition] = [
             .init(name: "alpha", displayName: "Alpha Skill", path: "/tmp/alpha/SKILL.md", source: "workspace", available: true, description: "Do alpha work.", requires: nil),
             .init(name: "beta", displayName: "Beta Skill", path: "/tmp/beta/SKILL.md", source: "workspace", available: false, description: "Do beta work", requires: "ENV: BETA_TOKEN"),
         ]
@@ -195,7 +195,7 @@ final class AgentContextSettingsTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("Available skills (1):"))
         XCTAssertTrue(prompt.contains("<skills>"))
-        XCTAssertTrue(prompt.contains("<skill id=alpha source=workspace>"))
+        XCTAssertTrue(prompt.contains("<skill id=alpha source=workspace execution_context=inline>"))
         XCTAssertTrue(prompt.contains("name: Alpha Skill"))
         XCTAssertTrue(prompt.contains("description: Do alpha work."))
         XCTAssertFalse(prompt.contains("path: /tmp/alpha/SKILL.md"))
@@ -221,10 +221,10 @@ final class AgentContextSettingsTests: XCTestCase {
         """
         try content.write(to: alphaURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
 
-        let loaded = AgentSkillsLoader.loadSkill(id: "alpha", workspaceRootURL: rootURL)
-        XCTAssertEqual(loaded?.contains("# Alpha"), true)
+        let loaded = AgentSkillsLoader.resolveSkill(named: "alpha", workspaceRootURL: rootURL)
+        XCTAssertEqual(try AgentSkillsLoader.rawSkillContent(for: XCTUnwrap(loaded))?.contains("# Alpha"), true)
 
-        let notFound = AgentSkillsLoader.loadSkill(id: "Alpha Skill", workspaceRootURL: rootURL)
+        let notFound = AgentSkillsLoader.resolveSkill(named: "Alpha Skill", workspaceRootURL: rootURL)
         XCTAssertNil(notFound)
     }
 
