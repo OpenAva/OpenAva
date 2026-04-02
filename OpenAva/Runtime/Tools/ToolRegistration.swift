@@ -20,6 +20,7 @@ func registerAllTools() async {
     await registry.register(provider: ImageSearchService())
     await registry.register(provider: YouTubeTranscriptService())
     await registry.register(provider: WebViewService.shared)
+    await registry.register(provider: JavaScriptService())
     await registry.register(provider: TextImageRenderService())
 
     // Register file system tools

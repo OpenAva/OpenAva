@@ -2,6 +2,7 @@ import CoreLocation
 import Foundation
 import MemoryKit
 import OpenClawKit
+import OpenClawProtocol
 import UserNotifications
 
 private struct NotificationCallError: Error {
@@ -95,16 +96,18 @@ final class LocalToolInvokeService: @unchecked Sendable {
     private let imageSearchService: ImageSearchService
     private let youTubeTranscriptService: YouTubeTranscriptService
     private let webViewToolService: WebViewService
+    private let javaScriptService: JavaScriptService
     private let textImageRenderService: TextImageRenderService
     private let fileSystemService: FileSystemService
     private let workspaceRootURL: URL?
+    private let modelConfig: AppConfig.LLMModel?
     private let weatherService: WeatherService
     private let yahooFinanceService: YahooFinanceService
     private let aShareMarketService: AShareMarketService
 
     private lazy var capabilityRouter: NodeCapabilityRouter = self.buildCapabilityRouter()
 
-    static func makeDefault(workspaceRootURL: URL? = nil) -> LocalToolInvokeService {
+    static func makeDefault(workspaceRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolInvokeService {
         // Register all tools on first initialization
         Task { @MainActor in
             await registerAllTools()
@@ -134,11 +137,13 @@ final class LocalToolInvokeService: @unchecked Sendable {
             imageSearchService: ImageSearchService(),
             youTubeTranscriptService: YouTubeTranscriptService(),
             webViewToolService: WebViewService.shared,
+            javaScriptService: JavaScriptService(),
             textImageRenderService: TextImageRenderService(),
             fileSystemService: FileSystemService(
                 baseDirectoryURL: workspaceRootURL,
                 additionalReadableRootURLs: builtInSkillRoots
             ),
+            modelConfig: modelConfig,
             weatherService: WeatherService(),
             yahooFinanceService: YahooFinanceService(),
             aShareMarketService: AShareMarketService(),
@@ -167,8 +172,10 @@ final class LocalToolInvokeService: @unchecked Sendable {
         imageSearchService: ImageSearchService,
         youTubeTranscriptService: YouTubeTranscriptService,
         webViewToolService: WebViewService,
+        javaScriptService: JavaScriptService,
         textImageRenderService: TextImageRenderService,
         fileSystemService: FileSystemService,
+        modelConfig: AppConfig.LLMModel? = nil,
         weatherService: WeatherService = WeatherService(),
         yahooFinanceService: YahooFinanceService = YahooFinanceService(),
         aShareMarketService: AShareMarketService = AShareMarketService(),
@@ -194,9 +201,11 @@ final class LocalToolInvokeService: @unchecked Sendable {
         self.imageSearchService = imageSearchService
         self.youTubeTranscriptService = youTubeTranscriptService
         self.webViewToolService = webViewToolService
+        self.javaScriptService = javaScriptService
         self.textImageRenderService = textImageRenderService
         self.fileSystemService = fileSystemService
         self.workspaceRootURL = workspaceRootURL
+        self.modelConfig = modelConfig
         self.weatherService = weatherService
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
@@ -1098,6 +1107,68 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
     }
 
+    private func handleJavaScriptInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            let code: String
+            let input: AnyCodable?
+            let allowedTools: [String]?
+            let sessionID: String?
+            let timeoutMs: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case code
+                case input
+                case allowedTools = "allowed_tools"
+                case sessionID = "session_id"
+                case timeoutMs = "timeout_ms"
+            }
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        let sessionID = InvocationContext.sessionID
+        let allowedTools = JavaScriptService.normalizedAllowedTools(from: params.allowedTools)
+        let timeoutMs = JavaScriptService.clampedTimeoutMs(params.timeoutMs)
+
+        let payload = try await javaScriptService.execute(
+            request: .init(
+                code: params.code,
+                input: params.input,
+                allowedTools: allowedTools,
+                sessionID: params.sessionID,
+                timeoutMs: timeoutMs
+            )
+        ) { [weak self] functionName, argumentsJSON in
+            guard let self else {
+                return BridgeInvokeResponse(
+                    id: UUID().uuidString,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                )
+            }
+
+            guard let command = await ToolRegistry.shared.command(forFunctionName: functionName) else {
+                return BridgeInvokeResponse(
+                    id: UUID().uuidString,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown tool function '\(functionName)'")
+                )
+            }
+
+            let nestedRequest = BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: command,
+                paramsJSON: argumentsJSON
+            )
+            return await self.handle(nestedRequest, sessionID: sessionID)
+        }
+
+        return try BridgeInvokeResponse(
+            id: request.id,
+            ok: true,
+            payload: Self.encodePayload(payload)
+        )
+    }
+
     /// Render plain text into social-media-ready image cards.
     private func handleTextImageRenderInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         struct Params: Codable {
@@ -1623,6 +1694,11 @@ final class LocalToolInvokeService: @unchecked Sendable {
             return try await self.handleWebViewInvoke(request)
         }
 
+        register(["javascript.execute"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleJavaScriptInvoke(request)
+        }
+
         // Text-to-image social card rendering tool.
         register(["text.image.render"]) { [weak self] request in
             guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
@@ -1654,7 +1730,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
 
         // Skill tool
-        register(["skill.load"]) { [weak self] request in
+        register(["skill.invoke"]) { [weak self] request in
             guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
             return try await self.handleSkillInvoke(request)
         }
@@ -1687,33 +1763,105 @@ final class LocalToolInvokeService: @unchecked Sendable {
     }
 
     private func handleSkillInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        struct Params: Decodable {
-            let id: String?
+        struct InvokeParams: Decodable {
+            let name: String?
+            let task: String?
         }
 
         switch request.command {
-        case "skill.load":
-            let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
-            guard let id = AppConfig.nonEmpty(params.id) else {
+        case "skill.invoke":
+            let params = try Self.decodeParams(InvokeParams.self, from: request.paramsJSON)
+            guard let name = AppConfig.nonEmpty(params.name) else {
                 return BridgeInvokeResponse(
                     id: request.id,
                     ok: false,
-                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: id is required")
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: name is required")
                 )
             }
 
-            guard let content = AgentSkillsLoader.loadSkill(
-                id: id,
+            guard let skill = AgentSkillsLoader.resolveSkill(
+                named: name,
+                visibility: .all,
                 workspaceRootURL: workspaceRootURL
             ) else {
                 return BridgeInvokeResponse(
                     id: request.id,
                     ok: false,
-                    error: OpenClawNodeError(code: .invalidRequest, message: "NOT_FOUND: skill id '\(id)' not found")
+                    error: OpenClawNodeError(code: .invalidRequest, message: "NOT_FOUND: skill '\(name)' not found")
                 )
             }
 
-            return BridgeInvokeResponse(id: request.id, ok: true, payload: content)
+            guard let body = AgentSkillsLoader.skillBody(for: skill), !body.isEmpty else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: skill '\(skill.name)' has empty content")
+                )
+            }
+
+            let task = AppConfig.nonEmpty(params.task)
+
+            switch skill.executionContext {
+            case .inline:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: true,
+                    payload: inlineSkillPayload(skill: skill, task: task, body: body)
+                )
+
+            case .fork:
+                guard let task else {
+                    return BridgeInvokeResponse(
+                        id: request.id,
+                        ok: false,
+                        error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: task is required for fork-context skills")
+                    )
+                }
+                guard let modelConfig else {
+                    return BridgeInvokeResponse(
+                        id: request.id,
+                        ok: false,
+                        error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no configured model for fork-context skill execution")
+                    )
+                }
+                guard let definition = forkedSkillDefinition(for: skill) else {
+                    return BridgeInvokeResponse(
+                        id: request.id,
+                        ok: false,
+                        error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unsupported agent '\(skill.agent ?? "")' for skill '\(skill.name)'")
+                    )
+                }
+
+                let sessionID = InvocationContext.sessionID
+                let output = try await SubAgentRunner.run(
+                    prompt: forkedSkillPrompt(skill: skill, task: task, body: body),
+                    definition: definition,
+                    workspaceRootURL: workspaceRootURL,
+                    modelConfig: modelConfig,
+                    executeTool: { [weak self] nestedRequest in
+                        guard let self else {
+                            return BridgeInvokeResponse(
+                                id: nestedRequest.id,
+                                ok: false,
+                                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                            )
+                        }
+                        return await self.handle(nestedRequest, sessionID: sessionID)
+                    }
+                )
+
+                let payload = [
+                    "## Skill Fork Result",
+                    "- skill: \(skill.displayName) (`\(skill.name)`)",
+                    "- agent: \(output.agentType)",
+                    "- turns: \(output.totalTurns)",
+                    "- tool_calls: \(output.totalToolCalls)",
+                    "- duration_ms: \(output.durationMs)",
+                    "",
+                    output.content,
+                ].joined(separator: "\n")
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+            }
 
         default:
             return BridgeInvokeResponse(
@@ -1722,6 +1870,98 @@ final class LocalToolInvokeService: @unchecked Sendable {
                 error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown skill command")
             )
         }
+    }
+
+    private func inlineSkillPayload(skill: AgentSkillsLoader.SkillDefinition, task: String?, body: String) -> String {
+        var lines = [
+            "## Skill Invocation",
+            "- skill: \(skill.displayName) (`\(skill.name)`)",
+            "- execution_context: \(skill.executionContext.rawValue)",
+        ]
+
+        if let whenToUse = skill.whenToUse {
+            lines.append("- when_to_use: \(whenToUse)")
+        }
+        if !skill.allowedTools.isEmpty {
+            lines.append("- allowed_tools: \(skill.allowedTools.joined(separator: ", "))")
+        }
+        if let effort = skill.effort {
+            lines.append("- effort: \(effort)")
+        }
+
+        lines.append("")
+        if let task {
+            lines.append("## Requested Task")
+            lines.append(task)
+            lines.append("")
+        }
+        lines.append("## Skill Instructions")
+        lines.append(body)
+        return lines.joined(separator: "\n")
+    }
+
+    private func forkedSkillDefinition(for skill: AgentSkillsLoader.SkillDefinition) -> SubAgentDefinition? {
+        let baseDefinition: SubAgentDefinition
+        if let agent = AppConfig.nonEmpty(skill.agent) {
+            guard let resolved = SubAgentRegistry.definition(for: agent) else {
+                return nil
+            }
+            baseDefinition = resolved
+        } else {
+            baseDefinition = SubAgentRegistry.generalPurpose
+        }
+
+        let toolPolicy: SubAgentDefinition.ToolPolicy
+        if !skill.allowedTools.isEmpty {
+            toolPolicy = .custom(Set(skill.allowedTools))
+        } else {
+            toolPolicy = baseDefinition.toolPolicy
+        }
+
+        var systemPromptParts = [baseDefinition.systemPrompt]
+        systemPromptParts.append("You are executing the OpenAva skill '\(skill.displayName)' (id=\(skill.name)). Follow the skill instructions and return only the final result to the parent agent.")
+        if let whenToUse = skill.whenToUse {
+            systemPromptParts.append("When-to-use guidance: \(whenToUse)")
+        }
+        if let effort = skill.effort {
+            systemPromptParts.append("Requested execution effort: \(effort). Use deeper reasoning when the task complexity justifies it.")
+        }
+
+        return SubAgentDefinition(
+            agentType: baseDefinition.agentType,
+            description: baseDefinition.description,
+            systemPrompt: systemPromptParts.joined(separator: "\n\n"),
+            toolPolicy: toolPolicy,
+            disallowedFunctionNames: baseDefinition.disallowedFunctionNames.union(["skill_invoke"]),
+            maxTurns: baseDefinition.maxTurns,
+            supportsBackground: baseDefinition.supportsBackground
+        )
+    }
+
+    private func forkedSkillPrompt(skill: AgentSkillsLoader.SkillDefinition, task: String, body: String) -> String {
+        var lines = [
+            "## Requested Task",
+            task,
+            "",
+            "## Skill Metadata",
+            "- skill: \(skill.displayName) (`\(skill.name)`)",
+            "- execution_context: \(skill.executionContext.rawValue)",
+        ]
+
+        if let whenToUse = skill.whenToUse {
+            lines.append("- when_to_use: \(whenToUse)")
+        }
+        if !skill.allowedTools.isEmpty {
+            lines.append("- allowed_tools: \(skill.allowedTools.joined(separator: ", "))")
+        }
+        if let effort = skill.effort {
+            lines.append("- effort: \(effort)")
+        }
+
+        lines.append("")
+        lines.append("## Skill Instructions")
+        lines.append(body)
+        return lines.joined(separator: "\n")
     }
 
     private func handleMemoryInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
