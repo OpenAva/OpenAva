@@ -1,3 +1,4 @@
+import ChatClient
 import CoreLocation
 import Foundation
 import MemoryKit
@@ -1022,14 +1023,19 @@ final class LocalToolInvokeService: @unchecked Sendable {
     private func handleWebFetchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         struct Params: Codable {
             let url: String
-            let extractMode: String?
-            let maxChars: Int?
+            let prompt: String
         }
 
         let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
-        guard let url = URL(string: params.url),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https"
+        guard let prompt = AppConfig.nonEmpty(params.prompt) else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: prompt is required")
+            )
+        }
+
+        guard let url = URL(string: params.url)
         else {
             return BridgeInvokeResponse(
                 id: request.id,
@@ -1038,14 +1044,59 @@ final class LocalToolInvokeService: @unchecked Sendable {
             )
         }
 
-        let extractMode: WebFetchService.ExtractMode = params.extractMode == "text" ? .text : .markdown
-        let result = try await webFetchService.fetch(
-            url: url,
-            extractMode: extractMode,
-            maxChars: params.maxChars ?? 50000
+        let result = try await webFetchService.fetch(url: url)
+        let processedResult = try await applyPromptToWebFetchResult(result, prompt: prompt)
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: result.asPromptResultText(prompt: prompt, processedResult: processedResult))
+    }
+
+    private func applyPromptToWebFetchResult(_ result: WebFetchResult, prompt: String) async throws -> String {
+        guard let modelConfig else {
+            throw NSError(domain: "LocalToolInvokeService.WebFetch", code: 1, userInfo: [NSLocalizedDescriptionKey: "UNAVAILABLE: no configured model for web fetch prompt processing"])
+        }
+
+        let client = LLMChatClient(modelConfig: modelConfig)
+        let response = try await client.chat(
+            body: ChatRequestBody(
+                messages: [
+                    .system(content: .text(Self.webFetchProcessingSystemPrompt)),
+                    .user(content: .text(Self.webFetchProcessingUserPrompt(result: result, prompt: prompt))),
+                ]
+            )
         )
-        // Return structured plain text to make tool output easier for AI models to parse.
-        return BridgeInvokeResponse(id: request.id, ok: true, payload: result.asAIFriendlyText())
+
+        let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AppConfig.nonEmpty(text) ?? "The fetched content did not produce a response for the requested prompt."
+    }
+
+    private static var webFetchProcessingSystemPrompt: String {
+        """
+        You are processing content already fetched from the public web for a tool call.
+        Answer only from the provided content.
+        If the content is insufficient, say that clearly instead of guessing.
+        Be concise, direct, and structured when helpful.
+        """
+    }
+
+    private static func webFetchProcessingUserPrompt(result: WebFetchResult, prompt: String) -> String {
+        let title = AppConfig.nonEmpty(result.title) ?? ""
+        let warning = AppConfig.nonEmpty(result.warning) ?? ""
+        return """
+        Task:
+        \(prompt)
+
+        Fetched Page Metadata:
+        - URL: \(result.url)
+        - Final URL: \(result.finalUrl)
+        - Status: \(result.status)
+        - Content-Type: \(result.contentType)
+        - Title: \(title)
+        - Extractor: \(result.extractor)
+        - Truncated: \(result.truncated ? "yes" : "no")
+        - Warning: \(warning)
+
+        Fetched Content:
+        \(result.text)
+        """
     }
 
     /// Dispatch all web_view* commands to the appropriate WebViewService method.

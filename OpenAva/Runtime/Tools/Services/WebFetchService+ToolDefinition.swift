@@ -9,7 +9,7 @@ extension WebFetchService: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "web_fetch",
                 command: "web.fetch",
-                description: "Fetch and extract content from a web page. Returns AI-friendly plain text sections (not JSON), including metadata and extracted content.",
+                description: "Fetch web content and apply a task-specific prompt to the extracted page text. Returns AI-friendly plain text with metadata and the processed result.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -17,18 +17,12 @@ extension WebFetchService: ToolDefinitionProvider {
                             "type": "string",
                             "description": "The URL to fetch content from",
                         ],
-                        "extractMode": [
+                        "prompt": [
                             "type": "string",
-                            "enum": ["text", "markdown"],
-                            "description": "Content extraction mode: 'text' for plain text, 'markdown' for formatted markdown (default: markdown)",
-                        ],
-                        "maxChars": [
-                            "type": "integer",
-                            "minimum": 100,
-                            "description": "Maximum characters to return (truncates when exceeded).",
+                            "description": "The task or question to apply to the fetched content",
                         ],
                     ],
-                    "required": ["url"],
+                    "required": ["url", "prompt"],
                     "additionalProperties": false,
                 ] as [String: Any])
             ),

@@ -95,4 +95,59 @@ final class WebFetchServiceTests: XCTestCase {
         XCTAssertTrue(result.markdown.contains("details"))
         XCTAssertFalse(result.markdown.localizedCaseInsensitiveContains("javascript:void(0)"))
     }
+
+    func testURLValidationRejectsCredentialsSingleLabelHostAndOverlongURLs() throws {
+        XCTAssertFalse(try WebFetchService.isAllowedURLForTesting(XCTUnwrap(URL(string: "https://user:pass@example.com/path"))))
+        XCTAssertFalse(try WebFetchService.isAllowedURLForTesting(XCTUnwrap(URL(string: "https://localhost/path"))))
+
+        let longHost = String(repeating: "a", count: 1990)
+        let longURL = try XCTUnwrap(URL(string: "https://\(longHost).com"))
+        XCTAssertFalse(WebFetchService.isAllowedURLForTesting(longURL))
+    }
+
+    func testPermittedRedirectAllowsSameHostAndWwwNormalization() throws {
+        let source = try XCTUnwrap(URL(string: "https://example.com/docs/start"))
+        let sameHost = try XCTUnwrap(URL(string: "https://example.com/docs/advanced"))
+        let wwwVariant = try XCTUnwrap(URL(string: "https://www.example.com/docs/start"))
+
+        XCTAssertTrue(WebFetchService.isPermittedRedirectForTesting(from: source, to: sameHost))
+        XCTAssertTrue(WebFetchService.isPermittedRedirectForTesting(from: source, to: wwwVariant))
+    }
+
+    func testPermittedRedirectRejectsCrossHostProtocolAndCredentials() throws {
+        let source = try XCTUnwrap(URL(string: "https://example.com/docs/start"))
+        let otherHost = try XCTUnwrap(URL(string: "https://evil.example.net/docs/start"))
+        let otherScheme = try XCTUnwrap(URL(string: "http://example.com/docs/start"))
+        let withCredentials = try XCTUnwrap(URL(string: "https://user:pass@example.com/docs/start"))
+
+        XCTAssertFalse(WebFetchService.isPermittedRedirectForTesting(from: source, to: otherHost))
+        XCTAssertFalse(WebFetchService.isPermittedRedirectForTesting(from: source, to: otherScheme))
+        XCTAssertFalse(WebFetchService.isPermittedRedirectForTesting(from: source, to: withCredentials))
+    }
+
+    func testPromptResultFormattingIncludesMetadataAndProcessedResult() {
+        let result = WebFetchResult(
+            url: "https://example.com/article",
+            finalUrl: "https://www.example.com/article",
+            status: 200,
+            contentType: "text/html",
+            title: "Example Article",
+            text: "Source markdown",
+            extractMode: "markdown",
+            extractor: "readability",
+            truncated: false,
+            rawLength: 15,
+            length: 15,
+            warning: nil,
+            message: "Fetched content from example.com"
+        )
+
+        let formatted = result.asPromptResultText(prompt: "Summarize the rollout plan", processedResult: "Use staged rollout and monitor regressions.")
+
+        XCTAssertTrue(formatted.contains("<metadata "))
+        XCTAssertTrue(formatted.contains("final-url=\"https://www.example.com/article\""))
+        XCTAssertTrue(formatted.contains("<prompt>\nSummarize the rollout plan\n</prompt>"))
+        XCTAssertTrue(formatted.contains("<result>\nUse staged rollout and monitor regressions.\n</result>"))
+        XCTAssertFalse(formatted.contains("<content>"))
+    }
 }

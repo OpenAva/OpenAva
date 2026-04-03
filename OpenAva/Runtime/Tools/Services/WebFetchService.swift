@@ -3,11 +3,14 @@ import OpenClawKit
 
 /// Web fetch service for accessing web content
 actor WebFetchService {
-    private static let defaultMaxChars = 50000
+    private static let defaultMaxChars = 100_000
     private static let minMaxChars = 100
-    private static let defaultMaxResponseBytes = 2_000_000
-    private static let defaultTimeoutSeconds: TimeInterval = 30
-    private static let defaultMaxRedirects = 3
+    private static let maxURLLength = 2000
+    private static let defaultMaxResponseBytes = 10_000_000
+    private static let defaultTimeoutSeconds: TimeInterval = 60
+    private static let defaultMaxRedirects = 10
+    private static let cacheTTLSeconds: TimeInterval = 15 * 60
+    private static let redirectStatusCodes: Set<Int> = [301, 302, 307, 308]
     private static let defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     private static let removableBlockTags = [
         "script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
@@ -32,10 +35,17 @@ actor WebFetchService {
     ]
 
     private let session: URLSession
-    private let redirectLimiter: RedirectLimiter
+    private let redirectDelegate: ManualRedirectDelegate
     private let maxResponseBytes: Int
     private let timeoutSeconds: TimeInterval
+    private let maxRedirects: Int
     private let userAgent: String
+    private var cache: [String: CacheEntry] = [:]
+
+    private struct CacheEntry {
+        let expiresAt: Date
+        let result: WebFetchResult
+    }
 
     init(
         maxResponseBytes: Int = WebFetchService.defaultMaxResponseBytes,
@@ -46,10 +56,11 @@ actor WebFetchService {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeoutSeconds
         config.timeoutIntervalForResource = timeoutSeconds
-        redirectLimiter = RedirectLimiter(maxRedirects: maxRedirects)
-        session = URLSession(configuration: config, delegate: redirectLimiter, delegateQueue: nil)
+        redirectDelegate = ManualRedirectDelegate()
+        session = URLSession(configuration: config, delegate: redirectDelegate, delegateQueue: nil)
         self.maxResponseBytes = maxResponseBytes
         self.timeoutSeconds = timeoutSeconds
+        self.maxRedirects = maxRedirects
         self.userAgent = userAgent
     }
 
@@ -59,20 +70,15 @@ actor WebFetchService {
         extractMode: ExtractMode = .markdown,
         maxChars: Int = WebFetchService.defaultMaxChars
     ) async throws -> WebFetchResult {
-        guard Self.isValidHTTPURL(url) else {
-            throw WebFetchError.invalidURL
-        }
-        guard let host = url.host, !LoopbackHost.isLocalNetworkHost(host) else {
-            // Block local/private network targets to reduce SSRF-style abuse.
-            throw WebFetchError.privateNetworkBlocked
+        let resolvedMaxChars = max(Self.minMaxChars, maxChars)
+        try Self.validateURL(url)
+
+        let cacheKey = Self.cacheKey(url: url, extractMode: extractMode, maxChars: resolvedMaxChars)
+        if let cached = cachedResult(for: cacheKey) {
+            return cached
         }
 
-        let request = Self.makeRequest(url: url, timeoutSeconds: timeoutSeconds, userAgent: userAgent)
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw WebFetchError.invalidResponse
-        }
+        let (data, httpResponse) = try await performRequest(url: url)
 
         guard (200 ... 299).contains(httpResponse.statusCode) else {
             throw WebFetchError.httpError(statusCode: httpResponse.statusCode)
@@ -116,7 +122,6 @@ actor WebFetchService {
             throw WebFetchError.unsupportedContentType(contentType)
         }
 
-        let resolvedMaxChars = max(Self.minMaxChars, maxChars)
         let truncation = Self.truncate(rawText, maxChars: resolvedMaxChars)
         let warning = responseTruncated ? "Response body truncated after \(maxResponseBytes) bytes." : nil
 
@@ -130,7 +135,7 @@ actor WebFetchService {
             message = String(format: "Fetched content from %@ (%.1f KB)", domain, sizeKB)
         }
 
-        return WebFetchResult(
+        let result = WebFetchResult(
             url: url.absoluteString,
             finalUrl: httpResponse.url?.absoluteString ?? url.absoluteString,
             status: httpResponse.statusCode,
@@ -145,6 +150,43 @@ actor WebFetchService {
             warning: warning,
             message: message
         )
+        cache[cacheKey] = CacheEntry(expiresAt: Date().addingTimeInterval(Self.cacheTTLSeconds), result: result)
+        return result
+    }
+
+    private func performRequest(url: URL) async throws -> (Data, HTTPURLResponse) {
+        var currentURL = url
+        var redirectCount = 0
+
+        while true {
+            let request = Self.makeRequest(url: currentURL, timeoutSeconds: timeoutSeconds, userAgent: userAgent)
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw WebFetchError.invalidResponse
+            }
+
+            guard Self.redirectStatusCodes.contains(httpResponse.statusCode) else {
+                return (data, httpResponse)
+            }
+
+            guard redirectCount < maxRedirects else {
+                throw WebFetchError.tooManyRedirects(maxRedirects)
+            }
+
+            guard let nextURL = Self.redirectURL(from: httpResponse, baseURL: currentURL) else {
+                throw WebFetchError.invalidRedirectLocation
+            }
+
+            try Self.validateURL(nextURL)
+
+            guard Self.isPermittedRedirect(from: currentURL, to: nextURL) else {
+                throw WebFetchError.redirectNotAllowed(from: currentURL.absoluteString, to: nextURL.absoluteString)
+            }
+
+            currentURL = nextURL
+            redirectCount += 1
+        }
     }
 
     /// Extract readable content from HTML
@@ -162,6 +204,45 @@ actor WebFetchService {
         extractReadableContent(from: html, url: URL(string: "https://example.com")!)
     }
 
+    private func cachedResult(for cacheKey: String) -> WebFetchResult? {
+        pruneExpiredCacheEntries()
+        guard let entry = cache[cacheKey] else {
+            return nil
+        }
+        return entry.result
+    }
+
+    private func pruneExpiredCacheEntries(now: Date = Date()) {
+        cache = cache.filter { $0.value.expiresAt > now }
+    }
+
+    private static func cacheKey(url: URL, extractMode: ExtractMode, maxChars: Int) -> String {
+        "\(url.absoluteString)|\(extractMode.rawValue)|\(maxChars)"
+    }
+
+    private static func validateURL(_ url: URL) throws {
+        guard isValidHTTPURL(url) else {
+            throw WebFetchError.invalidURL
+        }
+        guard url.absoluteString.count <= maxURLLength else {
+            throw WebFetchError.urlTooLong(maxURLLength)
+        }
+        if let user = AppConfig.nonEmpty(url.user) ?? AppConfig.nonEmpty(url.password), !user.isEmpty {
+            throw WebFetchError.credentialsNotAllowed
+        }
+        guard let host = url.host, !LoopbackHost.isLocalNetworkHost(host) else {
+            throw WebFetchError.privateNetworkBlocked
+        }
+    }
+
+    static func isValidHTTPURLForTesting(_ url: URL) -> Bool {
+        isValidHTTPURL(url)
+    }
+
+    static func isAllowedURLForTesting(_ url: URL) -> Bool {
+        (try? validateURL(url)) != nil
+    }
+
     private static func isValidHTTPURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else {
             return false
@@ -169,7 +250,41 @@ actor WebFetchService {
         guard scheme == "http" || scheme == "https" else {
             return false
         }
-        return url.host?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        return host.split(separator: ".").count >= 2
+    }
+
+    static func isPermittedRedirectForTesting(from source: URL, to destination: URL) -> Bool {
+        isPermittedRedirect(from: source, to: destination)
+    }
+
+    private static func isPermittedRedirect(from source: URL, to destination: URL) -> Bool {
+        guard let sourceScheme = source.scheme?.lowercased(),
+              let destinationScheme = destination.scheme?.lowercased(),
+              sourceScheme == destinationScheme,
+              source.port == destination.port,
+              AppConfig.nonEmpty(destination.user) == nil,
+              AppConfig.nonEmpty(destination.password) == nil,
+              let sourceHost = source.host?.lowercased(),
+              let destinationHost = destination.host?.lowercased()
+        else {
+            return false
+        }
+
+        return stripWWW(from: sourceHost) == stripWWW(from: destinationHost)
+    }
+
+    private static func redirectURL(from response: HTTPURLResponse, baseURL: URL) -> URL? {
+        guard let location = response.value(forHTTPHeaderField: "Location") else {
+            return nil
+        }
+        return URL(string: location, relativeTo: baseURL)?.absoluteURL
+    }
+
+    private static func stripWWW(from host: String) -> String {
+        host.replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
     }
 
     private static func makeRequest(url: URL, timeoutSeconds: TimeInterval, userAgent: String) -> URLRequest {
@@ -521,8 +636,13 @@ actor WebFetchService {
 
     enum WebFetchError: Error, LocalizedError {
         case invalidURL
+        case urlTooLong(Int)
+        case credentialsNotAllowed
         case privateNetworkBlocked
         case invalidResponse
+        case invalidRedirectLocation
+        case redirectNotAllowed(from: String, to: String)
+        case tooManyRedirects(Int)
         case httpError(statusCode: Int)
         case unknownContentType
         case unsupportedContentType(String)
@@ -531,10 +651,20 @@ actor WebFetchService {
             switch self {
             case .invalidURL:
                 return "Invalid URL"
+            case let .urlTooLong(limit):
+                return "Invalid URL: exceeds maximum length of \(limit) characters"
+            case .credentialsNotAllowed:
+                return "Invalid URL: embedded credentials are not allowed"
             case .privateNetworkBlocked:
                 return "Blocked URL: local/private network addresses are not allowed"
             case .invalidResponse:
                 return "Invalid HTTP response"
+            case .invalidRedirectLocation:
+                return "Invalid redirect: missing or malformed Location header"
+            case let .redirectNotAllowed(from, to):
+                return "Redirect not allowed: \(from) -> \(to)"
+            case let .tooManyRedirects(limit):
+                return "Too many redirects: exceeded \(limit) hops"
             case let .httpError(code):
                 return "HTTP error: \(code)"
             case .unknownContentType:
@@ -585,6 +715,31 @@ struct WebFetchResult: Codable {
         return "\(metaLine)\n<content>\n\(contentText)\n</content>"
     }
 
+    func asPromptResultText(prompt: String, processedResult: String) -> String {
+        var metadataAttributes: [String] = [
+            "status=\"\(status)\"",
+            "url=\"\(Self.xmlEscaped(url))\"",
+            "length=\"\(length)\"",
+            "truncated=\"\(truncated ? 1 : 0)\"",
+            "extractor=\"\(Self.xmlEscaped(extractor))\"",
+        ]
+        if finalUrl != url {
+            metadataAttributes.append("final-url=\"\(Self.xmlEscaped(finalUrl))\"")
+        }
+        metadataAttributes.append("content-type=\"\(Self.xmlEscaped(contentType))\"")
+        if let title, !title.isEmpty {
+            metadataAttributes.append("title=\"\(Self.xmlEscaped(title))\"")
+        }
+        if let warning, !warning.isEmpty {
+            metadataAttributes.append("warning=\"\(Self.xmlEscaped(warning))\"")
+        }
+
+        let metaLine = "<metadata \(metadataAttributes.joined(separator: " "))/>"
+        let promptText = Self.xmlEscaped(prompt)
+        let resultText = Self.xmlEscaped(processedResult)
+        return "\(metaLine)\n<prompt>\n\(promptText)\n</prompt>\n<result>\n\(resultText)\n</result>"
+    }
+
     /// Escape special characters to keep XML output valid and machine-readable.
     private static func xmlEscaped(_ value: String) -> String {
         value
@@ -596,45 +751,14 @@ struct WebFetchResult: Codable {
     }
 }
 
-private final class RedirectLimiter: NSObject, URLSessionTaskDelegate {
-    private let maxRedirects: Int
-    private let lock = NSLock()
-    private var redirectCounts: [Int: Int] = [:]
-
-    init(maxRedirects: Int) {
-        self.maxRedirects = max(0, maxRedirects)
-    }
-
+private final class ManualRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _: URLSession,
-        task: URLSessionTask,
+        task _: URLSessionTask,
         willPerformHTTPRedirection _: HTTPURLResponse,
-        newRequest request: URLRequest,
+        newRequest _: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        let nextCount = incrementRedirectCount(for: task)
-        if nextCount > maxRedirects {
-            completionHandler(nil)
-            return
-        }
-        completionHandler(request)
-    }
-
-    func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError _: Error?) {
-        clearRedirectCount(for: task)
-    }
-
-    private func incrementRedirectCount(for task: URLSessionTask) -> Int {
-        lock.lock()
-        defer { self.lock.unlock() }
-        let count = (redirectCounts[task.taskIdentifier] ?? 0) + 1
-        redirectCounts[task.taskIdentifier] = count
-        return count
-    }
-
-    private func clearRedirectCount(for task: URLSessionTask) {
-        lock.lock()
-        defer { self.lock.unlock() }
-        redirectCounts[task.taskIdentifier] = nil
+        completionHandler(nil)
     }
 }
