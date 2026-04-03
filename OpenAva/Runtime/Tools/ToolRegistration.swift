@@ -29,6 +29,10 @@ func registerAllTools() async {
     // Register memory tools
     await registry.register(provider: MemoryToolDefinitions())
 
+    // Register sub agent and multi-agent team tools
+    await registry.register(provider: SubAgentToolDefinitions())
+    await registry.register(provider: TeamToolDefinitions())
+
     // Register skill tools
     await registry.register(provider: SkillToolDefinitions())
 

@@ -29,6 +29,7 @@ struct AppContainer {
     static func makeServices(config: AppConfig) -> Services {
         let localToolInvokeService = LocalToolInvokeService.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
+            runtimeRootURL: config.agent.runtimeRootURL,
             modelConfig: config.selectedLLMModel
         )
         let localization = LocalizationService()

@@ -47,6 +47,8 @@ enum AgentPromptBuilder {
 
         sections.append(buildInstructionPrioritySection())
         sections.append(buildToolingSection())
+        sections.append(buildSubAgentSection())
+        sections.append(buildTeamSection())
 
         // Omit Skills section entirely when no skills are available.
         if let skillsSection = buildSkillsSection(skillCatalog: skillCatalog) {
@@ -134,6 +136,34 @@ enum AgentPromptBuilder {
         blocks.append(formatSkillsCatalog(skillCatalog))
 
         return PromptSection(title: "## Skills", content: blocks.joined(separator: "\n\n"))
+    }
+
+    private static func buildSubAgentSection() -> PromptSection {
+        PromptSection(
+            title: "## Sub Agents",
+            content: """
+            Use `subagent_run` to delegate focused work to an isolated sub agent.
+            Check background work with `subagent_status` and stop it with `subagent_cancel`.
+            Sub agents must not recursively spawn additional sub agents.
+            Use read-only agent types such as Explore or Plan for research, and use full-capability agent types only when the delegated work truly needs execution.
+            """
+        )
+    }
+
+    private static func buildTeamSection() -> PromptSection {
+        PromptSection(
+            title: "## Teams",
+            content: """
+            For complex work that benefits from parallel teammates, use the team tools:
+            - `TeamCreate` creates a shared team context.
+            - `Agent` spawns teammates into the active team.
+            - `TaskCreate`, `TaskList`, `TaskGet`, and `TaskUpdate` manage the shared task list.
+            - `SendMessage` coordinates between team-lead and teammates.
+            - `TeamStatus` inspects the current team state.
+            - `TeamApprovePlan` approves a teammate plan when plan mode is required.
+            End the team with `TeamDelete` when the collaboration is finished.
+            """
+        )
     }
 
     private static func buildExecutionSection() -> PromptSection {
