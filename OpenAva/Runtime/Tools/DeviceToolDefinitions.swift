@@ -290,12 +290,15 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
             makeTool(
                 functionName: "cron",
                 command: "cron",
-                description: "Schedule and manage local cron reminders (add, list, remove).",
+                description: "Schedule and manage local cron reminders or heartbeat triggers (add, list, remove).",
                 schema: [
                     "type": "object",
                     "properties": [
                         "action": ["type": "string", "enum": ["add", "list", "remove"]],
                         "message": ["type": "string"],
+                        "kind": ["type": "string", "enum": ["notify", "heartbeat"]],
+                        "agentId": ["type": "string"],
+                        "agent_id": ["type": "string"],
                         "at": ["type": "string"],
                         "everySeconds": ["type": "integer"],
                         "every_seconds": ["type": "integer"],

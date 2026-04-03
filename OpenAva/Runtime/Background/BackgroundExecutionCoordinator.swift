@@ -6,7 +6,7 @@ final class BackgroundExecutionCoordinator {
     static let refreshTaskIdentifier = "com.day1-labs.openava.chat.resume"
 
     private struct ExecutionSnapshot: Codable {
-        var conversationID: String
+        var sessionID: String
         var state: String
         var startedAt: Date
         var updatedAt: Date
@@ -36,30 +36,30 @@ final class BackgroundExecutionCoordinator {
         #endif
     }
 
-    func markExecutionStarted(conversationID: String) {
+    func markExecutionStarted(sessionID: String) {
         queue.async {
             self.loadIfNeededLocked()
-            self.snapshots[conversationID] = ExecutionSnapshot(
-                conversationID: conversationID,
+            self.snapshots[sessionID] = ExecutionSnapshot(
+                sessionID: sessionID,
                 state: "running",
                 startedAt: Date(),
                 updatedAt: Date(),
                 errorDescription: nil,
                 interruptionReason: nil,
-                resumeAttempts: self.snapshots[conversationID]?.resumeAttempts ?? 0
+                resumeAttempts: self.snapshots[sessionID]?.resumeAttempts ?? 0
             )
             self.persistLocked()
         }
     }
 
-    func markExecutionFinished(conversationID: String, success: Bool, errorDescription: String?) {
+    func markExecutionFinished(sessionID: String, success: Bool, errorDescription: String?) {
         queue.async {
             self.loadIfNeededLocked()
             if success {
-                self.snapshots.removeValue(forKey: conversationID)
+                self.snapshots.removeValue(forKey: sessionID)
             } else {
-                var snapshot = self.snapshots[conversationID] ?? ExecutionSnapshot(
-                    conversationID: conversationID,
+                var snapshot = self.snapshots[sessionID] ?? ExecutionSnapshot(
+                    sessionID: sessionID,
                     state: "failed",
                     startedAt: Date(),
                     updatedAt: Date(),
@@ -70,17 +70,17 @@ final class BackgroundExecutionCoordinator {
                 snapshot.state = "failed"
                 snapshot.updatedAt = Date()
                 snapshot.errorDescription = errorDescription
-                self.snapshots[conversationID] = snapshot
+                self.snapshots[sessionID] = snapshot
             }
             self.persistLocked()
         }
     }
 
-    func markExecutionInterrupted(conversationID: String, reason: String) {
+    func markExecutionInterrupted(sessionID: String, reason: String) {
         queue.async {
             self.loadIfNeededLocked()
-            var snapshot = self.snapshots[conversationID] ?? ExecutionSnapshot(
-                conversationID: conversationID,
+            var snapshot = self.snapshots[sessionID] ?? ExecutionSnapshot(
+                sessionID: sessionID,
                 state: "interrupted",
                 startedAt: Date(),
                 updatedAt: Date(),
@@ -91,33 +91,33 @@ final class BackgroundExecutionCoordinator {
             snapshot.state = "interrupted"
             snapshot.interruptionReason = reason
             snapshot.updatedAt = Date()
-            self.snapshots[conversationID] = snapshot
+            self.snapshots[sessionID] = snapshot
             self.persistLocked()
         }
         scheduleRefreshTaskIfNeeded()
     }
 
-    func markResumeAttempted(conversationIDs: [String]) {
+    func markResumeAttempted(sessionIDs: [String]) {
         queue.async {
             self.loadIfNeededLocked()
-            for conversationID in conversationIDs {
-                guard var snapshot = self.snapshots[conversationID] else { continue }
+            for sessionID in sessionIDs {
+                guard var snapshot = self.snapshots[sessionID] else { continue }
                 snapshot.resumeAttempts += 1
                 snapshot.updatedAt = Date()
-                self.snapshots[conversationID] = snapshot
+                self.snapshots[sessionID] = snapshot
             }
             self.persistLocked()
         }
     }
 
-    func pendingConversationIDs(limit: Int = 3) -> [String] {
+    func pendingSessionIDs(limit: Int = 3) -> [String] {
         queue.sync {
             loadIfNeededLocked()
             return snapshots.values
                 .filter { $0.state == "interrupted" || $0.state == "failed" }
                 .sorted { $0.updatedAt > $1.updatedAt }
                 .prefix(limit)
-                .map(\.conversationID)
+                .map(\.sessionID)
         }
     }
 
@@ -147,13 +147,13 @@ final class BackgroundExecutionCoordinator {
     }
 
     func notifyIfResumableWorkExists() {
-        let ids = pendingConversationIDs(limit: 5)
+        let ids = pendingSessionIDs(limit: 5)
         guard !ids.isEmpty else { return }
-        markResumeAttempted(conversationIDs: ids)
+        markResumeAttempted(sessionIDs: ids)
         NotificationCenter.default.post(
             name: .OpenAvaBackgroundResumeRequested,
             object: nil,
-            userInfo: ["conversationIDs": ids]
+            userInfo: ["sessionIDs": ids]
         )
     }
 
@@ -192,7 +192,7 @@ final class BackgroundExecutionCoordinator {
             let data = try JSONEncoder().encode(snapshots)
             try data.write(to: storeURL, options: .atomic)
         } catch {
-            // Persistence failures should not break conversation execution.
+            // Persistence failures should not break session execution.
         }
     }
 }

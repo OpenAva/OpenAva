@@ -15,8 +15,8 @@ import Foundation
             var isCompleted: Bool
         }
 
-        /// Conversation ID this activity tracks
-        var conversationID: String
+        /// Session ID this activity tracks
+        var sessionID: String
     }
 #else
     /// Placeholder for platforms where ActivityKit is unavailable (e.g. Mac Catalyst).
@@ -29,6 +29,6 @@ import Foundation
             var isCompleted: Bool
         }
 
-        var conversationID: String
+        var sessionID: String
     }
 #endif

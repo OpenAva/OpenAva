@@ -31,23 +31,23 @@ public protocol SessionDelegate: AnyObject, Sendable {
 
     // MARK: - Execution Lifecycle
 
-    /// Called when one inference turn starts for a conversation.
-    func sessionExecutionDidStart(for conversationID: String)
+    /// Called when one inference turn starts for a session.
+    func sessionExecutionDidStart(for sessionID: String)
 
     /// Called when one inference turn finishes successfully or with failure.
     func sessionExecutionDidFinish(
-        for conversationID: String,
+        for sessionID: String,
         success: Bool,
         errorDescription: String?
     )
 
     /// Called when one inference turn is interrupted (for example, cancellation).
-    func sessionExecutionDidInterrupt(for conversationID: String, reason: String)
+    func sessionExecutionDidInterrupt(for sessionID: String, reason: String)
 
     // MARK: - Usage Tracking
 
     /// Called when token usage is reported after an inference step.
-    func sessionDidReportUsage(_ usage: TokenUsage, for conversationID: String)
+    func sessionDidReportUsage(_ usage: TokenUsage, for sessionID: String)
 
     // MARK: - Optional Context
 
@@ -59,14 +59,14 @@ public protocol SessionDelegate: AnyObject, Sendable {
 
     // MARK: - Memory (Hybrid mode)
 
-    /// Provide a conversation-scoped memory coordinator.
-    func memoryCoordinator(for conversationID: String) async -> MemoryCoordinator?
+    /// Provide a session-scoped memory coordinator.
+    func memoryCoordinator(for sessionID: String) async -> MemoryCoordinator?
 
-    /// Load persisted memory state for the conversation.
-    func loadSessionMemoryState(for conversationID: String) async -> SessionMemoryState
+    /// Load persisted memory state for the session.
+    func loadSessionMemoryState(for sessionID: String) async -> SessionMemoryState
 
     /// Persist memory state after successful consolidation.
-    func saveSessionMemoryState(_ state: SessionMemoryState, for conversationID: String) async
+    func saveSessionMemoryState(_ state: SessionMemoryState, for sessionID: String) async
 
     /// Compose a fully built system prompt for this inference step.
     ///

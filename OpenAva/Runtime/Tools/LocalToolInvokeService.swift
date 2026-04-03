@@ -40,6 +40,12 @@ final class LocalToolInvokeService: @unchecked Sendable {
     private enum InvocationContext {
         /// Session identifier propagated from chat layer for tool state isolation.
         @TaskLocal static var sessionID: String?
+        @TaskLocal static var teamContext: TeamInvocationContext?
+    }
+
+    private struct TeamInvocationContext {
+        let teamName: String
+        let memberID: String
     }
 
     private static var isMacCatalyst: Bool {
@@ -100,6 +106,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
     private let textImageRenderService: TextImageRenderService
     private let fileSystemService: FileSystemService
     private let workspaceRootURL: URL?
+    private let runtimeRootURL: URL?
     private let modelConfig: AppConfig.LLMModel?
     private let weatherService: WeatherService
     private let yahooFinanceService: YahooFinanceService
@@ -107,7 +114,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
 
     private lazy var capabilityRouter: NodeCapabilityRouter = self.buildCapabilityRouter()
 
-    static func makeDefault(workspaceRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolInvokeService {
+    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolInvokeService {
         // Register all tools on first initialization
         Task { @MainActor in
             await registerAllTools()
@@ -147,7 +154,8 @@ final class LocalToolInvokeService: @unchecked Sendable {
             weatherService: WeatherService(),
             yahooFinanceService: YahooFinanceService(),
             aShareMarketService: AShareMarketService(),
-            workspaceRootURL: workspaceRootURL
+            workspaceRootURL: workspaceRootURL,
+            runtimeRootURL: runtimeRootURL
         )
     }
 
@@ -179,7 +187,8 @@ final class LocalToolInvokeService: @unchecked Sendable {
         weatherService: WeatherService = WeatherService(),
         yahooFinanceService: YahooFinanceService = YahooFinanceService(),
         aShareMarketService: AShareMarketService = AShareMarketService(),
-        workspaceRootURL: URL? = nil
+        workspaceRootURL: URL? = nil,
+        runtimeRootURL: URL? = nil
     ) {
         self.cameraService = cameraService
         self.screenRecordingService = screenRecordingService
@@ -205,10 +214,16 @@ final class LocalToolInvokeService: @unchecked Sendable {
         self.textImageRenderService = textImageRenderService
         self.fileSystemService = fileSystemService
         self.workspaceRootURL = workspaceRootURL
+        self.runtimeRootURL = runtimeRootURL
         self.modelConfig = modelConfig
         self.weatherService = weatherService
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
+        TeamSwarmCoordinator.shared.configure(
+            runtimeRootURL: runtimeRootURL,
+            workspaceRootURL: workspaceRootURL,
+            modelConfig: modelConfig
+        )
     }
 
     func handle(_ request: BridgeInvokeRequest) async -> BridgeInvokeResponse {
@@ -249,6 +264,18 @@ final class LocalToolInvokeService: @unchecked Sendable {
     func handle(_ request: BridgeInvokeRequest, sessionID: String?) async -> BridgeInvokeResponse {
         await InvocationContext.$sessionID.withValue(sessionID) {
             await self.handle(request)
+        }
+    }
+
+    private func handle(
+        _ request: BridgeInvokeRequest,
+        sessionID: String?,
+        teamContext: TeamInvocationContext?
+    ) async -> BridgeInvokeResponse {
+        await InvocationContext.$sessionID.withValue(sessionID) {
+            await InvocationContext.$teamContext.withValue(teamContext) {
+                await self.handle(request)
+            }
         }
     }
 
@@ -848,7 +875,9 @@ final class LocalToolInvokeService: @unchecked Sendable {
                 let payload = try await CronAddPayload(job: cronService.add(
                     message: params.message ?? "",
                     atISO: params.at,
-                    everySeconds: params.everySeconds
+                    everySeconds: params.everySeconds,
+                    kind: params.kind,
+                    agentID: params.agentID
                 ))
                 let scheduleMessage: String
                 if payload.job.schedule == "at", let at = payload.job.at {
@@ -862,6 +891,8 @@ final class LocalToolInvokeService: @unchecked Sendable {
                 ## Cron Added
                 - summary: \(scheduleMessage)
                 - id: \(payload.job.id)
+                - kind: \(payload.job.kind.rawValue)
+                - agent_id: \(payload.job.agentID ?? "")
                 - message: \(payload.job.message)
                 - schedule: \(payload.job.schedule)
                 - next_run: \(payload.job.nextRunISO ?? "")
@@ -875,7 +906,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
                     ? "No scheduled cron jobs"
                     : "Found \(count) scheduled cron job\(count == 1 ? "" : "s")"
                 let lines = payload.jobs.map { job in
-                    "- id=\(job.id) | schedule=\(job.schedule) | next=\(job.nextRunISO ?? "") | message=\(job.message)"
+                    "- id=\(job.id) | kind=\(job.kind.rawValue) | agent_id=\(job.agentID ?? "") | schedule=\(job.schedule) | next=\(job.nextRunISO ?? "") | message=\(job.message)"
                 }
                 let text = "## Cron Jobs\n- summary: \(message)\n\(lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n"))"
                 return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
@@ -1759,7 +1790,452 @@ final class LocalToolInvokeService: @unchecked Sendable {
             return try await self.handleAShareMarketInvoke(request)
         }
 
+        // Sub agent tools
+        register(["subagent.run", "subagent.status", "subagent.cancel"]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleSubAgentInvoke(request)
+        }
+
+        // Team / swarm tools
+        register([
+            "team.create", "team.delete", "team.status", "team.agent", "team.message.send", "team.plan.approve",
+            "team.task.create", "team.task.list", "team.task.get", "team.task.update",
+        ]) { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleTeamInvoke(request)
+        }
+
         return NodeCapabilityRouter(handlers: handlers)
+    }
+
+    private func currentTeamToolContext() -> TeamSwarmCoordinator.ToolContext {
+        TeamSwarmCoordinator.ToolContext(
+            sessionID: InvocationContext.sessionID,
+            senderMemberID: InvocationContext.teamContext?.memberID
+        )
+    }
+
+    private func handleSubAgentInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct RunParams: Decodable {
+            let description: String
+            let prompt: String
+            let subagentType: String?
+            let runInBackground: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case description
+                case prompt
+                case subagentType = "subagent_type"
+                case runInBackground = "run_in_background"
+            }
+        }
+
+        struct TaskParams: Decodable {
+            let taskID: String
+
+            enum CodingKeys: String, CodingKey {
+                case taskID = "task_id"
+            }
+        }
+
+        switch request.command {
+        case "subagent.run":
+            let params = try Self.decodeParams(RunParams.self, from: request.paramsJSON)
+            guard let prompt = AppConfig.nonEmpty(params.prompt),
+                  let description = AppConfig.nonEmpty(params.description)
+            else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: description and prompt are required")
+                )
+            }
+            guard let modelConfig else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no configured model for sub agent execution")
+                )
+            }
+            let definition = SubAgentRegistry.definition(for: params.subagentType) ?? SubAgentRegistry.generalPurpose
+            let sessionID = InvocationContext.sessionID
+
+            if params.runInBackground == true {
+                let record = await SubAgentTaskStore.shared.create(
+                    agentType: definition.agentType,
+                    description: description,
+                    prompt: prompt,
+                    parentSessionID: sessionID
+                )
+                let task = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        let output = try await SubAgentRunner.run(
+                            prompt: prompt,
+                            definition: definition,
+                            workspaceRootURL: workspaceRootURL,
+                            modelConfig: modelConfig,
+                            executeTool: { [weak self] nestedRequest in
+                                guard let self else {
+                                    return BridgeInvokeResponse(
+                                        id: nestedRequest.id,
+                                        ok: false,
+                                        error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                                    )
+                                }
+                                return await self.handle(nestedRequest, sessionID: sessionID)
+                            }
+                        )
+                        await SubAgentTaskStore.shared.markCompleted(taskID: record.id, result: output.content)
+                    } catch {
+                        await SubAgentTaskStore.shared.markFailed(taskID: record.id, errorDescription: error.localizedDescription)
+                    }
+                }
+                await SubAgentTaskStore.shared.attach(task: task, for: record.id)
+                let payload = [
+                    "## Sub Agent Task",
+                    "- task_id: \(record.id)",
+                    "- agent: \(record.agentType)",
+                    "- description: \(record.description)",
+                    "- status: \(record.status.rawValue)",
+                ].joined(separator: "\n")
+                return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+            }
+
+            let output = try await SubAgentRunner.run(
+                prompt: prompt,
+                definition: definition,
+                workspaceRootURL: workspaceRootURL,
+                modelConfig: modelConfig,
+                executeTool: { [weak self] nestedRequest in
+                    guard let self else {
+                        return BridgeInvokeResponse(
+                            id: nestedRequest.id,
+                            ok: false,
+                            error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                        )
+                    }
+                    return await self.handle(nestedRequest, sessionID: sessionID)
+                }
+            )
+            let payload = [
+                "## Sub Agent Result",
+                "- agent: \(output.agentType)",
+                "- turns: \(output.totalTurns)",
+                "- tool_calls: \(output.totalToolCalls)",
+                "- duration_ms: \(output.durationMs)",
+                "",
+                output.content,
+            ].joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "subagent.status":
+            let params = try Self.decodeParams(TaskParams.self, from: request.paramsJSON)
+            guard let record = await SubAgentTaskStore.shared.record(taskID: params.taskID) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "NOT_FOUND: sub agent task not found")
+                )
+            }
+            let payload = [
+                "## Sub Agent Status",
+                "- task_id: \(record.id)",
+                "- agent: \(record.agentType)",
+                "- status: \(record.status.rawValue)",
+                "- updated_at: \(ISO8601DateFormatter().string(from: record.updatedAt))",
+                record.result.map { "\n\($0)" } ?? record.errorDescription.map { "\nError: \($0)" } ?? "",
+            ].joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "subagent.cancel":
+            let params = try Self.decodeParams(TaskParams.self, from: request.paramsJSON)
+            let cancelled = await SubAgentTaskStore.shared.cancel(taskID: params.taskID)
+            let payload = cancelled
+                ? "Sub agent task \(params.taskID) cancelled."
+                : "Sub agent task \(params.taskID) is not running."
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown sub agent command")
+            )
+        }
+    }
+
+    private func handleTeamInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct TeamCreateParams: Decodable {
+            let teamName: String
+            let description: String?
+
+            enum CodingKeys: String, CodingKey {
+                case teamName = "team_name"
+                case description
+            }
+        }
+
+        struct TeamNameParams: Decodable {
+            let teamName: String?
+
+            enum CodingKeys: String, CodingKey {
+                case teamName = "team_name"
+            }
+        }
+
+        struct AgentParams: Decodable {
+            let name: String
+            let prompt: String
+            let teamName: String?
+            let agentType: String?
+            let description: String?
+            let planModeRequired: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case name
+                case prompt
+                case teamName = "team_name"
+                case agentType = "agent_type"
+                case description
+                case planModeRequired = "plan_mode_required"
+            }
+        }
+
+        struct MessageParams: Decodable {
+            let to: String
+            let message: String
+            let teamName: String?
+            let messageType: String?
+
+            enum CodingKeys: String, CodingKey {
+                case to
+                case message
+                case teamName = "team_name"
+                case messageType = "message_type"
+            }
+        }
+
+        struct ApproveParams: Decodable {
+            let sessionID: String?
+            let name: String?
+            let teamName: String?
+            let feedback: String?
+
+            enum CodingKeys: String, CodingKey {
+                case sessionID = "session_id"
+                case name
+                case teamName = "team_name"
+                case feedback
+            }
+        }
+
+        struct TaskCreateParams: Decodable {
+            let title: String
+            let detail: String?
+            let teamName: String?
+
+            enum CodingKeys: String, CodingKey {
+                case title
+                case detail
+                case teamName = "team_name"
+            }
+        }
+
+        struct TaskGetParams: Decodable {
+            let taskID: Int
+            let teamName: String?
+
+            enum CodingKeys: String, CodingKey {
+                case taskID = "task_id"
+                case teamName = "team_name"
+            }
+        }
+
+        struct TaskUpdateParams: Decodable {
+            let taskID: Int
+            let title: String?
+            let detail: String?
+            let owner: String?
+            let status: String?
+            let teamName: String?
+
+            enum CodingKeys: String, CodingKey {
+                case taskID = "task_id"
+                case title
+                case detail
+                case owner
+                case status
+                case teamName = "team_name"
+            }
+        }
+
+        let context = currentTeamToolContext()
+
+        switch request.command {
+        case "team.create":
+            let params = try Self.decodeParams(TeamCreateParams.self, from: request.paramsJSON)
+            let team = try TeamSwarmCoordinator.shared.createTeam(name: params.teamName, description: params.description, context: context)
+            let payload = [
+                "## Team Created",
+                "- team_name: \(team.name)",
+                team.description.map { "- description: \($0)" },
+                "- lead_session_id: \(team.leadSessionID)",
+            ].compactMap { $0 }.joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "team.delete":
+            let params = try Self.decodeParams(TeamNameParams.self, from: request.paramsJSON)
+            let team = try TeamSwarmCoordinator.shared.deleteTeam(teamName: params.teamName, context: context)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Deleted team \(team.name).")
+
+        case "team.status":
+            let params = try Self.decodeParams(TeamNameParams.self, from: request.paramsJSON)
+            guard let snapshot = TeamSwarmCoordinator.shared.snapshot(teamName: params.teamName, context: context) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "TEAM_NOT_FOUND")
+                )
+            }
+            let payload = renderTeamStatus(snapshot.team)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "team.agent":
+            let params = try Self.decodeParams(AgentParams.self, from: request.paramsJSON)
+            let member = try TeamSwarmCoordinator.shared.spawnMember(
+                name: params.name,
+                prompt: params.prompt,
+                teamName: params.teamName,
+                agentType: params.agentType,
+                description: params.description,
+                planModeRequired: params.planModeRequired ?? false,
+                context: context,
+                executeTool: { [weak self] teamName, memberID, nestedRequest in
+                    guard let self else {
+                        return BridgeInvokeResponse(
+                            id: nestedRequest.id,
+                            ok: false,
+                            error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                        )
+                    }
+                    return await self.handle(
+                        nestedRequest,
+                        sessionID: nil,
+                        teamContext: TeamInvocationContext(teamName: teamName, memberID: memberID)
+                    )
+                }
+            )
+            let payload = [
+                "## Teammate Spawned",
+                "- name: \(member.name)",
+                "- agent_type: \(member.agentType)",
+                "- session_id: \(member.sessionID)",
+                "- plan_mode_required: \(member.planModeRequired ? "yes" : "no")",
+            ].joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "team.message.send":
+            let params = try Self.decodeParams(MessageParams.self, from: request.paramsJSON)
+            try TeamSwarmCoordinator.shared.sendMessage(
+                to: params.to,
+                message: params.message,
+                messageType: AppConfig.nonEmpty(params.messageType) ?? "message",
+                teamName: params.teamName,
+                context: context
+            )
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Message sent to \(params.to).")
+
+        case "team.plan.approve":
+            let params = try Self.decodeParams(ApproveParams.self, from: request.paramsJSON)
+            let member = try TeamSwarmCoordinator.shared.approvePlan(
+                sessionID: params.sessionID,
+                memberName: params.name,
+                teamName: params.teamName,
+                feedback: params.feedback,
+                context: context
+            )
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Approved plan for \(member.name).")
+
+        case "team.task.create":
+            let params = try Self.decodeParams(TaskCreateParams.self, from: request.paramsJSON)
+            let task = try TeamSwarmCoordinator.shared.createTask(title: params.title, detail: params.detail, teamName: params.teamName, context: context)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task Created"))
+
+        case "team.task.list":
+            let params = try Self.decodeParams(TeamNameParams.self, from: request.paramsJSON)
+            let tasks = try TeamSwarmCoordinator.shared.listTasks(teamName: params.teamName, context: context)
+            let lines = tasks.map { renderTaskLine($0) }
+            let payload = (["## Team Tasks"] + (lines.isEmpty ? ["No tasks."] : lines)).joined(separator: "\n")
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
+
+        case "team.task.get":
+            let params = try Self.decodeParams(TaskGetParams.self, from: request.paramsJSON)
+            let task = try TeamSwarmCoordinator.shared.getTask(id: params.taskID, teamName: params.teamName, context: context)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task"))
+
+        case "team.task.update":
+            let params = try Self.decodeParams(TaskUpdateParams.self, from: request.paramsJSON)
+            let status = params.status.flatMap { TeamSwarmCoordinator.TaskStatus(rawValue: $0) }
+            let task = try TeamSwarmCoordinator.shared.updateTask(
+                id: params.taskID,
+                teamName: params.teamName,
+                title: params.title,
+                detail: params.detail,
+                status: status,
+                owner: params.owner,
+                context: context
+            )
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task Updated"))
+
+        default:
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown team command")
+            )
+        }
+    }
+
+    private func renderTeamStatus(_ team: TeamSwarmCoordinator.TeamRecord) -> String {
+        var lines = [
+            "## Team Status",
+            "- team_name: \(team.name)",
+            team.description.map { "- description: \($0)" },
+            "- lead_session_id: \(team.leadSessionID)",
+            "",
+            "### Members",
+        ].compactMap { $0 }
+        if team.members.isEmpty {
+            lines.append("- none")
+        } else {
+            lines.append(contentsOf: team.members.map { member in
+                "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | session_id=\(member.sessionID)"
+            })
+        }
+        lines.append("")
+        lines.append("### Tasks")
+        if team.tasks.isEmpty {
+            lines.append("- none")
+        } else {
+            lines.append(contentsOf: team.tasks.sorted { $0.id < $1.id }.map(renderTaskLine))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func renderTask(_ task: TeamSwarmCoordinator.TeamTask, heading: String) -> String {
+        [
+            "## \(heading)",
+            "- id: \(task.id)",
+            "- title: \(task.title)",
+            task.detail.map { "- detail: \($0)" },
+            "- status: \(task.status.rawValue)",
+            "- owner: \(task.owner ?? "unassigned")",
+        ].compactMap { $0 }.joined(separator: "\n")
+    }
+
+    private func renderTaskLine(_ task: TeamSwarmCoordinator.TeamTask) -> String {
+        "- [#\(task.id)] \(task.status.rawValue) | owner=\(task.owner ?? "unassigned") | \(task.title)"
     }
 
     private func handleSkillInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {

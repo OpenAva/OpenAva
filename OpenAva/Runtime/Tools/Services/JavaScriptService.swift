@@ -519,7 +519,8 @@ final class JavaScriptService {
 
     private func cleanupPersistentSessions(referenceDate: Date) {
         let expirationDate = referenceDate.addingTimeInterval(-Self.persistentSessionIdleTimeout)
-        let expiredIDs = persistentSessions.compactMap { sessionID, state in
+        let expiredIDs = persistentSessions.compactMap { entry -> String? in
+            let (sessionID, state) = entry
             guard !state.isExecuting, state.lastUsedAt < expirationDate else {
                 return nil
             }

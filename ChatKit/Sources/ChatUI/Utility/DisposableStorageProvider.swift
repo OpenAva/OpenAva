@@ -16,10 +16,10 @@ public final class DisposableStorageProvider: StorageProvider, @unchecked Sendab
     private var titles: [String: String] = [:]
     private let lock = NSLock()
 
-    public func createMessage(in conversationIdentifier: String, role: MessageRole) -> ConversationMessage {
-        let message = ConversationMessage(conversationID: conversationIdentifier, role: role)
+    public func createMessage(in sessionID: String, role: MessageRole) -> ConversationMessage {
+        let message = ConversationMessage(sessionID: sessionID, role: role)
         lock.lock()
-        messages[conversationIdentifier, default: []].append(message)
+        messages[sessionID, default: []].append(message)
         lock.unlock()
         return message
     }
@@ -27,20 +27,20 @@ public final class DisposableStorageProvider: StorageProvider, @unchecked Sendab
     public func save(_ messages: [ConversationMessage]) {
         lock.lock()
         for msg in messages {
-            var list = self.messages[msg.conversationID] ?? []
+            var list = self.messages[msg.sessionID] ?? []
             if let index = list.firstIndex(where: { $0.id == msg.id }) {
                 list[index] = msg
             } else {
                 list.append(msg)
             }
-            self.messages[msg.conversationID] = list
+            self.messages[msg.sessionID] = list
         }
         lock.unlock()
     }
 
-    public func messages(in conversationID: String) -> [ConversationMessage] {
+    public func messages(in sessionID: String) -> [ConversationMessage] {
         lock.lock()
-        let result = messages[conversationID] ?? []
+        let result = messages[sessionID] ?? []
         lock.unlock()
         return result.sorted { $0.createdAt < $1.createdAt }
     }

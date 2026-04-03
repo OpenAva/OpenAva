@@ -117,7 +117,7 @@ enum SkillLaunchService {
         let id: String
         let message: String
         let agentID: String?
-        let conversationID: String?
+        let sessionID: String?
         let createdAtMs: Int64
 
         var userInfo: [String: String] {
@@ -128,8 +128,8 @@ enum SkillLaunchService {
             if let agentID {
                 payload["agentID"] = agentID
             }
-            if let conversationID {
-                payload["conversationID"] = conversationID
+            if let sessionID {
+                payload["sessionID"] = sessionID
             }
             return payload
         }
@@ -140,12 +140,12 @@ enum SkillLaunchService {
     static let pendingAutoSendQueueKey = "openava.pendingAutoSend.queue.v1"
 
     /// Persists and broadcasts an intent message for ChatRootView to consume once.
-    static func enqueueAutoSend(message: String, conversationID: String? = nil) async {
+    static func enqueueAutoSend(message: String, sessionID: String? = nil) async {
         let request = PendingAutoSendRequest(
             id: UUID().uuidString,
             message: message,
             agentID: AgentStore.load().activeAgentID?.uuidString,
-            conversationID: conversationID,
+            sessionID: sessionID,
             createdAtMs: Int64(Date().timeIntervalSince1970 * 1000)
         )
         await MainActor.run {
@@ -161,7 +161,7 @@ enum SkillLaunchService {
     }
 
     /// Dequeue one pending request for the active agent.
-    static func dequeuePendingAutoSend(for activeAgentID: UUID?, activeConversationID: String?) -> PendingAutoSendRequest? {
+    static func dequeuePendingAutoSend(for activeAgentID: UUID?, activeSessionID: String?) -> PendingAutoSendRequest? {
         migrateLegacyPendingPayloadIfNeeded()
         var queue = loadPendingQueue()
         let activeID = activeAgentID?.uuidString
@@ -169,8 +169,8 @@ enum SkillLaunchService {
             shouldDeliver(
                 requestAgentID: request.agentID,
                 activeAgentID: activeID,
-                requestConversationID: request.conversationID,
-                activeConversationID: activeConversationID
+                requestSessionID: request.sessionID,
+                activeSessionID: activeSessionID
             )
         }) else {
             return nil
@@ -233,7 +233,7 @@ enum SkillLaunchService {
                 id: id,
                 message: message,
                 agentID: payload["agentID"],
-                conversationID: payload["conversationID"],
+                sessionID: payload["sessionID"],
                 createdAtMs: Int64(Date().timeIntervalSince1970 * 1000)
             ))
             savePendingQueue(queue)
@@ -244,16 +244,16 @@ enum SkillLaunchService {
     private static func shouldDeliver(
         requestAgentID: String?,
         activeAgentID: String?,
-        requestConversationID: String?,
-        activeConversationID: String?
+        requestSessionID: String?,
+        activeSessionID: String?
     ) -> Bool {
         guard let requestAgentID else {
             // Legacy payloads without agent binding can be consumed by current active agent.
-            return requestConversationID == nil || requestConversationID == activeConversationID
+            return requestSessionID == nil || requestSessionID == activeSessionID
         }
         guard requestAgentID == activeAgentID else { return false }
-        // Conversation-bound requests must only execute in their original chat session.
-        return requestConversationID == nil || requestConversationID == activeConversationID
+        // Session-bound requests must only execute in their original chat session.
+        return requestSessionID == nil || requestSessionID == activeSessionID
     }
 }
 

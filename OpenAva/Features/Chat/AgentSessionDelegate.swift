@@ -19,7 +19,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         #endif
     }
 
-    private let conversationID: String
+    private let sessionID: String
     private let workspaceRootURL: URL
     private let runtimeRootURL: URL?
     private let baseSystemPrompt: String?
@@ -28,6 +28,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private let coordinatorPool: MemoryCoordinatorPool
     private let stateRepository: MemoryStateRepository
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
+    private let transcriptStorageProvider: TranscriptStorageProvider
     private let hapticLock = NSLock()
     private var lastHapticAt: TimeInterval = 0
     private let minimumHapticInterval: TimeInterval = 0.2
@@ -35,7 +36,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private let agentEmoji: String
 
     init(
-        conversationID: String,
+        sessionID: String,
         workspaceRootURL: URL?,
         runtimeRootURL: URL?,
         baseSystemPrompt: String?,
@@ -50,7 +51,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         guard let workspaceRootURL else {
             preconditionFailure("AgentSessionDelegate requires an explicit agent workspace root URL.")
         }
-        self.conversationID = conversationID
+        self.sessionID = sessionID
         self.workspaceRootURL = workspaceRootURL.standardizedFileURL
         self.runtimeRootURL = runtimeRootURL
         self.baseSystemPrompt = baseSystemPrompt
@@ -65,13 +66,14 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
             memoryWindow: 20
         )
         stateRepository = MemoryStateRepository(runtimeRoot: resolvedRuntimeRootURL)
+        transcriptStorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
     }
 
     /// Compose the full system prompt at inference time so the tool list
     /// is always current (ToolRegistry may change between sessions).
     func composeSystemPrompt() async -> String? {
         var memoryContext: String?
-        if let coordinator = await memoryCoordinator(for: conversationID) {
+        if let coordinator = await memoryCoordinator(for: sessionID) {
             let text = await coordinator.memoryContext().trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
                 memoryContext = text
@@ -84,16 +86,16 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         )
     }
 
-    func memoryCoordinator(for conversationID: String) async -> MemoryCoordinator? {
-        await coordinatorPool.coordinator(for: conversationID)
+    func memoryCoordinator(for sessionID: String) async -> MemoryCoordinator? {
+        await coordinatorPool.coordinator(for: sessionID)
     }
 
-    func loadSessionMemoryState(for conversationID: String) async -> SessionMemoryState {
-        await stateRepository.loadState(for: conversationID)
+    func loadSessionMemoryState(for sessionID: String) async -> SessionMemoryState {
+        await stateRepository.loadState(for: sessionID)
     }
 
-    func saveSessionMemoryState(_ state: SessionMemoryState, for conversationID: String) async {
-        await stateRepository.saveState(state, for: conversationID)
+    func saveSessionMemoryState(_ state: SessionMemoryState, for sessionID: String) async {
+        await stateRepository.saveState(state, for: sessionID)
     }
 
     func beginBackgroundTask(expiration: @escaping @Sendable () -> Void) -> Any? {
@@ -114,55 +116,62 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         UIApplication.shared.endBackgroundTask(identifier)
     }
 
-    func sessionExecutionDidStart(for conversationID: String) {
-        backgroundCoordinator.markExecutionStarted(conversationID: conversationID)
+    func sessionExecutionDidStart(for sessionID: String) {
+        transcriptStorageProvider.recordTurnStarted(sessionID: sessionID)
+        backgroundCoordinator.markExecutionStarted(sessionID: sessionID)
         guard BackgroundExecutionPreferences.shared.isEnabled else { return }
         if #available(iOS 16.2, *), !Self.isMacCatalyst {
             TaskActivityService.shared.startActivity(
-                conversationID: conversationID,
+                sessionID: sessionID,
                 agentName: agentName,
                 agentEmoji: agentEmoji
             )
         }
     }
 
-    func sessionExecutionDidFinish(for conversationID: String, success: Bool, errorDescription: String?) {
+    func sessionExecutionDidFinish(for sessionID: String, success: Bool, errorDescription: String?) {
+        transcriptStorageProvider.recordTurnFinished(
+            sessionID: sessionID,
+            success: success,
+            errorDescription: errorDescription
+        )
         backgroundCoordinator.markExecutionFinished(
-            conversationID: conversationID,
+            sessionID: sessionID,
             success: success,
             errorDescription: errorDescription
         )
         if BackgroundExecutionPreferences.shared.isEnabled {
             if #available(iOS 16.2, *), !Self.isMacCatalyst {
-                TaskActivityService.shared.endActivity(conversationID: conversationID, completed: success)
+                TaskActivityService.shared.endActivity(sessionID: sessionID, completed: success)
             }
-            scheduleCompletionNotificationIfNeeded(for: conversationID, success: success)
+            scheduleCompletionNotificationIfNeeded(for: sessionID, success: success)
         }
         triggerConversationHaptic(success ? .success : .error)
     }
 
-    func sessionExecutionDidInterrupt(for conversationID: String, reason: String) {
-        backgroundCoordinator.markExecutionInterrupted(conversationID: conversationID, reason: reason)
+    func sessionExecutionDidInterrupt(for sessionID: String, reason: String) {
+        transcriptStorageProvider.recordTurnInterrupted(sessionID: sessionID, reason: reason)
+        backgroundCoordinator.markExecutionInterrupted(sessionID: sessionID, reason: reason)
         if BackgroundExecutionPreferences.shared.isEnabled {
             if #available(iOS 16.2, *), !Self.isMacCatalyst {
-                TaskActivityService.shared.endActivity(conversationID: conversationID, completed: false)
+                TaskActivityService.shared.endActivity(sessionID: sessionID, completed: false)
             }
         }
         triggerConversationHaptic(.warning)
     }
 
     func sessionDidReportUsage(_ usage: TokenUsage, for _: String) {
+        transcriptStorageProvider.recordUsage(usage, sessionID: sessionID)
         Task {
             await LLMUsageTracker.shared.record(usage)
         }
     }
 
-    private func scheduleCompletionNotificationIfNeeded(for conversationID: String, success: Bool) {
+    private func scheduleCompletionNotificationIfNeeded(for sessionID: String, success: Bool) {
         DispatchQueue.main.async {
             guard UIApplication.shared.applicationState != .active else { return }
 
-            let provider = TranscriptStorageProvider.provider(runtimeRootURL: self.resolvedRuntimeRootURL)
-            let lastAssistantReply = provider.messages(in: conversationID)
+            let lastAssistantReply = self.transcriptStorageProvider.messages(in: sessionID)
                 .filter { $0.role == .assistant }
                 .last?
                 .textContent ?? ""
@@ -176,7 +185,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
             content.sound = .default
 
             let request = UNNotificationRequest(
-                identifier: "task-complete-\(conversationID)",
+                identifier: "task-complete-\(sessionID)",
                 content: content,
                 trigger: nil
             )

@@ -20,9 +20,9 @@ public protocol ChatViewControllerMenuDelegate: AnyObject {
     /// Called when user taps the secondary title row (Model/Provider).
     func chatViewControllerDidTapModelTitle(_ controller: ChatViewController)
 
-    /// Called when ChatUI requests a new conversation (e.g. `/new`).
-    /// Return a new conversation ID to switch immediately, or nil to reject.
-    func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from conversationID: String) -> String?
+    /// Called when ChatUI requests a new session (e.g. `/new`).
+    /// Return a new session ID to switch immediately, or nil to reject.
+    func chatViewControllerRequestNewSessionID(_ controller: ChatViewController, from sessionID: String) -> String?
 
     /// Called when ChatUI receives a local slash command that the host may want to handle.
     /// Return true when handled and ChatUI should stop further processing.
@@ -48,7 +48,7 @@ public extension ChatViewControllerMenuDelegate {
         _ = controller
     }
 
-    func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from _: String) -> String? {
+    func chatViewControllerRequestNewSessionID(_ controller: ChatViewController, from _: String) -> String? {
         _ = controller
         return nil
     }

@@ -26,20 +26,20 @@ public actor MemoryStateRepository {
         stateFile = normalizedRuntimeRoot.appendingPathComponent("session_memory_states.json")
     }
 
-    public func loadState(for conversationID: String) -> SessionMemoryState {
+    public func loadState(for sessionID: String) -> SessionMemoryState {
         loadIfNeeded()
-        guard var entry = cache[conversationID] else {
+        guard var entry = cache[sessionID] else {
             return .init()
         }
         // Refresh access time so active sessions survive cleanup.
         entry.updatedAt = Date().timeIntervalSince1970
-        cache[conversationID] = entry
+        cache[sessionID] = entry
         return entry.state
     }
 
-    public func saveState(_ state: SessionMemoryState, for conversationID: String) {
+    public func saveState(_ state: SessionMemoryState, for sessionID: String) {
         loadIfNeeded()
-        cache[conversationID] = PersistedState(
+        cache[sessionID] = PersistedState(
             state: state,
             updatedAt: Date().timeIntervalSince1970
         )

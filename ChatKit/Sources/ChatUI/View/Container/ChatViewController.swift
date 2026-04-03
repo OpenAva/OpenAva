@@ -10,7 +10,7 @@ import UIKit
 ///
 /// Usage:
 ///
-///     let vc = ChatViewController(conversationID: "conv-1", sessionConfiguration: configuration)
+///     let vc = ChatViewController(sessionID: "conv-1", sessionConfiguration: configuration)
 ///     present(vc, animated: true)
 ///
 open class ChatViewController: UIViewController {
@@ -38,7 +38,7 @@ open class ChatViewController: UIViewController {
         static let topBarAvatarSize: CGFloat = 24
     }
 
-    public private(set) var conversationID: String
+    public private(set) var sessionID: String
     public let conversationModels: ConversationSession.Models
     public let sessionConfiguration: ConversationSession.Configuration
     public var configuration: Configuration
@@ -95,12 +95,12 @@ open class ChatViewController: UIViewController {
     private var draftInputObject: ChatInputContent?
 
     public init(
-        conversationID: String = UUID().uuidString,
+        sessionID: String = UUID().uuidString,
         models: ConversationSession.Models = .init(),
         sessionConfiguration: ConversationSession.Configuration = .init(storage: DisposableStorageProvider.shared),
         configuration: Configuration = .init()
     ) {
-        self.conversationID = conversationID
+        self.sessionID = sessionID
         conversationModels = models
         self.sessionConfiguration = sessionConfiguration
         self.configuration = configuration
@@ -128,9 +128,9 @@ open class ChatViewController: UIViewController {
         messageListView.addGestureRecognizer(dismissKeyboardTapGesture)
         messageListView.theme = configuration.messageTheme
 
-        configureSession(for: conversationID)
+        configureSession(for: sessionID)
         chatInputView.delegate = self
-        chatInputView.bind(conversationID: conversationID)
+        chatInputView.bind(sessionID: sessionID)
         configureNavigationItems()
         refreshNavigationTitle()
         applyHeaderStateToTitleView()
@@ -364,7 +364,7 @@ open class ChatViewController: UIViewController {
     }
 
     private func configureSession(for id: String) {
-        conversationID = id
+        sessionID = id
         let session = ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
         applyConversationModels(conversationModels, to: session)
         currentSession = session
@@ -384,11 +384,11 @@ open class ChatViewController: UIViewController {
     }
 
     @MainActor
-    private func switchConversation(to id: String) {
+    private func switchSession(to id: String) {
         draftInputObject = nil
         chatInputView.resetValues()
         chatInputView.storage.removeAll()
-        chatInputView.bind(conversationID: id)
+        chatInputView.bind(sessionID: id)
         configureSession(for: id)
         messageListView.updateList()
         refreshNavigationTitle()
@@ -405,7 +405,7 @@ open class ChatViewController: UIViewController {
     }
 
     private func refreshNavigationTitle() {
-        let storedTitleMetadata = ConversationTitleMetadata(storageValue: currentSession?.storageProvider.title(for: conversationID))
+        let storedTitleMetadata = ConversationTitleMetadata(storageValue: currentSession?.storageProvider.title(for: sessionID))
         let resolvedTitle = resolveTitle(from: storedTitleMetadata)
 
         resolvedTitleMetadata = .init(title: resolvedTitle, avatar: storedTitleMetadata?.avatar ?? ConversationTitleMetadata.defaultAvatar)
@@ -578,7 +578,7 @@ public extension ChatViewController {
         draftInputObject = nil
         chatInputView.resetValues()
         chatInputView.storage.removeAll()
-        chatInputView.bind(conversationID: conversationID)
+        chatInputView.bind(sessionID: sessionID)
         session.clear { [weak self] in
             Task { @MainActor in
                 self?.messageListView.updateList()
@@ -599,9 +599,9 @@ public extension ChatViewController {
                 // Schedule memory archiving in background; records are captured now.
                 // Conversation switches immediately without waiting for LLM consolidation.
                 Task { await session.beginMemoryArchiveForNewConversation() }
-                let newConversationID = menuDelegate?.chatViewControllerRequestNewConversationID(self, from: conversationID)
-                    ?? configuration.newConversationIDProvider()
-                switchConversation(to: newConversationID)
+                let newSessionID = menuDelegate?.chatViewControllerRequestNewSessionID(self, from: sessionID)
+                    ?? configuration.newSessionIDProvider()
+                switchSession(to: newSessionID)
             }
         default:
             let alert = UIAlertController(

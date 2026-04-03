@@ -5,10 +5,10 @@
 
 import Foundation
 
-/// A message in a conversation, composed of typed content parts.
+/// A message in a session, composed of typed content parts.
 public final class ConversationMessage: Identifiable, @unchecked Sendable {
     public let id: String
-    public let conversationID: String
+    public let sessionID: String
     public var role: MessageRole
     public var parts: [ContentPart]
     public var createdAt: Date
@@ -16,14 +16,14 @@ public final class ConversationMessage: Identifiable, @unchecked Sendable {
 
     public init(
         id: String = UUID().uuidString,
-        conversationID: String,
+        sessionID: String,
         role: MessageRole,
         parts: [ContentPart] = [],
         createdAt: Date = .init(),
         metadata: [String: String] = [:]
     ) {
         self.id = id
-        self.conversationID = conversationID
+        self.sessionID = sessionID
         self.role = role
         self.parts = parts
         self.createdAt = createdAt

@@ -272,8 +272,8 @@ open class ChatInputView: EditorSectionView {
         resetValues()
     }
 
-    public func bind(conversationID: String) {
-        storage = .init(id: conversationID)
+    public func bind(sessionID: String) {
+        storage = .init(id: sessionID)
         restoreEditorStatusIfPossible()
     }
 

@@ -12,10 +12,10 @@ import Foundation
 
         private init() {}
 
-        func startActivity(conversationID: String, agentName: String, agentEmoji: String) {
+        func startActivity(sessionID: String, agentName: String, agentEmoji: String) {
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
-            let attributes = TaskActivityAttributes(conversationID: conversationID)
+            let attributes = TaskActivityAttributes(sessionID: sessionID)
             let state = TaskActivityAttributes.ContentState(
                 agentName: agentName,
                 agentEmoji: agentEmoji,
@@ -27,7 +27,7 @@ import Foundation
             updateQueue.async {
                 Task {
                     for activity in Activity<TaskActivityAttributes>.activities
-                        where activity.attributes.conversationID == conversationID
+                        where activity.attributes.sessionID == sessionID
                     {
                         await activity.end(using: nil, dismissalPolicy: .immediate)
                     }
@@ -41,11 +41,11 @@ import Foundation
             }
         }
 
-        func endActivity(conversationID: String, completed: Bool) {
+        func endActivity(sessionID: String, completed: Bool) {
             updateQueue.async {
                 Task {
                     for activity in Activity<TaskActivityAttributes>.activities
-                        where activity.attributes.conversationID == conversationID
+                        where activity.attributes.sessionID == sessionID
                     {
                         var finalState = activity.content.state
                         finalState.isCompleted = completed
@@ -67,8 +67,8 @@ import Foundation
 
         private init() {}
 
-        func startActivity(conversationID _: String, agentName _: String, agentEmoji _: String) {}
+        func startActivity(sessionID _: String, agentName _: String, agentEmoji _: String) {}
 
-        func endActivity(conversationID _: String, completed _: Bool) {}
+        func endActivity(sessionID _: String, completed _: Bool) {}
     }
 #endif

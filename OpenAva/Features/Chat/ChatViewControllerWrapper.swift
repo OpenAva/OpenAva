@@ -82,7 +82,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case runHeartbeatNow
     }
 
-    let conversationID: String
+    let sessionID: String
     let workspaceRootURL: URL?
     let runtimeRootURL: URL?
     let chatClient: (any ChatClient)?
@@ -134,7 +134,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> ChatViewController {
-        let makeNewConversationID: @MainActor () -> String = {
+        let makeNewSessionID: @MainActor () -> String = {
             "chat-\(UUID().uuidString)"
         }
 
@@ -144,7 +144,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             // Reuse one provider per runtime root so chat history survives view recreation.
             storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
             sessionDelegate = AgentSessionDelegate(
-                conversationID: conversationID,
+                sessionID: sessionID,
                 workspaceRootURL: workspaceRootURL,
                 runtimeRootURL: runtimeRootURL,
                 baseSystemPrompt: systemPrompt,
@@ -184,13 +184,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         )
         let viewConfiguration = ChatViewController.Configuration(
             input: inputConfiguration,
-            newConversationIDProvider: makeNewConversationID
+            newSessionIDProvider: makeNewSessionID
         )
         let chatViewController: ChatViewController
 
         #if targetEnvironment(macCatalyst)
             let catalystController = CatalystChatViewController(
-                conversationID: conversationID,
+                sessionID: sessionID,
                 models: models,
                 sessionConfiguration: sessionConfiguration,
                 configuration: viewConfiguration
@@ -201,7 +201,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             chatViewController = catalystController
         #else
             chatViewController = ChatViewController(
-                conversationID: conversationID,
+                sessionID: sessionID,
                 models: models,
                 sessionConfiguration: sessionConfiguration,
                 configuration: viewConfiguration
@@ -226,7 +226,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
             .command(id: "new-conversation", title: L10n.tr("chat.command.newConversation"), icon: "plus", command: "/new"),
-            .command(id: "run-heartbeat", title: "Heartbeat", icon: "bolt.horizontal", command: "/heartbeat"),
+            .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "bolt.heart", command: "/heartbeat"),
         ]
 
         let frequentSkills = buildFrequentSkillItems()
@@ -311,437 +311,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             modelName: selectedModelName,
             providerName: selectedProviderName
         ))
-    }
-}
-
-final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
-    private struct TranscriptContentBlock: Codable {
-        struct ImageURL: Codable {
-            let url: String
-            let detail: String?
-        }
-
-        let type: String
-        let text: String?
-        let imageUrl: ImageURL?
-        let toolCallId: String?
-        let toolName: String?
-        let toolCallState: String?
-        let reasoningDuration: Double
-    }
-
-    private struct TranscriptLine: Codable {
-        let id: String
-        let role: String
-        let timestamp: Double
-        let content: [TranscriptContentBlock]
-        let usage: [String: AnyCodable]?
-        let toolCallId: String?
-        let toolName: String?
-        let stopReason: String?
-        let idempotencyKey: String?
-    }
-
-    private struct SessionRecord: Codable {
-        var key: String
-        var kind: String
-        var displayName: String
-        var updatedAtMs: Int64
-        var sessionId: String?
-    }
-
-    private struct SessionEnvelope: Codable {
-        var sessions: [SessionRecord]
-    }
-
-    private static let providersLock = NSLock()
-    private static var providersByRootPath: [String: TranscriptStorageProvider] = [:]
-
-    static func provider(runtimeRootURL: URL) -> TranscriptStorageProvider {
-        // Runtime root must be explicitly provided by agent configuration.
-        let resolvedRoot = runtimeRootURL.standardizedFileURL
-        let key = resolvedRoot.path
-        providersLock.lock()
-        defer { self.providersLock.unlock() }
-        if let provider = providersByRootPath[key] {
-            return provider
-        }
-        let provider = TranscriptStorageProvider(runtimeRootURL: resolvedRoot)
-        providersByRootPath[key] = provider
-        return provider
-    }
-
-    /// Remove the cached provider for the given runtime root.
-    /// Called when deleting an agent to release memory and prevent stale data.
-    static func removeProvider(runtimeRootURL: URL) {
-        let resolvedRoot = runtimeRootURL.standardizedFileURL
-        let key = resolvedRoot.path
-        providersLock.lock()
-        defer { self.providersLock.unlock() }
-        providersByRootPath.removeValue(forKey: key)
-    }
-
-    private let runtimeRootURL: URL
-    private let transcriptsDir: URL
-    private let sessionsPath: URL
-    private let lock = NSLock()
-
-    private var messagesByConversation: [String: [ConversationMessage]] = [:]
-    private var loadedConversations = Set<String>()
-    private var sessionsByKey: [String: SessionRecord] = [:]
-    private var didLoadSessions = false
-
-    private init(runtimeRootURL: URL) {
-        self.runtimeRootURL = runtimeRootURL
-        transcriptsDir = runtimeRootURL.appendingPathComponent("transcripts", isDirectory: true)
-        sessionsPath = runtimeRootURL.appendingPathComponent("sessions.json", isDirectory: false)
-        prepareDirectories()
-    }
-
-    func listSessions() -> [ChatSession] {
-        lock.lock()
-        loadSessionsIfNeededLocked()
-        let sorted = sessionsByKey.values.sorted { $0.updatedAtMs > $1.updatedAtMs }
-        lock.unlock()
-        return sorted.map { ChatSession(key: $0.key, displayName: $0.displayName, updatedAt: $0.updatedAtMs) }
-    }
-
-    func createMessage(in conversationID: String, role: MessageRole) -> ConversationMessage {
-        let message = ConversationMessage(conversationID: conversationID, role: role)
-        lock.lock()
-        ensureConversationLoadedLocked(conversationID)
-        messagesByConversation[conversationID, default: []].append(message)
-        lock.unlock()
-        return message
-    }
-
-    func save(_ messages: [ConversationMessage]) {
-        guard let conversationID = messages.first?.conversationID else { return }
-        lock.lock()
-        ensureConversationLoadedLocked(conversationID)
-        messagesByConversation[conversationID] = messages.sorted { $0.createdAt < $1.createdAt }
-        upsertSessionLocked(for: conversationID, titleOverride: nil)
-        persistConversationLocked(conversationID)
-        persistSessionsLocked()
-        lock.unlock()
-    }
-
-    func messages(in conversationID: String) -> [ConversationMessage] {
-        lock.lock()
-        ensureConversationLoadedLocked(conversationID)
-        let messages = messagesByConversation[conversationID] ?? []
-        lock.unlock()
-        return messages.sorted { $0.createdAt < $1.createdAt }
-    }
-
-    func delete(_ messageIDs: [String]) {
-        guard !messageIDs.isEmpty else { return }
-        lock.lock()
-        var changedConversations: [String] = []
-        for (conversationID, messages) in messagesByConversation {
-            let filtered = messages.filter { !messageIDs.contains($0.id) }
-            if filtered.count != messages.count {
-                messagesByConversation[conversationID] = filtered
-                upsertSessionLocked(for: conversationID, titleOverride: nil)
-                persistConversationLocked(conversationID)
-                changedConversations.append(conversationID)
-            }
-        }
-        if !changedConversations.isEmpty {
-            persistSessionsLocked()
-        }
-        lock.unlock()
-    }
-
-    func title(for id: String) -> String? {
-        lock.lock()
-        loadSessionsIfNeededLocked()
-        let title = sessionsByKey[id]?.displayName
-        lock.unlock()
-        return title
-    }
-
-    func setTitle(_ title: String, for id: String) {
-        lock.lock()
-        loadSessionsIfNeededLocked()
-        upsertSessionLocked(for: id, titleOverride: title)
-        persistSessionsLocked()
-        lock.unlock()
-    }
-
-    private func prepareDirectories() {
-        try? FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: transcriptsDir, withIntermediateDirectories: true)
-    }
-
-    private func transcriptPath(for conversationID: String) -> URL {
-        let safeKey = conversationID
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "\\", with: "_")
-        return transcriptsDir.appendingPathComponent("\(safeKey).jsonl", isDirectory: false)
-    }
-
-    private func ensureConversationLoadedLocked(_ conversationID: String) {
-        guard !loadedConversations.contains(conversationID) else { return }
-        messagesByConversation[conversationID] = loadConversationFromDiskLocked(conversationID)
-        loadedConversations.insert(conversationID)
-    }
-
-    private func loadConversationFromDiskLocked(_ conversationID: String) -> [ConversationMessage] {
-        let fileURL = transcriptPath(for: conversationID)
-        guard let data = try? Data(contentsOf: fileURL),
-              let text = String(data: data, encoding: .utf8)
-        else {
-            return []
-        }
-
-        var messages: [ConversationMessage] = []
-        for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty,
-                  let lineData = line.data(using: .utf8),
-                  let decoded = try? JSONDecoder().decode(TranscriptLine.self, from: lineData)
-            else {
-                continue
-            }
-            messages.append(makeConversationMessage(from: decoded, conversationID: conversationID))
-        }
-        return messages.sorted { $0.createdAt < $1.createdAt }
-    }
-
-    private func persistConversationLocked(_ conversationID: String) {
-        let messages = (messagesByConversation[conversationID] ?? []).sorted { $0.createdAt < $1.createdAt }
-        var lines: [String] = []
-        for message in messages {
-            guard let line = makeTranscriptLine(from: message).flatMap({ try? JSONEncoder().encode($0) }),
-                  let text = String(data: line, encoding: .utf8)
-            else {
-                continue
-            }
-            lines.append(text)
-        }
-        let payload = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
-        let fileURL = transcriptPath(for: conversationID)
-        try? payload.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
-
-    private func makeTranscriptLine(from message: ConversationMessage) -> TranscriptLine? {
-        let blocks = mapContentBlocks(from: message.parts)
-        let fallbackBlock = TranscriptContentBlock(
-            type: "text",
-            text: message.textContent,
-            imageUrl: nil,
-            toolCallId: nil,
-            toolName: nil,
-            toolCallState: nil,
-            reasoningDuration: 0
-        )
-        let storedBlocks = blocks.isEmpty ? [fallbackBlock] : blocks
-        let firstToolCall = firstToolCallPart(in: message.parts)
-        let firstToolResult = firstToolResultPart(in: message.parts)
-
-        return TranscriptLine(
-            id: message.id,
-            role: message.role.rawValue,
-            timestamp: message.createdAt.timeIntervalSince1970 * 1000,
-            content: storedBlocks,
-            usage: nil,
-            toolCallId: firstToolResult?.toolCallID,
-            toolName: firstToolCall?.toolName,
-            stopReason: message.finishReason?.rawValue,
-            idempotencyKey: nil
-        )
-    }
-
-    private func mapContentBlocks(from parts: [ContentPart]) -> [TranscriptContentBlock] {
-        parts.compactMap { part in
-            switch part {
-            case let .text(textPart):
-                return TranscriptContentBlock(
-                    type: "text",
-                    text: textPart.text,
-                    imageUrl: nil,
-                    toolCallId: nil,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: 0
-                )
-            case let .reasoning(reasoningPart):
-                return TranscriptContentBlock(
-                    type: "reasoning",
-                    text: reasoningPart.text,
-                    imageUrl: nil,
-                    toolCallId: nil,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: reasoningPart.duration
-                )
-            case let .toolCall(toolCallPart):
-                return TranscriptContentBlock(
-                    type: "tool_call",
-                    text: toolCallPart.parameters,
-                    imageUrl: nil,
-                    toolCallId: toolCallPart.id,
-                    toolName: toolCallPart.toolName,
-                    toolCallState: toolCallPart.state.rawValue,
-                    reasoningDuration: 0
-                )
-            case let .toolResult(resultPart):
-                return TranscriptContentBlock(
-                    type: "tool_result",
-                    text: resultPart.result,
-                    imageUrl: nil,
-                    toolCallId: resultPart.toolCallID,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: 0
-                )
-            case let .image(imagePart):
-                let label = imagePart.name ?? "image"
-                return TranscriptContentBlock(
-                    type: "image",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolCallId: nil,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: 0
-                )
-            case let .audio(audioPart):
-                let label = audioPart.name ?? "audio"
-                return TranscriptContentBlock(
-                    type: "audio",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolCallId: nil,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: 0
-                )
-            case let .file(filePart):
-                let label = filePart.name ?? "file"
-                return TranscriptContentBlock(
-                    type: "file",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolCallId: nil,
-                    toolName: nil,
-                    toolCallState: nil,
-                    reasoningDuration: 0
-                )
-            }
-        }
-    }
-
-    private func firstToolCallPart(in parts: [ContentPart]) -> ToolCallContentPart? {
-        for part in parts {
-            if case let .toolCall(value) = part {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private func firstToolResultPart(in parts: [ContentPart]) -> ToolResultContentPart? {
-        for part in parts {
-            if case let .toolResult(value) = part {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private func makeConversationMessage(from line: TranscriptLine, conversationID: String) -> ConversationMessage {
-        let createdAt = Date(timeIntervalSince1970: line.timestamp / 1000)
-        let message = ConversationMessage(
-            id: line.id,
-            conversationID: conversationID,
-            role: MessageRole(rawValue: line.role),
-            parts: mapParts(from: line),
-            createdAt: createdAt,
-            metadata: [:]
-        )
-        if let stopReason = line.stopReason {
-            message.metadata["finishReason"] = stopReason
-        }
-        return message
-    }
-
-    private func mapParts(from line: TranscriptLine) -> [ContentPart] {
-        var result: [ContentPart] = []
-        for block in line.content {
-            switch block.type {
-            case "reasoning":
-                if let text = block.text {
-                    result.append(.reasoning(ReasoningContentPart(text: text, duration: block.reasoningDuration)))
-                }
-            case "tool_call":
-                // Preserve the original tool-call id so UI toggles can find the matching result.
-                let toolName = block.toolName ?? line.toolName ?? "Tool"
-                let parameters = block.text ?? "{}"
-                let toolCallState = ToolCallState(rawValue: block.toolCallState ?? "") ?? .succeeded
-                result.append(
-                    .toolCall(
-                        ToolCallContentPart(
-                            id: block.toolCallId ?? line.toolCallId ?? UUID().uuidString,
-                            toolName: toolName,
-                            parameters: parameters,
-                            state: toolCallState
-                        )
-                    )
-                )
-            case "tool_result":
-                let toolCallID = block.toolCallId ?? line.toolCallId ?? UUID().uuidString
-                result.append(
-                    .toolResult(
-                        ToolResultContentPart(
-                            toolCallID: toolCallID,
-                            result: block.text ?? "",
-                            isCollapsed: true
-                        )
-                    )
-                )
-            default:
-                if let text = block.text {
-                    result.append(.text(TextContentPart(text: text)))
-                }
-            }
-        }
-        return result
-    }
-
-    private func loadSessionsIfNeededLocked() {
-        guard !didLoadSessions else { return }
-        didLoadSessions = true
-        guard let data = try? Data(contentsOf: sessionsPath),
-              let envelope = try? JSONDecoder().decode(SessionEnvelope.self, from: data)
-        else {
-            sessionsByKey = [:]
-            return
-        }
-        sessionsByKey = Dictionary(uniqueKeysWithValues: envelope.sessions.map { ($0.key, $0) })
-    }
-
-    private func upsertSessionLocked(for conversationID: String, titleOverride: String?) {
-        loadSessionsIfNeededLocked()
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let existing = sessionsByKey[conversationID]
-        let title = titleOverride ?? existing?.displayName ?? conversationID
-
-        sessionsByKey[conversationID] = SessionRecord(
-            key: conversationID,
-            kind: existing?.kind ?? "chat",
-            displayName: title,
-            updatedAtMs: now,
-            sessionId: existing?.sessionId
-        )
-    }
-
-    private func persistSessionsLocked() {
-        let sorted = sessionsByKey.values.sorted { $0.updatedAtMs > $1.updatedAtMs }
-        let envelope = SessionEnvelope(sessions: sorted)
-        guard let data = try? JSONEncoder().encode(envelope) else { return }
-        try? data.write(to: sessionsPath, options: [.atomic])
     }
 }
 
@@ -840,12 +409,6 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onMenuAction?(.openRemoteControl)
             }
-            let heartbeatAction = UIAction(
-                title: "Run Heartbeat Now",
-                image: UIImage(systemName: "bolt.heart")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.runHeartbeatNow)
-            }
             let isBackgroundEnabled = BackgroundExecutionPreferences.shared.isEnabled
             let backgroundAction = UIAction(
                 title: L10n.tr("settings.background.enabled"),
@@ -892,7 +455,6 @@ extension ChatViewControllerWrapper {
                     contextAction,
                     cronAction,
                     remoteControlAction,
-                    heartbeatAction,
                 ]
             )
             let agentManagementMenu = UIMenu(
@@ -992,7 +554,7 @@ extension ChatViewControllerWrapper {
             }
         }
 
-        func chatViewControllerRequestNewConversationID(_ controller: ChatViewController, from _: String) -> String? {
+        func chatViewControllerRequestNewSessionID(_ controller: ChatViewController, from _: String) -> String? {
             _ = controller
             let newID = "chat-\(UUID().uuidString)"
             onSessionSwitch?(newID)

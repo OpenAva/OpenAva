@@ -23,20 +23,20 @@ public final class ConversationSessionManager: @unchecked Sendable {
 
     private init() {}
 
-    /// Get or create a session for the given conversation ID using explicit providers.
-    public func session(for conversationID: String, configuration: ConversationSession.Configuration) -> ConversationSession {
-        if let existing = sessions[conversationID] {
+    /// Get or create a session for the given session ID using explicit providers.
+    public func session(for sessionID: String, configuration: ConversationSession.Configuration) -> ConversationSession {
+        if let existing = sessions[sessionID] {
             return existing
         }
-        let session = ConversationSession(id: conversationID, configuration: configuration)
-        sessions[conversationID] = session
+        let session = ConversationSession(id: sessionID, configuration: configuration)
+        sessions[sessionID] = session
         return session
     }
 
     /// Drop the cached session so a subsequent access rebuilds it from new configuration.
-    public func removeSession(for conversationID: String) {
-        sessions.removeValue(forKey: conversationID)
-        executingSessions.remove(conversationID)
+    public func removeSession(for sessionID: String) {
+        sessions.removeValue(forKey: sessionID)
+        executingSessions.remove(sessionID)
         executingSessionsSubject.send(executingSessions)
     }
 
@@ -59,13 +59,13 @@ public final class ConversationSessionManager: @unchecked Sendable {
         executingSessionsSubject.send(executingSessions)
     }
 
-    func markSessionExecuting(_ conversationID: String) {
-        executingSessions.insert(conversationID)
+    func markSessionExecuting(_ sessionID: String) {
+        executingSessions.insert(sessionID)
         executingSessionsSubject.send(executingSessions)
     }
 
-    func markSessionCompleted(_ conversationID: String) {
-        executingSessions.remove(conversationID)
+    func markSessionCompleted(_ sessionID: String) {
+        executingSessions.remove(sessionID)
         executingSessionsSubject.send(executingSessions)
     }
 

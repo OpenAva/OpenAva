@@ -14,14 +14,14 @@ import UIKit
 /// Usage:
 ///
 ///     let container = ConversationContainerView()
-///     container.load(conversationID: "conv-1", sessionConfiguration: configuration)
+///     container.load(sessionID: "conv-1", sessionConfiguration: configuration)
 ///     parentView.addSubview(container)
 ///
 open class ConversationContainerView: UIView {
     private var draftInputObject: ChatInputContent?
     private var activeSessionConfiguration: ConversationSession.Configuration?
     public var conversationModels: ConversationSession.Models = .init()
-    public var newConversationIDProvider: @MainActor () -> String = { UUID().uuidString }
+    public var newSessionIDProvider: @MainActor () -> String = { UUID().uuidString }
 
     public let messageListView = MessageListView()
     public let chatInputView = ChatInputView()
@@ -58,18 +58,18 @@ open class ConversationContainerView: UIView {
         }
     }
 
-    /// Load a conversation by ID. This sets up the message list and session.
+    /// Load a session by ID. This sets up the message list and session.
     public func load(
-        conversationID: String,
+        sessionID: String,
         models: ConversationSession.Models = .init(),
         sessionConfiguration: ConversationSession.Configuration
     ) {
         conversationModels = models
         activeSessionConfiguration = sessionConfiguration
-        let session = ConversationSessionManager.shared.session(for: conversationID, configuration: sessionConfiguration)
+        let session = ConversationSessionManager.shared.session(for: sessionID, configuration: sessionConfiguration)
         applyConversationModels(models, to: session)
         messageListView.session = session
-        chatInputView.bind(conversationID: conversationID)
+        chatInputView.bind(sessionID: sessionID)
     }
 }
 
@@ -116,8 +116,8 @@ extension ConversationContainerView: ChatInputDelegate {
                 // Conversation switches immediately without waiting for LLM consolidation.
                 Task { await session.beginMemoryArchiveForNewConversation() }
                 guard let config = activeSessionConfiguration else { return }
-                let newConversationID = newConversationIDProvider()
-                load(conversationID: newConversationID, models: conversationModels, sessionConfiguration: config)
+                let newSessionID = newSessionIDProvider()
+                load(sessionID: newSessionID, models: conversationModels, sessionConfiguration: config)
                 messageListView.updateList()
             }
         default:

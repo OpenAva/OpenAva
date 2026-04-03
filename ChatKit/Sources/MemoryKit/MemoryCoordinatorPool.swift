@@ -2,7 +2,7 @@
 //  MemoryCoordinatorPool.swift
 //  MemoryKit
 //
-//  Reuses memory coordinators per conversation.
+//  Reuses memory coordinators per session.
 //
 
 import ChatClient
@@ -24,8 +24,8 @@ public actor MemoryCoordinatorPool {
         self.memoryWindow = max(2, memoryWindow)
     }
 
-    public func coordinator(for conversationID: String) -> MemoryCoordinator? {
-        if let existing = coordinators[conversationID] {
+    public func coordinator(for sessionID: String) -> MemoryCoordinator? {
+        if let existing = coordinators[sessionID] {
             return existing
         }
         guard let chatClient else {
@@ -40,7 +40,7 @@ public actor MemoryCoordinatorPool {
             consolidator: consolidator,
             memoryWindow: memoryWindow
         )
-        coordinators[conversationID] = coordinator
+        coordinators[sessionID] = coordinator
         return coordinator
     }
 }

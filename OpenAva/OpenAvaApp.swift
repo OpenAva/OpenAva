@@ -117,10 +117,24 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
     func userNotificationCenter(
         _: UNUserNotificationCenter,
-        willPresent _: UNNotification,
+        willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .list, .sound])
+        Task {
+            let handledByCronRouter = await CronNotificationRouter.handle(notification)
+            completionHandler(handledByCronRouter ? [] : [.banner, .list, .sound])
+        }
+    }
+
+    func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task {
+            _ = await CronNotificationRouter.handle(response.notification)
+            completionHandler()
+        }
     }
 }
 

@@ -8,6 +8,7 @@
 import ChatClient
 import ChatUI
 import Foundation
+import OpenClawKit
 import SwiftUI
 
 struct ChatRootView: View {
@@ -41,36 +42,52 @@ struct ChatRootView: View {
     var body: some View {
         NavigationStack(path: $destinationPath) {
             Group {
-                ChatScreen(
-                    container: containerStore.container,
-                    scopedConversationID: scopedConversationID(
-                        for: currentSessionKey ?? resolvedDefaultSessionKey,
-                        agentID: containerStore.activeAgent?.id
-                    ),
-                    currentSessionKey: currentSessionKey ?? resolvedDefaultSessionKey,
-                    defaultSessionKey: resolvedDefaultSessionKey,
-                    sessions: sessions,
-                    agents: containerStore.agents,
-                    activeAgentID: containerStore.activeAgent?.id,
-                    activeAgentName: currentActiveAgentName,
-                    activeAgentEmoji: currentActiveAgentEmoji,
-                    selectedModelName: currentSelectedModelName,
-                    selectedProviderName: resolveSelectedProviderName(),
-                    pendingAutoSendID: pendingAutoSendID,
-                    pendingAutoSendMessage: pendingAutoSendMessage,
-                    onMenuAction: handleMenuAction,
-                    onSessionSwitch: handleSessionSwitch,
-                    onAgentSwitch: handleAgentSwitch,
-                    onCreateLocalAgent: openLocalAgentCreation,
-                    onDeleteCurrentAgent: handleDeleteCurrentAgent,
-                    onRenameCurrentAgent: handleRenameCurrentAgent,
-                    autoCompactEnabled: autoCompactEnabled,
-                    onToggleAutoCompact: toggleAutoCompact
-                )
-                .id(containerAgent + "|" + (currentSessionKey ?? ""))
-                // Keep the host NavigationStack bar hidden to avoid duplicating
-                // ChatViewController's own header on both iOS and macCatalyst.
-                .toolbar(.hidden, for: .navigationBar)
+                if let teammateSessionID = activeTeammateSessionID {
+                    TeamTranscriptView(sessionID: teammateSessionID)
+                        .id(containerAgent + "|team|" + teammateSessionID)
+                } else {
+                    ChatScreen(
+                        container: containerStore.container,
+                        scopedSessionID: scopedSessionID(
+                            for: currentSessionKey ?? resolvedDefaultSessionKey,
+                            agentID: containerStore.activeAgent?.id
+                        ),
+                        currentSessionKey: currentSessionKey ?? resolvedDefaultSessionKey,
+                        defaultSessionKey: resolvedDefaultSessionKey,
+                        sessions: sessions,
+                        agents: containerStore.agents,
+                        activeAgentID: containerStore.activeAgent?.id,
+                        activeAgentName: currentActiveAgentName,
+                        activeAgentEmoji: currentActiveAgentEmoji,
+                        selectedModelName: currentSelectedModelName,
+                        selectedProviderName: resolveSelectedProviderName(),
+                        pendingAutoSendID: pendingAutoSendID,
+                        pendingAutoSendMessage: pendingAutoSendMessage,
+                        onMenuAction: handleMenuAction,
+                        onSessionSwitch: handleSessionSwitch,
+                        onAgentSwitch: handleAgentSwitch,
+                        onCreateLocalAgent: openLocalAgentCreation,
+                        onDeleteCurrentAgent: handleDeleteCurrentAgent,
+                        onRenameCurrentAgent: handleRenameCurrentAgent,
+                        autoCompactEnabled: autoCompactEnabled,
+                        onToggleAutoCompact: toggleAutoCompact
+                    )
+                    .id(containerAgent + "|" + (currentSessionKey ?? ""))
+                    .safeAreaInset(edge: .top) {
+                        if let snapshot = activeLeadTeamSnapshot {
+                            TeamDashboardView(
+                                snapshot: snapshot,
+                                currentSessionKey: currentSessionKey,
+                                onOpenConversation: handleSessionSwitch,
+                                onApprovePlan: approveTeammatePlan,
+                                onStopTeammate: stopTeammate
+                            )
+                        }
+                    }
+                    // Keep the host NavigationStack bar hidden to avoid duplicating
+                    // ChatViewController's own header on both iOS and macCatalyst.
+                    .toolbar(.hidden, for: .navigationBar)
+                }
             }
             .navigationDestination(for: MenuDestination.self) { destination in
                 destinationView(for: destination)
@@ -108,6 +125,14 @@ struct ChatRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .OpenAvaIntentAutoSend)) { _ in
             // Re-read from persistent queue so filtering always follows current agent.
             drainPendingAutoSend(for: containerStore.activeAgent?.id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
+            refreshSessions()
+            if let currentSessionKey,
+               !sessions.contains(where: { $0.key == currentSessionKey })
+            {
+                self.currentSessionKey = resolvedDefaultSessionKey
+            }
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
@@ -161,6 +186,23 @@ struct ChatRootView: View {
         return trimmed.isEmpty ? "main" : trimmed
     }
 
+    private var activeTeammateSessionID: String? {
+        guard let currentSessionKey else { return nil }
+        return TeamSwarmCoordinator.shared.isTeammateSession(currentSessionKey) ? currentSessionKey : nil
+    }
+
+    private var activeLeadTeamSnapshot: TeamSwarmCoordinator.TeamSnapshot? {
+        TeamSwarmCoordinator.shared.leadSnapshot(for: currentInvocationSessionID)
+    }
+
+    private var currentInvocationSessionID: String {
+        let sessionID = scopedSessionID(
+            for: currentSessionKey ?? resolvedDefaultSessionKey,
+            agentID: containerStore.activeAgent?.id
+        )
+        return "\(containerStore.activeAgent?.id.uuidString ?? "global")::\(sessionID)"
+    }
+
     private func presentOnboardingIfNeeded() {
         guard !didEvaluateOnboarding else { return }
         didEvaluateOnboarding = true
@@ -172,13 +214,13 @@ struct ChatRootView: View {
 
     /// Reads one pending auto-send request for the currently active agent.
     private func drainPendingAutoSend(for activeAgentID: UUID?) {
-        let activeConversationID = scopedConversationID(
+        let activeSessionID = scopedSessionID(
             for: currentSessionKey ?? resolvedDefaultSessionKey,
             agentID: activeAgentID
         )
         guard let request = SkillLaunchService.dequeuePendingAutoSend(
             for: activeAgentID,
-            activeConversationID: activeConversationID
+            activeSessionID: activeSessionID
         ),
             request.id != pendingAutoSendID
         else { return }
@@ -207,7 +249,7 @@ struct ChatRootView: View {
         let runtimeRootURL = activeAgent.runtimeURL
         // Read local sessions from TranscriptStorageProvider synchronously.
         let provider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
-        let loadedSessions = provider.listSessions().filter { !HeartbeatSupport.isHiddenConversationID($0.key) }
+        let loadedSessions = provider.listSessions().filter { !HeartbeatSupport.isHiddenSessionID($0.key) }
         guard containerStore.activeAgent?.id == expectedAgentID else { return }
 
         sessions = loadedSessions
@@ -246,9 +288,63 @@ struct ChatRootView: View {
         )
     }
 
+    private func approveTeammatePlan(_ sessionID: String) {
+        struct Params: Encodable {
+            let sessionID: String
+
+            enum CodingKeys: String, CodingKey {
+                case sessionID = "session_id"
+            }
+        }
+        guard let data = try? JSONEncoder().encode(Params(sessionID: sessionID)),
+              let paramsJSON = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        Task {
+            let request = BridgeInvokeRequest(id: UUID().uuidString, command: "team.plan.approve", paramsJSON: paramsJSON)
+            _ = await containerStore.container.services.localToolInvokeService.handle(request)
+            refreshSessions()
+        }
+    }
+
+    private func stopTeammate(_ teammateName: String) {
+        guard let snapshot = activeLeadTeamSnapshot else { return }
+        struct Params: Encodable {
+            let to: String
+            let message: String
+            let teamName: String
+            let messageType: String
+
+            enum CodingKeys: String, CodingKey {
+                case to
+                case message
+                case teamName = "team_name"
+                case messageType = "message_type"
+            }
+        }
+        guard let data = try? JSONEncoder().encode(
+            Params(
+                to: teammateName,
+                message: "Shutdown requested.",
+                teamName: snapshot.team.name,
+                messageType: "shutdown_request"
+            )
+        ),
+            let paramsJSON = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        Task {
+            let request = BridgeInvokeRequest(id: UUID().uuidString, command: "team.message.send", paramsJSON: paramsJSON)
+            _ = await containerStore.container.services.localToolInvokeService.handle(request)
+            refreshSessions()
+        }
+    }
+
     private func handleAgentSwitch(_ agentID: UUID) {
         saveAgentScopedState(for: containerStore.activeAgent?.id)
-        // Clear all sessions to prevent cross-agent conversation ID conflicts.
+        // Clear all sessions to prevent cross-agent session ID conflicts.
         // Transcripts are isolated by runtimeRootURL, so this is safe.
         ConversationSessionManager.shared.removeAllSessions()
         guard containerStore.setActiveAgent(agentID) else { return }
@@ -266,7 +362,7 @@ struct ChatRootView: View {
             TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
         }
 
-        // Clear all sessions since conversation IDs no longer contain agent prefix.
+        // Clear all sessions since session IDs no longer contain agent prefix.
         ConversationSessionManager.shared.removeAllSessions()
 
         guard containerStore.deleteAgent(currentAgentID) else { return }
@@ -298,11 +394,7 @@ struct ChatRootView: View {
         agentID?.uuidString ?? "__no_active_agent__"
     }
 
-    private func conversationScopePrefix(for agentID: UUID?) -> String {
-        "agent:\(agentScopeKey(agentID))::"
-    }
-
-    private func scopedConversationID(for sessionKey: String, agentID _: UUID?) -> String {
+    private func scopedSessionID(for sessionKey: String, agentID _: UUID?) -> String {
         // Use sessionKey directly without agent prefix to allow easy agent directory migration.
         // Transcripts are already isolated by runtimeRootURL per agent.
         sessionKey
@@ -484,7 +576,7 @@ struct ChatRootView: View {
 
 private struct ChatScreen: View {
     private let container: AppContainer
-    private let scopedConversationID: String
+    private let scopedSessionID: String
     private let currentSessionKey: String
     private let defaultSessionKey: String
     private let sessions: [ChatSession]
@@ -507,7 +599,7 @@ private struct ChatScreen: View {
 
     init(
         container: AppContainer,
-        scopedConversationID: String,
+        scopedSessionID: String,
         currentSessionKey: String,
         defaultSessionKey: String,
         sessions: [ChatSession],
@@ -529,7 +621,7 @@ private struct ChatScreen: View {
         onToggleAutoCompact: (() -> Void)? = nil
     ) {
         self.container = container
-        self.scopedConversationID = scopedConversationID
+        self.scopedSessionID = scopedSessionID
         self.currentSessionKey = currentSessionKey
         self.defaultSessionKey = defaultSessionKey
         self.sessions = sessions
@@ -553,14 +645,14 @@ private struct ChatScreen: View {
 
     var body: some View {
         ChatViewControllerWrapper(
-            conversationID: scopedConversationID,
+            sessionID: scopedSessionID,
             workspaceRootURL: container.config.agent.workspaceRootURL,
             runtimeRootURL: container.config.agent.runtimeRootURL,
             chatClient: container.services.chatClient,
             toolProvider: RegistryToolProvider(
                 toolInvokeService: container.services.localToolInvokeService,
-                // Combine agent and conversation scope to prevent cross-agent web_view collisions.
-                invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedConversationID)"
+                // Combine agent and session scope to prevent cross-agent web_view collisions.
+                invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
             sessions: sessions,
@@ -584,7 +676,7 @@ private struct ChatScreen: View {
             autoCompactEnabled: autoCompactEnabled,
             onToggleAutoCompact: onToggleAutoCompact
         )
-        .id(scopedConversationID)
+        .id(scopedSessionID)
     }
 }
 
