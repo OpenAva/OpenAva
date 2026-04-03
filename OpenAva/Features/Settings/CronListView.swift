@@ -3,6 +3,7 @@ import SwiftUI
 import UserNotifications
 
 struct CronListView: View {
+    @Environment(\.appContainerStore) private var containerStore
     @State private var jobs: [CronJobPayload] = []
     @State private var isLoading = false
     @State private var isShowingAddSheet = false
@@ -176,7 +177,7 @@ struct CronListView: View {
                 .listRowSeparator(.hidden)
         } else {
             ForEach(jobs, id: \.id) { job in
-                CronJobRow(job: job)
+                CronJobRow(job: job, agentName: resolvedAgentName(for: job))
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -253,6 +254,18 @@ struct CronListView: View {
         )
     }
 
+    private func resolvedAgentName(for job: CronJobPayload) -> String? {
+        guard job.kind == .heartbeat else { return nil }
+        guard let rawAgentID = AppConfig.nonEmpty(job.agentID),
+              let agentUUID = UUID(uuidString: rawAgentID),
+              let agent = containerStore.agents.first(where: { $0.id == agentUUID })
+        else {
+            return L10n.tr("settings.cron.agent.unknown")
+        }
+
+        return agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)"
+    }
+
     @MainActor
     private func refreshJobs(force: Bool) async {
         if isLoading, !force {
@@ -278,7 +291,9 @@ struct CronListView: View {
             _ = try await cronService.add(
                 message: draft.message,
                 atISO: atISO,
-                everySeconds: draft.everySeconds
+                everySeconds: draft.everySeconds,
+                kind: draft.kind,
+                agentID: draft.agentID
             )
             #if targetEnvironment(macCatalyst)
                 isShowingInlineEditor = false
@@ -342,6 +357,8 @@ private enum CronViewError: LocalizedError {
 
 private struct CronCreateDraft {
     var message: String
+    var kind: CronJobKind
+    var agentID: String?
     var atDate: Date?
     var everySeconds: Int?
 }
@@ -370,9 +387,39 @@ private struct CronAddJobSheet: View {
         }
     }
 
+    enum JobKindOption: String, CaseIterable, Identifiable {
+        case notify
+        case heartbeat
+
+        var id: String {
+            rawValue
+        }
+
+        var cronKind: CronJobKind {
+            switch self {
+            case .notify:
+                return .notify
+            case .heartbeat:
+                return .heartbeat
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .notify:
+                return L10n.tr("settings.cron.kind.notify")
+            case .heartbeat:
+                return L10n.tr("settings.cron.kind.heartbeat")
+            }
+        }
+    }
+
+    @Environment(\.appContainerStore) private var containerStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var message = ""
+    @State private var jobKind: JobKindOption = .notify
+    @State private var selectedAgentID = ""
     @State private var mode: ScheduleMode = .at
     @State private var atDate = Date().addingTimeInterval(300)
     @State private var everyMinutes = 5
@@ -393,8 +440,29 @@ private struct CronAddJobSheet: View {
 
     var body: some View {
         Form {
+            Section(L10n.tr("settings.cron.kind.section")) {
+                Picker(L10n.tr("settings.cron.kind.field"), selection: $jobKind) {
+                    ForEach(JobKindOption.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if jobKind == .heartbeat {
+                    Picker(L10n.tr("settings.cron.agent.field"), selection: $selectedAgentID) {
+                        Text(L10n.tr("settings.cron.agent.select"))
+                            .tag("")
+                        ForEach(containerStore.agents) { agent in
+                            Text(agentDisplayName(agent))
+                                .tag(agent.id.uuidString)
+                        }
+                    }
+                    .settingsInputFieldStyle()
+                }
+            }
+
             Section(L10n.tr("settings.cron.message.section")) {
-                TextField(L10n.tr("settings.cron.message.placeholder"), text: $message, axis: .vertical)
+                TextField(messagePlaceholder, text: $message, axis: .vertical)
                     .lineLimit(2 ... 4)
                     .settingsInputFieldStyle()
             }
@@ -425,6 +493,14 @@ private struct CronAddJobSheet: View {
         #endif
         .navigationTitle(L10n.tr("settings.cron.newJob.title"))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            ensureSelectedAgent()
+        }
+        .onChange(of: jobKind) { _, newKind in
+            if newKind == .heartbeat {
+                ensureSelectedAgent()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button(L10n.tr("common.cancel")) {
@@ -437,7 +513,7 @@ private struct CronAddJobSheet: View {
                     onCreate(makeDraft())
                     cancelSheet()
                 }
-                .disabled(trimmedMessage.isEmpty)
+                .disabled(!canCreateJob)
             }
         }
     }
@@ -453,12 +529,64 @@ private struct CronAddJobSheet: View {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var messagePlaceholder: String {
+        switch jobKind {
+        case .notify:
+            return L10n.tr("settings.cron.message.placeholder")
+        case .heartbeat:
+            return L10n.tr("settings.cron.message.placeholder.heartbeat")
+        }
+    }
+
+    private var canCreateJob: Bool {
+        switch jobKind {
+        case .notify:
+            return !trimmedMessage.isEmpty
+        case .heartbeat:
+            return resolvedSelectedAgentID != nil
+        }
+    }
+
+    private var resolvedSelectedAgentID: String? {
+        let trimmed = selectedAgentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func ensureSelectedAgent() {
+        guard jobKind == .heartbeat else { return }
+        if let selected = resolvedSelectedAgentID,
+           containerStore.agents.contains(where: { $0.id.uuidString == selected })
+        {
+            return
+        }
+
+        selectedAgentID = containerStore.activeAgent?.id.uuidString
+            ?? containerStore.agents.first?.id.uuidString
+            ?? ""
+    }
+
+    private func agentDisplayName(_ agent: AgentProfile) -> String {
+        agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)"
+    }
+
     private func makeDraft() -> CronCreateDraft {
         switch mode {
         case .at:
-            return CronCreateDraft(message: trimmedMessage, atDate: atDate, everySeconds: nil)
+            return CronCreateDraft(
+                message: trimmedMessage,
+                kind: jobKind.cronKind,
+                agentID: resolvedSelectedAgentID,
+                atDate: atDate,
+                everySeconds: nil
+            )
         case .every:
-            return CronCreateDraft(message: trimmedMessage, atDate: nil, everySeconds: everyMinutes * 60)
+            return CronCreateDraft(
+                message: trimmedMessage,
+                kind: jobKind.cronKind,
+                agentID: resolvedSelectedAgentID,
+                atDate: nil,
+                everySeconds: everyMinutes * 60
+            )
         }
     }
 }
@@ -476,6 +604,7 @@ private extension View {
 
 private struct CronJobRow: View {
     let job: CronJobPayload
+    let agentName: String?
 
     private static let parseWithFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -498,13 +627,31 @@ private struct CronJobRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(job.message)
-                .font(.headline)
-                .lineLimit(2)
+            HStack(alignment: .top, spacing: 8) {
+                Text(job.message)
+                    .font(.headline)
+                    .lineLimit(2)
+
+                Spacer(minLength: 8)
+
+                Text(kindTitle)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(kindTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(kindTint.opacity(0.14), in: Capsule())
+            }
 
             Text(scheduleText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            if let agentName {
+                Label(agentName, systemImage: "person.crop.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             if let nextRunText {
                 Text(L10n.tr("settings.cron.nextRun", nextRunText))
@@ -522,6 +669,24 @@ private struct CronJobRow: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
         )
+    }
+
+    private var kindTitle: String {
+        switch job.kind {
+        case .notify:
+            return L10n.tr("settings.cron.kind.notify")
+        case .heartbeat:
+            return L10n.tr("settings.cron.kind.heartbeat")
+        }
+    }
+
+    private var kindTint: Color {
+        switch job.kind {
+        case .notify:
+            return .blue
+        case .heartbeat:
+            return .orange
+        }
     }
 
     private var scheduleText: String {

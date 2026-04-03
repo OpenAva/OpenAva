@@ -79,7 +79,7 @@ enum HeartbeatSupport {
         }
     }
 
-    static let conversationPrefix = "__heartbeat__::"
+    static let sessionPrefix = "__heartbeat__::"
     static let heartbeatFileName = "HEARTBEAT.md"
     static let ackToken = "HEARTBEAT_OK"
     static let ackMaxChars = 300
@@ -94,13 +94,13 @@ enum HeartbeatSupport {
 
     private static let yamlDelimiter = "---"
 
-    static func conversationID(for agentID: String?) -> String {
+    static func sessionID(for agentID: String?) -> String {
         let normalizedAgentID = AppConfig.nonEmpty(agentID) ?? "default"
-        return conversationPrefix + normalizedAgentID
+        return sessionPrefix + normalizedAgentID
     }
 
-    static func isHiddenConversationID(_ conversationID: String) -> Bool {
-        conversationID.hasPrefix(conversationPrefix)
+    static func isHiddenSessionID(_ sessionID: String) -> Bool {
+        sessionID.hasPrefix(sessionPrefix)
     }
 
     static func buildPrompt(heartbeatMarkdown: String, now: Date = Date()) -> String {

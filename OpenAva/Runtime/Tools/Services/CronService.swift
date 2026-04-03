@@ -14,10 +14,57 @@ enum CronAction: String, Codable {
     case remove
 }
 
+enum CronNotificationMetadataKey {
+    static let marker = "openava.cron.marker"
+    static let name = "openava.cron.name"
+    static let kind = "openava.cron.kind"
+    static let agentID = "openava.cron.agentID"
+    static let schedule = "openava.cron.schedule"
+    static let at = "openava.cron.at"
+    static let everySeconds = "openava.cron.everySeconds"
+    static let createdAt = "openava.cron.createdAt"
+}
+
+struct CronNotificationMetadata {
+    let jobID: String
+    let kind: CronJobKind
+    let agentID: String?
+
+    init?(request: UNNotificationRequest) {
+        let userInfo = request.content.userInfo
+        guard let marked = userInfo[CronNotificationMetadataKey.marker] as? Bool, marked else {
+            return nil
+        }
+
+        jobID = request.identifier
+        kind = Self.kind(from: userInfo)
+        agentID = Self.agentID(from: userInfo)
+    }
+
+    static func kind(from userInfo: [AnyHashable: Any]) -> CronJobKind {
+        guard let rawValue = userInfo[CronNotificationMetadataKey.kind] as? String,
+              let kind = CronJobKind(rawValue: rawValue)
+        else {
+            return .notify
+        }
+        return kind
+    }
+
+    static func agentID(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let rawValue = userInfo[CronNotificationMetadataKey.agentID] as? String else {
+            return nil
+        }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 /// A single cron tool endpoint that branches by action.
 struct CronParams: Codable, Equatable {
     var action: CronAction
     var message: String?
+    var kind: CronJobKind
+    var agentID: String?
     var at: String?
     var everySeconds: Int?
     var id: String?
@@ -25,6 +72,10 @@ struct CronParams: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case action
         case message
+        case kind
+        case agentID
+        case agentId
+        case agent_id
         case at
         case everySeconds
         case every_seconds
@@ -36,12 +87,16 @@ struct CronParams: Codable, Equatable {
     init(
         action: CronAction,
         message: String? = nil,
+        kind: CronJobKind = .notify,
+        agentID: String? = nil,
         at: String? = nil,
         everySeconds: Int? = nil,
         id: String? = nil
     ) {
         self.action = action
         self.message = message
+        self.kind = kind
+        self.agentID = agentID
         self.at = at
         self.everySeconds = everySeconds
         self.id = id
@@ -51,6 +106,11 @@ struct CronParams: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         action = try container.decode(CronAction.self, forKey: .action)
         message = try container.decodeIfPresent(String.self, forKey: .message)
+        kind = try container.decodeIfPresent(CronJobKind.self, forKey: .kind) ?? .notify
+        agentID =
+            try container.decodeIfPresent(String.self, forKey: .agentID) ??
+            container.decodeIfPresent(String.self, forKey: .agentId) ??
+            container.decodeIfPresent(String.self, forKey: .agent_id)
         at = try container.decodeIfPresent(String.self, forKey: .at)
         everySeconds =
             try container.decodeIfPresent(Int.self, forKey: .everySeconds) ??
@@ -65,6 +125,8 @@ struct CronParams: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(action, forKey: .action)
         try container.encodeIfPresent(message, forKey: .message)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(agentID, forKey: .agentID)
         try container.encodeIfPresent(at, forKey: .at)
         try container.encodeIfPresent(everySeconds, forKey: .everySeconds)
         try container.encodeIfPresent(id, forKey: .id)
@@ -101,23 +163,20 @@ enum CronServiceError: Error, LocalizedError {
 // MARK: - Protocol
 
 protocol CronServicing: Sendable {
-    func add(message: String, atISO: String?, everySeconds: Int?) async throws -> CronJobPayload
+    func add(message: String, atISO: String?, everySeconds: Int?, kind: CronJobKind, agentID: String?) async throws -> CronJobPayload
     func list() async throws -> CronListPayload
     func remove(id: String) async throws -> CronRemovePayload
+}
+
+extension CronServicing {
+    func add(message: String, atISO: String?, everySeconds: Int?) async throws -> CronJobPayload {
+        try await add(message: message, atISO: atISO, everySeconds: everySeconds, kind: .notify, agentID: nil)
+    }
 }
 
 // MARK: - Service Implementation
 
 final class CronService: CronServicing {
-    private enum MetadataKey {
-        static let marker = "openava.cron.marker"
-        static let name = "openava.cron.name"
-        static let schedule = "openava.cron.schedule"
-        static let at = "openava.cron.at"
-        static let everySeconds = "openava.cron.everySeconds"
-        static let createdAt = "openava.cron.createdAt"
-    }
-
     private static let identifierPrefix = "cron."
 
     /// Keep one shared formatter to avoid repeated allocations in hot paths.
@@ -133,10 +192,28 @@ final class CronService: CronServicing {
         return formatter
     }()
 
-    func add(message: String, atISO: String?, everySeconds: Int?) async throws -> CronJobPayload {
-        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            throw CronServiceError.invalidRequest("message is required")
+    func add(
+        message: String,
+        atISO: String?,
+        everySeconds: Int?,
+        kind: CronJobKind,
+        agentID: String?
+    ) async throws -> CronJobPayload {
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAgentID = AppConfig.nonEmpty(agentID)
+        if kind == .heartbeat, normalizedAgentID == nil {
+            throw CronServiceError.invalidRequest("agentID is required for heartbeat cron jobs")
+        }
+
+        let text: String
+        switch kind {
+        case .notify:
+            guard !trimmedMessage.isEmpty else {
+                throw CronServiceError.invalidRequest("message is required")
+            }
+            text = trimmedMessage
+        case .heartbeat:
+            text = trimmedMessage.isEmpty ? "Run heartbeat" : trimmedMessage
         }
 
         let atValue = atISO?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -192,12 +269,14 @@ final class CronService: CronServicing {
         content.body = text
         content.sound = .default
         content.userInfo = [
-            MetadataKey.marker: true,
-            MetadataKey.name: name,
-            MetadataKey.schedule: schedule,
-            MetadataKey.at: normalizedAtISO ?? "",
-            MetadataKey.everySeconds: normalizedEverySeconds ?? 0,
-            MetadataKey.createdAt: createdAtISO,
+            CronNotificationMetadataKey.marker: true,
+            CronNotificationMetadataKey.name: name,
+            CronNotificationMetadataKey.kind: kind.rawValue,
+            CronNotificationMetadataKey.agentID: normalizedAgentID ?? "",
+            CronNotificationMetadataKey.schedule: schedule,
+            CronNotificationMetadataKey.at: normalizedAtISO ?? "",
+            CronNotificationMetadataKey.everySeconds: normalizedEverySeconds ?? 0,
+            CronNotificationMetadataKey.createdAt: createdAtISO,
         ]
 
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
@@ -211,6 +290,8 @@ final class CronService: CronServicing {
             id: identifier,
             name: name,
             message: text,
+            kind: kind,
+            agentID: normalizedAgentID,
             schedule: schedule,
             cron: cronValue,
             at: normalizedAtISO,
@@ -305,7 +386,7 @@ final class CronService: CronServicing {
         guard request.identifier.hasPrefix(Self.identifierPrefix) else {
             return nil
         }
-        guard let marked = request.content.userInfo[MetadataKey.marker] as? Bool, marked else {
+        guard let metadata = CronNotificationMetadata(request: request) else {
             return nil
         }
 
@@ -313,11 +394,11 @@ final class CronService: CronServicing {
         let message = request.content.body.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackName = String(message.prefix(30))
 
-        let schedule = (userInfo[MetadataKey.schedule] as? String) ?? "unknown"
-        let at = nonEmptyString(userInfo[MetadataKey.at])
-        let everySeconds = intValue(userInfo[MetadataKey.everySeconds])
+        let schedule = (userInfo[CronNotificationMetadataKey.schedule] as? String) ?? "unknown"
+        let at = nonEmptyString(userInfo[CronNotificationMetadataKey.at])
+        let everySeconds = intValue(userInfo[CronNotificationMetadataKey.everySeconds])
         let createdAtISO =
-            nonEmptyString(userInfo[MetadataKey.createdAt]) ??
+            nonEmptyString(userInfo[CronNotificationMetadataKey.createdAt]) ??
             Self.isoFormatter.string(from: Date())
 
         let cronValue: String?
@@ -331,8 +412,10 @@ final class CronService: CronServicing {
 
         return CronJobPayload(
             id: request.identifier,
-            name: nonEmptyString(userInfo[MetadataKey.name]) ?? fallbackName,
+            name: nonEmptyString(userInfo[CronNotificationMetadataKey.name]) ?? fallbackName,
             message: message,
+            kind: metadata.kind,
+            agentID: metadata.agentID,
             schedule: schedule,
             cron: cronValue,
             at: at,

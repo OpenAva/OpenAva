@@ -2,11 +2,18 @@ import Foundation
 
 // MARK: - Cron Job Payload
 
+public enum CronJobKind: String, Codable, Sendable, Equatable {
+    case notify
+    case heartbeat
+}
+
 /// Payload representing a scheduled cron job
 public struct CronJobPayload: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public var message: String
+    public var kind: CronJobKind
+    public var agentID: String?
     public var schedule: String
     public var cron: String?
     public var at: String?
@@ -18,6 +25,8 @@ public struct CronJobPayload: Codable, Sendable, Equatable {
         id: String,
         name: String,
         message: String,
+        kind: CronJobKind = .notify,
+        agentID: String? = nil,
         schedule: String,
         cron: String? = nil,
         at: String? = nil,
@@ -28,6 +37,8 @@ public struct CronJobPayload: Codable, Sendable, Equatable {
         self.id = id
         self.name = name
         self.message = message
+        self.kind = kind
+        self.agentID = agentID
         self.schedule = schedule
         self.cron = cron
         self.at = at

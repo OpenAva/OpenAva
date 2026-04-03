@@ -24,11 +24,11 @@ final class HeartbeatSupportTests: XCTestCase {
         XCTAssertFalse(HeartbeatSupport.shouldSuppressAssistantMessage("Please review today's reminders."))
     }
 
-    func testIdentifiesHiddenHeartbeatConversationIDs() {
-        let conversationID = HeartbeatSupport.conversationID(for: "agent-1")
+    func testIdentifiesHiddenHeartbeatSessionIDs() {
+        let sessionID = HeartbeatSupport.sessionID(for: "agent-1")
 
-        XCTAssertTrue(HeartbeatSupport.isHiddenConversationID(conversationID))
-        XCTAssertFalse(HeartbeatSupport.isHiddenConversationID("main"))
+        XCTAssertTrue(HeartbeatSupport.isHiddenSessionID(sessionID))
+        XCTAssertFalse(HeartbeatSupport.isHiddenSessionID("main"))
     }
 
     func testParseDocumentFrontMatterOverridesIntervalAndActiveHours() {
@@ -105,7 +105,8 @@ final class HeartbeatSupportTests: XCTestCase {
         let now = date(hour: 8, minute: 30, calendar: calendar)
         let delay = parsed.configuration.delayUntilActive(from: now, calendar: calendar)
 
-        XCTAssertEqual(delay, 30 * 60, accuracy: 1)
+        XCTAssertNotNil(delay)
+        XCTAssertEqual(delay ?? 0, 30 * 60, accuracy: 1)
     }
 
     func testTrimToRecentKeepsNewestItems() {
