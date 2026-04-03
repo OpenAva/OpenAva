@@ -1,7 +1,7 @@
 import Foundation
 import Network
-import OSLog
 import OpenClawProtocol
+import OSLog
 
 public struct LocalControlTransportConfig: Sendable {
     public var serviceName: String
