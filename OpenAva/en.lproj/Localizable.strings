@@ -110,8 +110,11 @@
 "settings.remoteControl.discovery.device" = "Device";
 "settings.remoteControl.discovery.connect" = "Connect & Pair";
 "settings.remoteControl.discovery.searching" = "Searching for nearby Macs…";
+"settings.remoteControl.discovery.resolving" = "Found %1$@ nearby service(s). Resolving device details…";
 "settings.remoteControl.discovery.waiting" = "Waiting for local network access: %@";
 "settings.remoteControl.discovery.failed" = "Couldn't search for nearby Macs: %@";
+"settings.remoteControl.discovery.diagnostics.resolving" = "Diagnostics: received %1$@ Bonjour advertisement(s), with %2$@ currently resolving.";
+"settings.remoteControl.discovery.diagnostics.resolveFailure" = "Diagnostics: received %1$@ Bonjour advertisement(s), but resolution failed %2$@ time(s). Latest failure: %3$@";
 "settings.remoteControl.noServiceSelected" = "Select a nearby Mac first.";
 "settings.remoteControl.pairing.title" = "Pairing";
 "settings.remoteControl.pairing.code" = "Pairing Code";
@@ -134,6 +137,8 @@
 "settings.remoteControl.host.discovery.ready" = "This Mac is discoverable to nearby iPhone and iPad devices.";
 "settings.remoteControl.host.discovery.waiting" = "Waiting to advertise this Mac on the local network: %@";
 "settings.remoteControl.host.discovery.failed" = "Couldn't advertise this Mac for nearby discovery: %@";
+"settings.remoteControl.host.registration.added" = "Bonjour registered: %@";
+"settings.remoteControl.host.registration.removed" = "Bonjour removed: %@";
 "settings.remoteControl.host.waiting" = "Waiting for a nearby iPhone to request pairing.";
 "settings.remoteControl.status.hostPort" = "Advertised Port";
 "settings.remoteControl.status.hostCode" = "Current Pair Code";
@@ -159,6 +164,7 @@
 "chat.activeAgent.fallbackName" = "Assistant";
 "chat.selectedModel.notSelected" = "Not Selected";
 "chat.command.newConversation" = "New";
+"chat.command.runHeartbeatNow" = "Run Heartbeat";
 "chat.command.focusInput" = "Focus Input";
 "chat.quickSkill.prompt" = "Please use skill \"%@\" to handle the current task. If key information is missing, ask one most critical clarification question first.";
 "chat.menu.autoCompact" = "Auto-compact";

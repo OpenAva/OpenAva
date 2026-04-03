@@ -9,6 +9,7 @@ final class RemoteControlClientViewModel {
     var services: [LocalControlDiscoveredService] = []
     var selectedServiceID: String?
     var discoveryStatusText: String?
+    var discoveryDiagnosticsText: String?
     var pairCode = ""
     var statusText: String?
     var agents: [LocalControlAgentSummary] = []
@@ -17,6 +18,7 @@ final class RemoteControlClientViewModel {
     var isConnected = false
 
     @ObservationIgnored private var browserState: NWBrowser.State?
+    @ObservationIgnored private var browserDiagnostics = LocalControlBrowserDiagnostics()
     private let browser = LocalControlBrowser()
     private let client = LocalControlClient()
 
@@ -35,6 +37,10 @@ final class RemoteControlClientViewModel {
         }
         browser.onStateChanged = { [weak self] state in
             self?.browserState = state
+            self?.refreshDiscoveryStatus()
+        }
+        browser.onDiagnosticsChanged = { [weak self] diagnostics in
+            self?.browserDiagnostics = diagnostics
             self?.refreshDiscoveryStatus()
         }
         Task { [weak self] in
@@ -58,7 +64,9 @@ final class RemoteControlClientViewModel {
     func stopBrowsing(disconnect: Bool = false) {
         browser.stop()
         browserState = nil
+        browserDiagnostics = .init()
         discoveryStatusText = nil
+        discoveryDiagnosticsText = nil
         if disconnect {
             Task { await client.disconnect(silently: true) }
             resetConnectionState()
@@ -261,20 +269,69 @@ final class RemoteControlClientViewModel {
     private func refreshDiscoveryStatus() {
         guard !isConnected else {
             discoveryStatusText = nil
+            discoveryDiagnosticsText = nil
             return
         }
         switch browserState {
         case let .failed(error):
             discoveryStatusText = L10n.tr("settings.remoteControl.discovery.failed", error.localizedDescription)
+            discoveryDiagnosticsText = nil
         case let .waiting(error):
             discoveryStatusText = L10n.tr("settings.remoteControl.discovery.waiting", error.localizedDescription)
+            discoveryDiagnosticsText = nil
         case .ready, .setup, nil:
-            discoveryStatusText = services.isEmpty ? L10n.tr("settings.remoteControl.discovery.searching") : nil
+            if services.isEmpty {
+                discoveryStatusText = makeSearchingStatusText()
+                discoveryDiagnosticsText = makeDiagnosticsText()
+            } else {
+                discoveryStatusText = nil
+                discoveryDiagnosticsText = nil
+            }
         case .cancelled:
             discoveryStatusText = nil
+            discoveryDiagnosticsText = nil
         @unknown default:
-            discoveryStatusText = services.isEmpty ? L10n.tr("settings.remoteControl.discovery.searching") : nil
+            if services.isEmpty {
+                discoveryStatusText = makeSearchingStatusText()
+                discoveryDiagnosticsText = makeDiagnosticsText()
+            } else {
+                discoveryStatusText = nil
+                discoveryDiagnosticsText = nil
+            }
         }
+    }
+
+    private func makeSearchingStatusText() -> String {
+        let diagnostics = browserDiagnostics
+        if diagnostics.rawResultCount > 0, diagnostics.resolvedServiceCount == 0 {
+            return L10n.tr(
+                "settings.remoteControl.discovery.resolving",
+                String(diagnostics.rawResultCount)
+            )
+        }
+        return L10n.tr("settings.remoteControl.discovery.searching")
+    }
+
+    private func makeDiagnosticsText() -> String? {
+        let diagnostics = browserDiagnostics
+        if let lastFailure = diagnostics.lastResolutionFailure,
+           diagnostics.resolutionFailureCount > 0
+        {
+            return L10n.tr(
+                "settings.remoteControl.discovery.diagnostics.resolveFailure",
+                String(diagnostics.rawResultCount),
+                String(diagnostics.resolutionFailureCount),
+                lastFailure
+            )
+        }
+        if diagnostics.rawResultCount > 0, diagnostics.resolvedServiceCount == 0 {
+            return L10n.tr(
+                "settings.remoteControl.discovery.diagnostics.resolving",
+                String(diagnostics.rawResultCount),
+                String(diagnostics.pendingResolutionCount)
+            )
+        }
+        return nil
     }
 
     private func isConnectionError(_ error: Error) -> Bool {
@@ -307,6 +364,11 @@ struct RemoteControlClientView: View {
                 if let discoveryStatusText = viewModel.discoveryStatusText {
                     Text(discoveryStatusText)
                         .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
+                    Text(discoveryDiagnosticsText)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }

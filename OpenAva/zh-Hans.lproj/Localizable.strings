@@ -110,8 +110,11 @@
 "settings.remoteControl.discovery.device" = "设备";
 "settings.remoteControl.discovery.connect" = "连接并配对";
 "settings.remoteControl.discovery.searching" = "正在搜索附近的 Mac…";
+"settings.remoteControl.discovery.resolving" = "已发现 %1$@ 个附近服务，正在解析设备信息…";
 "settings.remoteControl.discovery.waiting" = "正在等待本地网络访问权限：%@";
 "settings.remoteControl.discovery.failed" = "搜索附近的 Mac 失败：%@";
+"settings.remoteControl.discovery.diagnostics.resolving" = "诊断：已收到 %1$@ 个 Bonjour 广播，当前有 %2$@ 个正在解析。";
+"settings.remoteControl.discovery.diagnostics.resolveFailure" = "诊断：已收到 %1$@ 个 Bonjour 广播，但解析失败 %2$@ 次。最近一次失败：%3$@";
 "settings.remoteControl.noServiceSelected" = "请先选择一台附近的 Mac。";
 "settings.remoteControl.pairing.title" = "配对";
 "settings.remoteControl.pairing.code" = "配对码";
@@ -134,6 +137,8 @@
 "settings.remoteControl.host.discovery.ready" = "这台 Mac 已可被附近的 iPhone 和 iPad 发现。";
 "settings.remoteControl.host.discovery.waiting" = "正在等待通过本地网络广播这台 Mac：%@";
 "settings.remoteControl.host.discovery.failed" = "广播这台 Mac 供附近设备发现失败：%@";
+"settings.remoteControl.host.registration.added" = "Bonjour 已注册：%@";
+"settings.remoteControl.host.registration.removed" = "Bonjour 已移除：%@";
 "settings.remoteControl.host.waiting" = "等待附近的 iPhone 发起配对。";
 "settings.remoteControl.status.hostPort" = "广播端口";
 "settings.remoteControl.status.hostCode" = "当前配对码";
@@ -159,6 +164,7 @@
 "chat.activeAgent.fallbackName" = "助手";
 "chat.selectedModel.notSelected" = "未选择";
 "chat.command.newConversation" = "新会话";
+"chat.command.runHeartbeatNow" = "运行 Heartbeat";
 "chat.command.focusInput" = "聚焦输入框";
 "chat.quickSkill.prompt" = "请使用技能 \"%@\" 处理当前任务。如果信息不足，请先提一个最关键的澄清问题。";
 "chat.menu.autoCompact" = "自动压缩";

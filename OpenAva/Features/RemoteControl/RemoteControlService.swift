@@ -27,6 +27,13 @@ final class RemoteControlService {
             )
             Task {
                 do {
+                    let primerResult = await LocalNetworkAuthorizationPrimer.primeBonjourAuthorization(
+                        serviceType: OpenClawBonjour.localControlServiceType,
+                        domain: OpenClawBonjour.gatewayServiceDomain
+                    )
+                    await MainActor.run {
+                        Self.applyAuthorizationPrimerResult(primerResult)
+                    }
                     try await host.start(
                         hostInfo: .init(hello: hello),
                         requestHandler: { request, _ in
@@ -73,6 +80,7 @@ final class RemoteControlService {
     private static func applyAdvertiserStatus(_ status: LocalControlAdvertiserStatus) {
         switch status {
         case .setup:
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(nil)
             RemoteControlStatusStore.shared.updateAdvertiseStatus(
                 L10n.tr("settings.remoteControl.host.discovery.starting")
             )
@@ -82,16 +90,47 @@ final class RemoteControlService {
                 L10n.tr("settings.remoteControl.host.discovery.ready")
             )
         case let .waiting(message):
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(nil)
             RemoteControlStatusStore.shared.updateAdvertiseStatus(
                 L10n.tr("settings.remoteControl.host.discovery.waiting", message)
             )
         case let .failed(message):
             RemoteControlStatusStore.shared.updateAdvertisedPort(nil)
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(nil)
             RemoteControlStatusStore.shared.updateAdvertiseStatus(
                 L10n.tr("settings.remoteControl.host.discovery.failed", message)
             )
+        case let .serviceRegistered(endpointDescription):
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.registration.added", endpointDescription)
+            )
+        case let .serviceRemoved(endpointDescription):
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.registration.removed", endpointDescription)
+            )
         case .cancelled:
             RemoteControlStatusStore.shared.clearAdvertiseState()
+        }
+    }
+
+    private static func applyAuthorizationPrimerResult(_ result: LocalNetworkAuthorizationPrimer.Result) {
+        switch result {
+        case .ready:
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.authorization.ready")
+            )
+        case let .waiting(message):
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.authorization.waiting", message)
+            )
+        case let .failed(message):
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.authorization.failed", message)
+            )
+        case .timedOut:
+            RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
+                L10n.tr("settings.remoteControl.host.authorization.timeout")
+            )
         }
     }
 

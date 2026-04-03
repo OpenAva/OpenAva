@@ -8,6 +8,7 @@ final class RemoteControlStatusStore {
 
     private(set) var advertisedPort: UInt16?
     private(set) var advertiseStatusText: String?
+    private(set) var advertiseRegistrationText: String?
     private(set) var currentPairCode: String?
     private(set) var currentPairPeerName: String?
     private(set) var lastUpdatedAt: Date?
@@ -21,6 +22,11 @@ final class RemoteControlStatusStore {
 
     func updateAdvertiseStatus(_ text: String?) {
         advertiseStatusText = text
+        lastUpdatedAt = Date()
+    }
+
+    func updateAdvertiseRegistrationStatus(_ text: String?) {
+        advertiseRegistrationText = text
         lastUpdatedAt = Date()
     }
 
@@ -39,6 +45,7 @@ final class RemoteControlStatusStore {
     func clearAdvertiseState() {
         advertisedPort = nil
         advertiseStatusText = nil
+        advertiseRegistrationText = nil
         lastUpdatedAt = Date()
     }
 }

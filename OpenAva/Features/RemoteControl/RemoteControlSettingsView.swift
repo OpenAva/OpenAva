@@ -14,6 +14,11 @@ struct RemoteControlSettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    if let advertiseRegistrationText = statusStore.advertiseRegistrationText {
+                        Text(advertiseRegistrationText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if let port = statusStore.advertisedPort {
                         LabeledContent(L10n.tr("settings.remoteControl.status.hostPort"), value: String(port))
                     }

@@ -33,6 +33,7 @@ public struct LocalControlHostPairChallenge: Sendable {
 public actor LocalControlHost {
     public typealias RequestHandler = @Sendable (BridgeInvokeRequest, LocalControlHostRequestContext) async -> BridgeInvokeResponse
     public typealias PairChallengeHandler = @Sendable (LocalControlHostPairChallenge) async -> Void
+    public typealias AdvertiserStatusHandler = @Sendable (LocalControlAdvertiserStatus) async -> Void
 
     private struct PairingState {
         var peer: LocalControlHello
@@ -49,7 +50,7 @@ public actor LocalControlHost {
     private var hostInfo: LocalControlHostInfo?
     private var pairingStates: [String: PairingState] = [:]
     private var onReadyToAdvertise: (@Sendable (UInt16) async -> Void)?
-    private var onAdvertiserStatusChanged: (@Sendable (LocalControlAdvertiserStatus) async -> Void)?
+    private var onAdvertiserStatusChanged: AdvertiserStatusHandler?
 
     public init() {}
 
@@ -58,7 +59,7 @@ public actor LocalControlHost {
         requestHandler: @escaping RequestHandler,
         pairChallengeHandler: PairChallengeHandler? = nil,
         onReadyToAdvertise: (@Sendable (UInt16) async -> Void)? = nil,
-        onAdvertiserStatusChanged: (@Sendable (LocalControlAdvertiserStatus) async -> Void)? = nil
+        onAdvertiserStatusChanged: AdvertiserStatusHandler? = nil
     ) throws {
         guard self.hostInfo == nil else { return }
         self.hostInfo = hostInfo
