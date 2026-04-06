@@ -399,6 +399,30 @@ private struct ModelRow: View {
         return containerStore.usageSnapshot.byModel[key]
     }
 
+    private var metadataLine: Text {
+        var text = Text(verbatim: model.provider) + Text(" / ") + Text(verbatim: model.model ?? L10n.tr("common.unknown"))
+
+        if let record = usageRecord, record.totalTokens > 0 {
+            text = text
+                + usageMetricText("settings.usage.input", value: formatTokens(record.inputTokens))
+                + usageMetricText("settings.usage.output", value: formatTokens(record.outputTokens))
+
+            if record.cacheReadTokens > 0 {
+                text = text + usageMetricText("settings.usage.cacheRead", value: formatTokens(record.cacheReadTokens))
+            }
+
+            if record.cacheWriteTokens > 0 {
+                text = text + usageMetricText("settings.usage.cacheWrite", value: formatTokens(record.cacheWriteTokens))
+            }
+
+            if record.costUSD > 0 {
+                text = text + usageMetricText("settings.usage.cost", value: formatCost(record.costUSD))
+            }
+        }
+
+        return text
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -414,29 +438,12 @@ private struct ModelRow: View {
                 Text(model.name)
                     .font(.headline)
 
-                HStack(spacing: 4) {
-                    Text(model.provider)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("/")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(model.model ?? L10n.tr("common.unknown"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if let endpoint = model.endpoint {
-                    Text(endpoint.host ?? endpoint.absoluteString)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if let record = usageRecord, record.totalTokens > 0 {
-                    ModelUsageChip(record: record)
-                }
+                metadataLine
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
 
             Spacer()
@@ -457,51 +464,9 @@ private struct ModelRow: View {
         )
         .contentTransition(.opacity)
     }
-}
 
-// MARK: - ModelUsageChip
-
-private struct ModelUsageChip: View {
-    let record: ModelUsageRecord
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 2) {
-            GridRow {
-                Text(L10n.tr("settings.usage.input"))
-                    .gridColumnAlignment(.leading)
-                Text(formatTokens(record.inputTokens))
-                    .monospacedDigit()
-                    .gridColumnAlignment(.trailing)
-            }
-            GridRow {
-                Text(L10n.tr("settings.usage.output"))
-                Text(formatTokens(record.outputTokens))
-                    .monospacedDigit()
-            }
-            if record.cacheReadTokens > 0 {
-                GridRow {
-                    Text(L10n.tr("settings.usage.cacheRead"))
-                    Text(formatTokens(record.cacheReadTokens))
-                        .monospacedDigit()
-                }
-            }
-            if record.cacheWriteTokens > 0 {
-                GridRow {
-                    Text(L10n.tr("settings.usage.cacheWrite"))
-                    Text(formatTokens(record.cacheWriteTokens))
-                        .monospacedDigit()
-                }
-            }
-            if record.costUSD > 0 {
-                GridRow {
-                    Text(L10n.tr("settings.usage.cost"))
-                    Text(formatCost(record.costUSD))
-                        .monospacedDigit()
-                }
-            }
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+    private func usageMetricText(_ key: String, value: String) -> Text {
+        Text(" · ") + Text(L10n.tr(key)) + Text(" ") + Text(verbatim: value)
     }
 
     private func formatTokens(_ n: Int) -> String {
