@@ -79,6 +79,26 @@
             "value" : "聊天"
           }
         }
+    "Context --%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文 --%"
+          }
+        }
+      }
+    },
+    "Context %lld%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文 %1$lld%%"
+          }
+        }
+      }
+    },
       }
     },
     "Convert to Images" : {

@@ -114,6 +114,27 @@ final class QuickSettingBar: EditorSectionView {
         }
     }
 
+    func updateCommand(command: String, title: String, icon: String? = nil) {
+        for (index, item) in items.enumerated() {
+            guard case let .command(id, _, currentIcon, itemCommand) = item, itemCommand == command else { continue }
+            let resolvedIcon = icon ?? currentIcon
+            items[index] = .command(id: id, title: title, icon: resolvedIcon, command: itemCommand)
+            guard let button = buttons[safe: index] else { continue }
+            button.updateContent(text: title, icon: resolvedIcon)
+            heightPublisher.send(computedHeight)
+            setNeedsLayout()
+            break
+        }
+    }
+
+    func button(forCommand command: String) -> UIView? {
+        for (index, item) in items.enumerated() {
+            guard case let .command(_, _, _, itemCommand) = item, itemCommand == command else { continue }
+            return buttons[safe: index]
+        }
+        return nil
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         scrollView.frame = bounds

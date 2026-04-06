@@ -5,6 +5,127 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+private final class ContextUsagePanelOverlayController: UIViewController {
+    private let snapshot: ContextUsageSnapshot
+    private let modelName: String
+    private let providerName: String?
+    private weak var anchorView: UIView?
+
+    private let dismissControl = UIControl()
+    private let panelShadowView = UIView()
+    private let panelContentView = UIView()
+    private lazy var hostingController = UIHostingController(
+        rootView: ChatContextUsagePanelView(
+            snapshot: snapshot,
+            modelName: modelName,
+            providerName: providerName,
+            onClose: { [weak self] in
+                self?.dismiss(animated: true)
+            }
+        )
+    )
+
+    init(snapshot: ContextUsageSnapshot, modelName: String, providerName: String?, anchorView: UIView) {
+        self.snapshot = snapshot
+        self.modelName = modelName
+        self.providerName = providerName
+        self.anchorView = anchorView
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overCurrentContext
+        modalTransitionStyle = .crossDissolve
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        dismissControl.backgroundColor = .clear
+        dismissControl.addTarget(self, action: #selector(closePanel), for: .touchUpInside)
+        dismissControl.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(dismissControl)
+
+        panelShadowView.backgroundColor = .clear
+        panelShadowView.layer.shadowColor = UIColor.black.cgColor
+        panelShadowView.layer.shadowOpacity = 0.14
+        panelShadowView.layer.shadowRadius = 24
+        panelShadowView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        panelShadowView.translatesAutoresizingMaskIntoConstraints = true
+        view.addSubview(panelShadowView)
+
+        panelContentView.backgroundColor = .clear
+        panelContentView.layer.cornerRadius = 24
+        panelContentView.layer.cornerCurve = .continuous
+        panelContentView.clipsToBounds = true
+        panelContentView.translatesAutoresizingMaskIntoConstraints = false
+        panelShadowView.addSubview(panelContentView)
+
+        addChild(hostingController)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        panelContentView.addSubview(hostingController.view)
+        hostingController.didMove(toParent: self)
+
+        NSLayoutConstraint.activate([
+            dismissControl.topAnchor.constraint(equalTo: view.topAnchor),
+            dismissControl.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dismissControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            dismissControl.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            panelContentView.topAnchor.constraint(equalTo: panelShadowView.topAnchor),
+            panelContentView.leadingAnchor.constraint(equalTo: panelShadowView.leadingAnchor),
+            panelContentView.trailingAnchor.constraint(equalTo: panelShadowView.trailingAnchor),
+            panelContentView.bottomAnchor.constraint(equalTo: panelShadowView.bottomAnchor),
+            hostingController.view.topAnchor.constraint(equalTo: panelContentView.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: panelContentView.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: panelContentView.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: panelContentView.bottomAnchor),
+        ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        let horizontalInset: CGFloat = 16
+        let verticalSpacing: CGFloat = 12
+        let safeTop = view.safeAreaInsets.top + 8
+        let safeBottom = view.safeAreaInsets.bottom + 8
+        let maxWidth = max(280, view.bounds.width - horizontalInset * 2)
+        let width = min(380, maxWidth)
+        let maxHeight = max(240, view.bounds.height - safeTop - safeBottom)
+
+        let anchorRect: CGRect
+        if let anchorView {
+            anchorRect = anchorView.convert(anchorView.bounds, to: view)
+        } else {
+            anchorRect = CGRect(
+                x: (view.bounds.width - width) / 2,
+                y: view.bounds.height - safeBottom - 44,
+                width: width,
+                height: 44
+            )
+        }
+
+        let availableAbove = max(240, anchorRect.minY - safeTop - verticalSpacing)
+        let height = min(520, min(maxHeight, availableAbove))
+        let x = min(max(anchorRect.midX - width / 2, horizontalInset), view.bounds.width - horizontalInset - width)
+        let y = max(safeTop, anchorRect.minY - height - verticalSpacing)
+
+        panelShadowView.frame = CGRect(x: x, y: y, width: width, height: height)
+        panelShadowView.layer.shadowPath = UIBezierPath(
+            roundedRect: panelShadowView.bounds,
+            cornerRadius: panelContentView.layer.cornerRadius
+        ).cgPath
+    }
+
+    @objc private func closePanel() {
+        dismiss(animated: true)
+    }
+}
+
 #if targetEnvironment(macCatalyst)
     private final class CatalystChatViewController: ChatViewController {
         var onOpenModelSettings: (() -> Void)?
@@ -73,6 +194,11 @@ import UserNotifications
 
 /// SwiftUI wrapper for ChatViewController from Common/ChatUI.
 struct ChatViewControllerWrapper: UIViewControllerRepresentable {
+    private enum QuickCommand {
+        static let compact = "/compact"
+        static let context = "/context"
+    }
+
     enum MenuAction {
         case openLLM
         case openContext
@@ -208,8 +334,14 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             )
         #endif
 
+        // Persist input draft per agent so it survives app restarts and is isolated between agents.
+        if let agentID = activeAgentID {
+            chatViewController.draftPersistenceKey = agentID.uuidString
+        }
+
         // Configure for navigation bar integration
         chatViewController.prefersNavigationBarManaged = false
+        chatViewController.definesPresentationContext = true
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
         chatViewController.updateHeader(.init(
@@ -226,6 +358,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
             .command(id: "new-conversation", title: L10n.tr("chat.command.newConversation"), icon: "plus", command: "/new"),
+            .command(id: "manual-compact", title: L10n.tr("chat.command.compact"), icon: "rectangle.compress.vertical", command: QuickCommand.compact),
+            .command(id: "context-usage", title: L10n.tr("chat.contextUsage.badgePlaceholder"), icon: "gauge", command: QuickCommand.context),
             .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "bolt.heart", command: "/heartbeat"),
         ]
 
@@ -544,14 +678,67 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool {
-            _ = controller
             switch command {
             case "/heartbeat":
                 onMenuAction?(.runHeartbeatNow)
                 return true
+            case QuickCommand.compact:
+                Task { @MainActor [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    do {
+                        try await controller.performManualCompact()
+                    } catch {
+                        self.presentCommandErrorAlert(
+                            from: controller,
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+                return true
+            case QuickCommand.context:
+                Task { @MainActor [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    await self.presentContextUsagePanel(from: controller)
+                }
+                return true
             default:
                 return false
             }
+        }
+
+        @MainActor
+        private func presentCommandErrorAlert(from controller: ChatViewController, message: String) {
+            let alert = UIAlertController(
+                title: L10n.tr("common.error"),
+                message: message,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L10n.tr("common.ok"), style: .default))
+            controller.present(alert, animated: true)
+        }
+
+        @MainActor
+        private func presentContextUsagePanel(from controller: ChatViewController) async {
+            guard let snapshot = await controller.currentContextUsageSnapshot() else {
+                presentCommandErrorAlert(from: controller, message: L10n.tr("chat.contextUsage.unavailable"))
+                return
+            }
+
+            if let presentedController = controller.presentedViewController as? ContextUsagePanelOverlayController {
+                presentedController.dismiss(animated: true)
+                return
+            }
+
+            let model = selectedModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let provider = selectedProviderName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let anchorView: UIView = controller.quickSettingAnchorView(forCommand: QuickCommand.context) ?? controller.view
+            let overlayController = ContextUsagePanelOverlayController(
+                snapshot: snapshot,
+                modelName: model,
+                providerName: provider.isEmpty ? nil : provider,
+                anchorView: anchorView
+            )
+            controller.present(overlayController, animated: true)
         }
 
         func chatViewControllerRequestNewSessionID(_ controller: ChatViewController, from _: String) -> String? {
@@ -585,14 +772,6 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onCreateLocalAgent?()
             }
-            // Entry is intentionally hidden until remote agent flow is fully tested.
-            // let addRemoteAction = UIAction(
-            //     title: "Add Remote Agent (Remote Gateway Agent)",
-            //     image: UIImage(systemName: "network"))
-            // { [weak self] _ in
-            //     self?.onAddRemoteAgent?()
-            // }
-
             let agentSection = UIMenu(title: "", options: .displayInline, children: agentActions)
             let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction])
             return UIMenu(title: "", children: [agentSection, entrySection])

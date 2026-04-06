@@ -118,4 +118,15 @@ class BlockButton: UIButton {
     }
 
     func updateAppearanceAfterTraitChange() {}
+
+    func updateContent(text: String, icon: String? = nil) {
+        textLabel.attributedText = nil
+        textLabel.text = text
+        if let icon {
+            iconView.image = UIImage.chatInputIcon(named: icon)
+        }
+        updateStrikes()
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
 }

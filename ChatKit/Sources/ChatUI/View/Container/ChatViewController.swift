@@ -14,6 +14,10 @@ import UIKit
 ///     present(vc, animated: true)
 ///
 open class ChatViewController: UIViewController {
+    private enum QuickCommand {
+        static let contextUsage = "/context"
+    }
+
     public struct HeaderState: Equatable {
         public var agentName: String
         public var agentEmoji: String?
@@ -91,8 +95,38 @@ open class ChatViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var sessionCancellables = Set<AnyCancellable>()
     private var keyboardHeight: CGFloat = 0
+    private var latestContextUsageSnapshot: ContextUsageSnapshot?
+    private var contextUsageRefreshTask: Task<Void, Never>?
 
     private var draftInputObject: ChatInputContent?
+
+    /// When set, the input draft is persisted to UserDefaults under this key so it survives
+    /// app restarts. Should be unique per agent to isolate drafts between agents.
+    public var draftPersistenceKey: String?
+
+    private static let draftDefaultsPrefix = "chat.inputDraft."
+
+    private func persistDraft(_ object: ChatInputContent) {
+        guard let key = draftPersistenceKey else { return }
+        let storageKey = Self.draftDefaultsPrefix + key
+        if object.hasEmptyContent {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        } else if let data = try? JSONEncoder().encode(object) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+    }
+
+    private func loadPersistedDraft() -> ChatInputContent? {
+        guard let key = draftPersistenceKey else { return nil }
+        let storageKey = Self.draftDefaultsPrefix + key
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
+        return try? JSONDecoder().decode(ChatInputContent.self, from: data)
+    }
+
+    private func clearPersistedDraft() {
+        guard let key = draftPersistenceKey else { return }
+        UserDefaults.standard.removeObject(forKey: Self.draftDefaultsPrefix + key)
+    }
 
     public init(
         sessionID: String = UUID().uuidString,
@@ -354,13 +388,45 @@ open class ChatViewController: UIViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
                 self?.refreshNavigationTitle()
+                self?.scheduleContextUsageRefresh()
             }
             .store(in: &sessionCancellables)
+        session.usageDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.scheduleContextUsageRefresh()
+            }
+            .store(in: &sessionCancellables)
+        scheduleContextUsageRefresh()
     }
 
     /// Updates `autoCompactEnabled` on the active session's chat model without recreating the session.
     public func updateAutoCompactEnabled(_ enabled: Bool) {
         currentSession?.models.chat?.autoCompactEnabled = enabled
+        scheduleContextUsageRefresh()
+    }
+
+    @MainActor
+    public func currentContextUsageSnapshot() async -> ContextUsageSnapshot? {
+        guard let session = currentSession, let model = session.models.chat else {
+            return nil
+        }
+        let snapshot = await session.contextUsageSnapshot(for: model)
+        latestContextUsageSnapshot = snapshot
+        updateContextQuickSetting(with: snapshot)
+        return snapshot
+    }
+
+    @MainActor
+    public func performManualCompact() async throws {
+        guard let session = currentSession, let model = session.models.chat else { return }
+        try await session.compact(model: model)
+        scheduleContextUsageRefresh()
+    }
+
+    @MainActor
+    public func quickSettingAnchorView(forCommand command: String) -> UIView? {
+        chatInputView.quickSettingBar.button(forCommand: command)
     }
 
     private func configureSession(for id: String) {
@@ -383,9 +449,35 @@ open class ChatViewController: UIViewController {
         bindNavigationTitleUpdates(session: session)
     }
 
+    private func scheduleContextUsageRefresh() {
+        contextUsageRefreshTask?.cancel()
+        guard let session = currentSession, let model = session.models.chat else {
+            latestContextUsageSnapshot = nil
+            updateContextQuickSetting(with: nil)
+            return
+        }
+
+        contextUsageRefreshTask = Task { @MainActor [weak self, weak session] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, let session, self.currentSession === session, !Task.isCancelled else { return }
+            let snapshot = await session.contextUsageSnapshot(for: model)
+            guard !Task.isCancelled else { return }
+            latestContextUsageSnapshot = snapshot
+            updateContextQuickSetting(with: snapshot)
+        }
+    }
+
+    private func updateContextQuickSetting(with snapshot: ContextUsageSnapshot?) {
+        let title = snapshot.map {
+            String(format: String.localized("Context %lld%%"), locale: .current, Int64($0.usedPercentage))
+        } ?? String.localized("Context --%")
+        chatInputView.quickSettingBar.updateCommand(command: QuickCommand.contextUsage, title: title, icon: "gauge")
+    }
+
     @MainActor
     private func switchSession(to id: String) {
         draftInputObject = nil
+        clearPersistedDraft()
         chatInputView.resetValues()
         chatInputView.storage.removeAll()
         chatInputView.bind(sessionID: id)
@@ -576,6 +668,7 @@ public extension ChatViewController {
         guard let session = currentSession else { return }
 
         draftInputObject = nil
+        clearPersistedDraft()
         chatInputView.resetValues()
         chatInputView.storage.removeAll()
         chatInputView.bind(sessionID: sessionID)
@@ -630,6 +723,7 @@ extension ChatViewController: ChatInputDelegate {
         }
         let userInput = makeUserInput(from: object)
         draftInputObject = nil
+        clearPersistedDraft()
         session.runInference(model: model, messageListView: messageListView, input: userInput) {
             completion(true)
         }
@@ -637,10 +731,14 @@ extension ChatViewController: ChatInputDelegate {
 
     public func chatInputDidUpdateObject(_: ChatInputView, object: ChatInputContent) {
         draftInputObject = object
+        persistDraft(object)
     }
 
     public func chatInputDidRequestObjectForRestore(_: ChatInputView) -> ChatInputContent? {
-        draftInputObject
+        if let inMemory = draftInputObject { return inMemory }
+        let persisted = loadPersistedDraft()
+        draftInputObject = persisted
+        return persisted
     }
 
     public func chatInputDidReportError(_: ChatInputView, error: String) {
