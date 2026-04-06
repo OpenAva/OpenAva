@@ -6,44 +6,9 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
-                functionName: "TeamCreate",
-                command: "team.create",
-                description: "Create a multi-agent team with shared teammates and task list.",
-                parametersSchema: AnyCodable([
-                    "type": "object",
-                    "properties": [
-                        "team_name": [
-                            "type": "string",
-                            "description": "Name for the team",
-                        ],
-                        "description": [
-                            "type": "string",
-                            "description": "Optional team purpose",
-                        ],
-                    ],
-                    "required": ["team_name"],
-                    "additionalProperties": false,
-                ] as [String: Any])
-            ),
-            ToolDefinition(
-                functionName: "TeamDelete",
-                command: "team.delete",
-                description: "Delete the current team and stop its teammates.",
-                parametersSchema: AnyCodable([
-                    "type": "object",
-                    "properties": [
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
-                    ],
-                    "additionalProperties": false,
-                ] as [String: Any])
-            ),
-            ToolDefinition(
-                functionName: "TeamStatus",
+                functionName: "team_status",
                 command: "team.status",
-                description: "Inspect the current team, teammates, and shared tasks.",
+                description: "Inspect the current team, teammate status, pending approvals, and shared tasks.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -56,46 +21,9 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "Agent",
-                command: "team.agent",
-                description: "Spawn a teammate inside the active team and give it an initial task.",
-                parametersSchema: AnyCodable([
-                    "type": "object",
-                    "properties": [
-                        "name": [
-                            "type": "string",
-                            "description": "Teammate display name",
-                        ],
-                        "prompt": [
-                            "type": "string",
-                            "description": "Initial work assignment for the teammate",
-                        ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
-                        "agent_type": [
-                            "type": "string",
-                            "description": "Optional sub agent type. Defaults to general-purpose.",
-                            "enum": SubAgentRegistry.availableAgentTypes(),
-                        ],
-                        "description": [
-                            "type": "string",
-                            "description": "Optional role description",
-                        ],
-                        "plan_mode_required": [
-                            "type": "boolean",
-                            "description": "When true, the teammate must propose a plan before execution.",
-                        ],
-                    ],
-                    "required": ["name", "prompt"],
-                    "additionalProperties": false,
-                ] as [String: Any])
-            ),
-            ToolDefinition(
-                functionName: "SendMessage",
+                functionName: "team_message_send",
                 command: "team.message.send",
-                description: "Send a direct message between team lead and teammates, or between teammates.",
+                description: "Send a mailbox message between team-lead and teammates, or between teammates.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -122,9 +50,9 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "TeamApprovePlan",
+                functionName: "team_plan_approve",
                 command: "team.plan.approve",
-                description: "Approve a teammate's pending plan so it can start execution.",
+                description: "Approve a teammate's pending plan request so it can start execution.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -149,7 +77,7 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "TaskCreate",
+                functionName: "team_task_create",
                 command: "team.task.create",
                 description: "Create a shared task in the active team task list.",
                 parametersSchema: AnyCodable([
@@ -173,7 +101,7 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "TaskList",
+                functionName: "team_task_list",
                 command: "team.task.list",
                 description: "List tasks in the active team task list.",
                 parametersSchema: AnyCodable([
@@ -188,7 +116,7 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "TaskGet",
+                functionName: "team_task_get",
                 command: "team.task.get",
                 description: "Get a single task from the active team task list.",
                 parametersSchema: AnyCodable([
@@ -208,7 +136,7 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
-                functionName: "TaskUpdate",
+                functionName: "team_task_update",
                 command: "team.task.update",
                 description: "Update task title, detail, owner, or status in the shared team task list.",
                 parametersSchema: AnyCodable([

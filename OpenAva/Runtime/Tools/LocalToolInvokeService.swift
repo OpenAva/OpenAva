@@ -1849,7 +1849,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
 
         // Team / swarm tools
         register([
-            "team.create", "team.delete", "team.status", "team.agent", "team.message.send", "team.plan.approve",
+            "team.status", "team.message.send", "team.plan.approve",
             "team.task.create", "team.task.list", "team.task.get", "team.task.update",
         ]) { [weak self] request in
             guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
@@ -2017,39 +2017,11 @@ final class LocalToolInvokeService: @unchecked Sendable {
     }
 
     private func handleTeamInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        struct TeamCreateParams: Decodable {
-            let teamName: String
-            let description: String?
-
-            enum CodingKeys: String, CodingKey {
-                case teamName = "team_name"
-                case description
-            }
-        }
-
         struct TeamNameParams: Decodable {
             let teamName: String?
 
             enum CodingKeys: String, CodingKey {
                 case teamName = "team_name"
-            }
-        }
-
-        struct AgentParams: Decodable {
-            let name: String
-            let prompt: String
-            let teamName: String?
-            let agentType: String?
-            let description: String?
-            let planModeRequired: Bool?
-
-            enum CodingKeys: String, CodingKey {
-                case name
-                case prompt
-                case teamName = "team_name"
-                case agentType = "agent_type"
-                case description
-                case planModeRequired = "plan_mode_required"
             }
         }
 
@@ -2124,22 +2096,6 @@ final class LocalToolInvokeService: @unchecked Sendable {
         let context = currentTeamToolContext()
 
         switch request.command {
-        case "team.create":
-            let params = try Self.decodeParams(TeamCreateParams.self, from: request.paramsJSON)
-            let team = try TeamSwarmCoordinator.shared.createTeam(name: params.teamName, description: params.description, context: context)
-            let payload = [
-                "## Team Created",
-                "- team_name: \(team.name)",
-                team.description.map { "- description: \($0)" },
-                "- lead_session_id: \(team.leadSessionID)",
-            ].compactMap { $0 }.joined(separator: "\n")
-            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
-
-        case "team.delete":
-            let params = try Self.decodeParams(TeamNameParams.self, from: request.paramsJSON)
-            let team = try TeamSwarmCoordinator.shared.deleteTeam(teamName: params.teamName, context: context)
-            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Deleted team \(team.name).")
-
         case "team.status":
             let params = try Self.decodeParams(TeamNameParams.self, from: request.paramsJSON)
             guard let snapshot = TeamSwarmCoordinator.shared.snapshot(teamName: params.teamName, context: context) else {
@@ -2149,41 +2105,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
                     error: OpenClawNodeError(code: .invalidRequest, message: "TEAM_NOT_FOUND")
                 )
             }
-            let payload = renderTeamStatus(snapshot.team)
-            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
-
-        case "team.agent":
-            let params = try Self.decodeParams(AgentParams.self, from: request.paramsJSON)
-            let member = try TeamSwarmCoordinator.shared.spawnMember(
-                name: params.name,
-                prompt: params.prompt,
-                teamName: params.teamName,
-                agentType: params.agentType,
-                description: params.description,
-                planModeRequired: params.planModeRequired ?? false,
-                context: context,
-                executeTool: { [weak self] teamName, memberID, nestedRequest in
-                    guard let self else {
-                        return BridgeInvokeResponse(
-                            id: nestedRequest.id,
-                            ok: false,
-                            error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
-                        )
-                    }
-                    return await self.handle(
-                        nestedRequest,
-                        sessionID: nil,
-                        teamContext: TeamInvocationContext(teamName: teamName, memberID: memberID)
-                    )
-                }
-            )
-            let payload = [
-                "## Teammate Spawned",
-                "- name: \(member.name)",
-                "- agent_type: \(member.agentType)",
-                "- session_id: \(member.sessionID)",
-                "- plan_mode_required: \(member.planModeRequired ? "yes" : "no")",
-            ].joined(separator: "\n")
+            let payload = renderTeamStatus(snapshot)
             return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
 
         case "team.message.send":
@@ -2248,12 +2170,20 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
     }
 
-    private func renderTeamStatus(_ team: TeamSwarmCoordinator.TeamRecord) -> String {
+    private func renderTeamStatus(_ snapshot: TeamSwarmCoordinator.TeamSnapshot) -> String {
+        let team = snapshot.team
+        let pendingPermissions = snapshot.pendingPermissions
         var lines = [
             "## Team Status",
             "- team_name: \(team.name)",
             team.description.map { "- description: \($0)" },
+            team.leadAgentID.map { "- lead_agent_id: \($0)" },
             "- lead_session_id: \(team.leadSessionID)",
+            "- created_at: \(iso8601(team.createdAt))",
+            "- updated_at: \(iso8601(team.updatedAt))",
+            "- pending_permission_requests: \(pendingPermissions.count)",
+            "- lead_mailbox_unread: \(snapshot.leadUnreadCount)",
+            snapshot.leadMailboxPreview.map { "- lead_mailbox_preview: \($0)" },
             "",
             "### Members",
         ].compactMap { $0 }
@@ -2261,7 +2191,28 @@ final class LocalToolInvokeService: @unchecked Sendable {
             lines.append("- none")
         } else {
             lines.append(contentsOf: team.members.map { member in
-                "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | session_id=\(member.sessionID)"
+                let backend = member.backendType?.rawValue ?? "in-process"
+                let queued = member.queuedMessageCount ?? 0
+                let planMode = member.planModeRequired ? "required" : "off"
+                let preview = member.lastMailboxPreview ?? "none"
+                let error = member.lastError ?? "none"
+                return "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | backend=\(backend) | plan_mode=\(planMode) | queued=\(queued) | session_id=\(member.sessionID) | inbox=\(preview) | error=\(error)"
+            })
+        }
+
+        if let allowedPaths = team.allowedPaths, !allowedPaths.isEmpty {
+            lines.append("")
+            lines.append("### Shared Allowed Paths")
+            lines.append(contentsOf: allowedPaths.map { rule in
+                "- \(rule.path) | tool=\(rule.toolName) | added_by=\(rule.addedBy) | added_at=\(iso8601(rule.addedAt))"
+            })
+        }
+
+        if !pendingPermissions.isEmpty {
+            lines.append("")
+            lines.append("### Pending Permissions")
+            lines.append(contentsOf: pendingPermissions.map { request in
+                "- \(request.workerName) | kind=\(request.kind) | tool=\(request.toolName) | status=\(request.status.rawValue) | created_at=\(iso8601(request.createdAt)) | \(request.description)"
             })
         }
         lines.append("")
@@ -2269,7 +2220,13 @@ final class LocalToolInvokeService: @unchecked Sendable {
         if team.tasks.isEmpty {
             lines.append("- none")
         } else {
-            lines.append(contentsOf: team.tasks.sorted { $0.id < $1.id }.map(renderTaskLine))
+            lines.append(contentsOf: team.tasks.sorted { $0.id < $1.id }.map { task in
+                var line = renderTaskLine(task)
+                if let detail = task.detail, !detail.isEmpty {
+                    line += " | detail=\(detail)"
+                }
+                return line
+            })
         }
         return lines.joined(separator: "\n")
     }
@@ -2287,6 +2244,12 @@ final class LocalToolInvokeService: @unchecked Sendable {
 
     private func renderTaskLine(_ task: TeamSwarmCoordinator.TeamTask) -> String {
         "- [#\(task.id)] \(task.status.rawValue) | owner=\(task.owner ?? "unassigned") | \(task.title)"
+    }
+
+    private func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
     }
 
     private func handleSkillInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {

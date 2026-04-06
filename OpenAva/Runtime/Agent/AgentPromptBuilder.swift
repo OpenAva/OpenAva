@@ -154,14 +154,13 @@ enum AgentPromptBuilder {
         PromptSection(
             title: "## Teams",
             content: """
-            For complex work that benefits from parallel teammates, use the team tools:
-            - `TeamCreate` creates a shared team context.
-            - `Agent` spawns teammates into the active team.
-            - `TaskCreate`, `TaskList`, `TaskGet`, and `TaskUpdate` manage the shared task list.
-            - `SendMessage` coordinates between team-lead and teammates.
-            - `TeamStatus` inspects the current team state.
-            - `TeamApprovePlan` approves a teammate plan when plan mode is required.
-            End the team with `TeamDelete` when the collaboration is finished.
+            Team collaboration uses preconfigured agent pools instead of dynamically creating fixed structures at runtime.
+            The active team may evolve into different execution topologies over time (for example flat or tree-shaped), so rely on current runtime state instead of assuming a fixed org chart.
+            Use the team tools to inspect and coordinate the active collaboration:
+            - `team_status` inspects the current team state, shared tasks, and pending approvals.
+            - `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` manage the shared task list.
+            - `team_message_send` coordinates between team-lead and teammates through direct mailbox messages.
+            - `team_plan_approve` approves a teammate plan request when plan mode is required.
             """
         )
     }

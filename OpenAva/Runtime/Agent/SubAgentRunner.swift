@@ -29,12 +29,13 @@ enum SubAgentRunner {
             .user(content: .text(prompt)),
         ]
 
+        let maxTurns = definition.maxTurns
         var totalToolCalls = 0
-        var totalTurns = 0
+        var turnCount = 0
         var finalText = ""
 
-        while totalTurns < definition.maxTurns {
-            totalTurns += 1
+        while turnCount < maxTurns {
+            turnCount += 1
 
             let response = try await client.chat(
                 body: ChatRequestBody(
@@ -58,16 +59,17 @@ enum SubAgentRunner {
                 let content = AppConfig.nonEmpty(finalText) ?? "Sub agent finished without a text result."
                 return SubAgentRunOutput(
                     agentType: definition.agentType,
-                    totalTurns: totalTurns,
+                    totalTurns: turnCount,
                     totalToolCalls: totalToolCalls,
                     durationMs: Int(Date().timeIntervalSince(start) * 1000),
                     content: content
                 )
             }
 
-            totalToolCalls += response.tools.count
+            let pendingToolCalls = response.tools
+            totalToolCalls += pendingToolCalls.count
 
-            for toolRequest in response.tools {
+            for toolRequest in pendingToolCalls {
                 let toolResponse = await executeToolCall(toolRequest, executeTool: executeTool)
                 requestMessages.append(
                     .tool(
@@ -78,10 +80,10 @@ enum SubAgentRunner {
             }
         }
 
-        let fallback = AppConfig.nonEmpty(finalText) ?? "Sub agent reached the turn limit before producing a final text answer."
+        let fallback = AppConfig.nonEmpty(finalText) ?? "Reached maximum number of turns."
         return SubAgentRunOutput(
             agentType: definition.agentType,
-            totalTurns: totalTurns,
+            totalTurns: turnCount,
             totalToolCalls: totalToolCalls,
             durationMs: Int(Date().timeIntervalSince(start) * 1000),
             content: fallback

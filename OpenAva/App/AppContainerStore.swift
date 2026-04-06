@@ -223,6 +223,8 @@ final class AppContainerStore {
     func deleteAgent(_ agentID: UUID) -> Bool {
         let changed = AgentStore.deleteAgent(agentID, defaults: defaults, fileManager: fileManager)
         if changed {
+            TeamStore.removeAgentReferences(agentID, defaults: defaults)
+            TeamSwarmCoordinator.shared.reload()
             rebuildContainer(with: container.config)
         }
         return changed

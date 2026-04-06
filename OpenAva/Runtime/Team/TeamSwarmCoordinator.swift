@@ -49,15 +49,19 @@ final class TeamSwarmCoordinator {
         let agentType: String
         let sessionID: String
         let sessionTitle: String
+        let workspacePath: String?
         let colorName: String?
         let spawnedAt: Date
         let description: String?
         let planModeRequired: Bool
+        let backendType: TeamBackendType?
+        let permissionMode: String?
         var status: MemberStatus
         var isIdle: Bool
         var awaitingPlanApproval: Bool
         var hasApprovedPlan: Bool
         var pendingExecutionPrompt: String?
+        var pendingPlanRequestID: String?
         var lastPlan: String?
         var lastResult: String?
         var lastError: String?
@@ -72,9 +76,12 @@ final class TeamSwarmCoordinator {
     struct TeamRecord: Codable, Equatable {
         let name: String
         var description: String?
+        let leadAgentID: String?
         let leadSessionID: String
         let createdAt: Date
         var updatedAt: Date
+        var hiddenPaneIDs: [String]?
+        var allowedPaths: [TeamAllowedPath]?
         var nextTaskID: Int
         var members: [TeamMember]
         var tasks: [TeamTask]
@@ -82,23 +89,22 @@ final class TeamSwarmCoordinator {
 
     struct TeamSnapshot {
         let team: TeamRecord
+        let pendingPermissions: [TeamPermissionRequest]
+        let leadUnreadCount: Int
+        let leadMailboxPreview: String?
     }
 
     struct MemberSnapshot {
         let teamName: String
+        let teamDescription: String?
+        let leadAgentID: String?
+        let allowedPaths: [TeamAllowedPath]
         let member: TeamMember
         let teammates: [TeamMember]
         let tasks: [TeamTask]
-    }
-
-    private struct QueuedMessage {
-        let fromName: String
-        let body: String
-        let messageType: String
-    }
-
-    private struct PersistedEnvelope: Codable {
-        var teams: [TeamRecord]
+        let pendingPermissions: [TeamPermissionRequest]
+        let leadUnreadCount: Int
+        let leadMailboxPreview: String?
     }
 
     private let colors = ["blue", "green", "orange", "pink", "purple", "teal"]
@@ -106,7 +112,7 @@ final class TeamSwarmCoordinator {
     private var workspaceRootURL: URL?
     private var modelConfig: AppConfig.LLMModel?
     private var teamsByName: [String: TeamRecord] = [:]
-    private var memberStreams: [String: AsyncStream<QueuedMessage>.Continuation] = [:]
+    private var memberSignals: [String: AsyncStream<Void>.Continuation] = [:]
     private var memberTasks: [String: Task<Void, Never>] = [:]
     private var memberHistories: [String: [ChatRequestBody.Message]] = [:]
     private var loadedPersistencePath: String?
@@ -115,6 +121,7 @@ final class TeamSwarmCoordinator {
 
     func configure(runtimeRootURL: URL?, workspaceRootURL: URL?, modelConfig: AppConfig.LLMModel?) {
         let normalizedPath = runtimeRootURL?.standardizedFileURL.path
+        self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
         if loadedPersistencePath != normalizedPath {
             loadedPersistencePath = normalizedPath
             self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
@@ -122,8 +129,12 @@ final class TeamSwarmCoordinator {
         } else {
             self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
         }
-        self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
         self.modelConfig = modelConfig
+    }
+
+    func reload() {
+        loadPersistedTeams()
+        notifyChanged()
     }
 
     func isTeammateSession(_ sessionID: String) -> Bool {
@@ -133,11 +144,19 @@ final class TeamSwarmCoordinator {
     func memberSnapshot(for sessionID: String) -> MemberSnapshot? {
         for team in teamsByName.values {
             if let member = team.members.first(where: { $0.sessionID == sessionID }) {
+                let pending = pendingPermissions(for: team.name)
+                let leadMailbox = leaderMailboxSummary(for: team.name)
                 return MemberSnapshot(
                     teamName: team.name,
+                    teamDescription: team.description,
+                    leadAgentID: team.leadAgentID,
+                    allowedPaths: team.allowedPaths ?? [],
                     member: member,
                     teammates: team.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
-                    tasks: team.tasks.sorted { $0.id < $1.id }
+                    tasks: team.tasks.sorted { $0.id < $1.id },
+                    pendingPermissions: pending,
+                    leadUnreadCount: leadMailbox.count,
+                    leadMailboxPreview: leadMailbox.preview
                 )
             }
         }
@@ -146,10 +165,20 @@ final class TeamSwarmCoordinator {
 
     func leadSnapshot(for sessionID: String?) -> TeamSnapshot? {
         guard let sessionID else { return nil }
-        guard let team = teamsByName.values.first(where: { $0.leadSessionID == sessionID }) else {
-            return nil
-        }
-        return TeamSnapshot(team: team)
+        let team = teamsByName.values.first(where: { $0.leadSessionID == sessionID })
+            ?? activeAgentID(from: sessionID).flatMap { activeAgentID in
+                teamsByName.values.first(where: {
+                    $0.leadAgentID == activeAgentID || $0.members.contains(where: { $0.id == activeAgentID })
+                })
+            }
+        guard let team else { return nil }
+        let leadMailbox = leaderMailboxSummary(for: team.name)
+        return TeamSnapshot(
+            team: team,
+            pendingPermissions: pendingPermissions(for: team.name),
+            leadUnreadCount: leadMailbox.count,
+            leadMailboxPreview: leadMailbox.preview
+        )
     }
 
     func snapshot(teamName: String? = nil, context: ToolContext) -> TeamSnapshot? {
@@ -158,142 +187,18 @@ final class TeamSwarmCoordinator {
         else {
             return nil
         }
-        return TeamSnapshot(team: team)
+        let leadMailbox = leaderMailboxSummary(for: resolvedTeamName)
+        return TeamSnapshot(
+            team: team,
+            pendingPermissions: pendingPermissions(for: resolvedTeamName),
+            leadUnreadCount: leadMailbox.count,
+            leadMailboxPreview: leadMailbox.preview
+        )
     }
 
-    func createTeam(name: String, description: String?, context: ToolContext) throws -> TeamRecord {
-        guard let leadSessionID = normalized(context.sessionID) else {
-            throw TeamError("TEAM_CONTEXT_MISSING: active session is required for TeamCreate")
-        }
-        let teamName = sanitize(name)
-        guard !teamName.isEmpty else {
-            throw TeamError("INVALID_REQUEST: team_name must not be empty")
-        }
-        guard teamsByName[teamName] == nil else {
-            throw TeamError("TEAM_EXISTS: \(teamName)")
-        }
-        let now = Date()
-        let team = TeamRecord(
-            name: teamName,
-            description: normalized(description),
-            leadSessionID: leadSessionID,
-            createdAt: now,
-            updatedAt: now,
-            nextTaskID: 1,
-            members: [],
-            tasks: []
-        )
-        teamsByName[teamName] = team
-        persist()
-        notifyChanged()
-        return team
-    }
-
-    func deleteTeam(teamName: String?, context: ToolContext) throws -> TeamRecord {
-        guard let resolvedTeamName = resolveTeamName(explicitTeamName: teamName, context: context),
-              let team = teamsByName.removeValue(forKey: resolvedTeamName)
-        else {
-            throw TeamError("TEAM_NOT_FOUND")
-        }
-        for member in team.members {
-            memberStreams[member.id]?.finish()
-            memberStreams.removeValue(forKey: member.id)
-            memberHistories.removeValue(forKey: member.id)
-            memberTasks.removeValue(forKey: member.id)?.cancel()
-        }
-        persist()
-        notifyChanged()
-        return team
-    }
-
-    func spawnMember(
-        name: String,
-        prompt: String,
-        teamName: String?,
-        agentType: String?,
-        description: String?,
-        planModeRequired: Bool,
-        context: ToolContext,
-        executeTool: @escaping @Sendable (String, String, BridgeInvokeRequest) async -> BridgeInvokeResponse
-    ) throws -> TeamMember {
-        guard let resolvedTeamName = resolveTeamName(explicitTeamName: teamName, context: context),
-              var team = teamsByName[resolvedTeamName]
-        else {
-            throw TeamError("TEAM_NOT_FOUND")
-        }
-        let memberName = sanitize(name)
-        guard !memberName.isEmpty else {
-            throw TeamError("INVALID_REQUEST: teammate name must not be empty")
-        }
-        guard team.members.first(where: { $0.name.caseInsensitiveCompare(memberName) == .orderedSame }) == nil else {
-            throw TeamError("TEAMMATE_EXISTS: \(memberName)")
-        }
-
-        let memberID = "\(memberName)@\(resolvedTeamName)"
-        let sessionID = teammateSessionID(teamName: resolvedTeamName, memberName: memberName)
-        let now = Date()
-        let member = TeamMember(
-            id: memberID,
-            name: memberName,
-            agentType: normalized(agentType) ?? SubAgentRegistry.generalPurpose.agentType,
-            sessionID: sessionID,
-            sessionTitle: "[\(resolvedTeamName)] \(memberName)",
-            colorName: colors[team.members.count % colors.count],
-            spawnedAt: now,
-            description: normalized(description),
-            planModeRequired: planModeRequired,
-            status: .idle,
-            isIdle: true,
-            awaitingPlanApproval: false,
-            hasApprovedPlan: !planModeRequired,
-            pendingExecutionPrompt: nil,
-            lastPlan: nil,
-            lastResult: nil,
-            lastError: nil,
-            lastUpdatedAt: now,
-            shutdownRequested: false,
-            queuedMessageCount: 0,
-            lastMailboxPreview: nil,
-            lastIdleSummary: nil,
-            lastPeerMessageSummary: nil
-        )
-
-        team.members.append(member)
-        team.updatedAt = now
-        teamsByName[resolvedTeamName] = team
-
-        let stream = AsyncStream<QueuedMessage> { continuation in
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.memberStreams.removeValue(forKey: memberID)
-                }
-            }
-            memberStreams[memberID] = continuation
-        }
-
-        let task: Task<Void, Never> = Task { [weak self] in
-            guard let self else { return }
-            await self.runMemberLoop(memberID: memberID, initialStream: stream, executeTool: executeTool)
-        }
-        memberTasks[memberID] = task
-
-        appendTranscriptMessage(
-            sessionID: sessionID,
-            title: member.sessionTitle,
-            role: .system,
-            text: "Teammate \(memberName) joined team \(resolvedTeamName)."
-        )
-        persist()
-        notifyChanged()
-
-        try sendMessage(
-            to: memberName,
-            message: prompt,
-            messageType: "task",
-            teamName: resolvedTeamName,
-            context: context
-        )
-        return member
+    func pendingPermissions(teamName: String?, context: ToolContext) -> [TeamPermissionRequest] {
+        guard let resolvedTeamName = resolveTeamName(explicitTeamName: teamName, context: context) else { return [] }
+        return pendingPermissions(for: resolvedTeamName)
     }
 
     func sendMessage(
@@ -319,6 +224,14 @@ final class TeamSwarmCoordinator {
         let transcriptLine = "[\(senderName)] \(body)"
 
         if target.caseInsensitiveCompare(Self.teamLeadName) == .orderedSame {
+            writeMailboxMessage(
+                teamName: resolvedTeamName,
+                recipientName: Self.teamLeadName,
+                fromName: senderName,
+                text: body,
+                messageType: messageType,
+                summary: summarize(body)
+            )
             appendLeaderMessage(team: team, fromName: senderName, text: body)
             return
         }
@@ -355,23 +268,25 @@ final class TeamSwarmCoordinator {
         if messageType == "shutdown_request" {
             markMemberShutdownRequested(teamName: resolvedTeamName, memberID: member.id)
         }
-        memberStreams[member.id]?.yield(QueuedMessage(fromName: senderName, body: body, messageType: messageType))
+        writeMailboxMessage(
+            teamName: resolvedTeamName,
+            recipientName: member.name,
+            fromName: senderName,
+            text: body,
+            messageType: messageType,
+            summary: summarize(body)
+        )
         appendTranscriptMessage(
             sessionID: member.sessionID,
             title: member.sessionTitle,
             role: .user,
             text: transcriptLine
         )
-        updateMember(teamName: resolvedTeamName, memberID: member.id) { member in
-            member.status = .busy
-            member.isIdle = false
-            member.lastUpdatedAt = Date()
-            member.queuedMessageCount = (member.queuedMessageCount ?? 0) + 1
-            member.lastMailboxPreview = summarize(body)
-        }
+        refreshMailboxMetadata(teamName: resolvedTeamName, memberID: member.id, markBusy: true)
         if isPeerMessage {
             registerPeerSummary(teamName: resolvedTeamName, senderMemberID: context.senderMemberID, recipientName: member.name, message: body)
         }
+        memberSignals[member.id]?.yield()
         persist()
         notifyChanged()
     }
@@ -394,21 +309,40 @@ final class TeamSwarmCoordinator {
         member.status = .busy
         member.isIdle = false
         member.lastUpdatedAt = Date()
+        let pendingPlanRequestID = member.pendingPlanRequestID
         let pendingPrompt = member.pendingExecutionPrompt
         member.pendingExecutionPrompt = nil
+        member.pendingPlanRequestID = nil
         team.members[index] = member
         team.updatedAt = Date()
         teamsByName[target.teamName] = team
 
-        if let pendingPrompt {
-            let feedbackLine = normalized(feedback).map { "\n\nLeader feedback: \($0)" } ?? ""
-            memberStreams[member.id]?.yield(
-                QueuedMessage(
-                    fromName: Self.teamLeadName,
-                    body: pendingPrompt + feedbackLine,
-                    messageType: "approved_execution"
+        if let pendingPlanRequestID,
+           let teamDirectoryURL = teamDirectoryURL(teamName: target.teamName)
+        {
+            _ = try? TeamPermissionSync.resolve(
+                teamDirectoryURL: teamDirectoryURL,
+                requestID: pendingPlanRequestID,
+                resolution: TeamPermissionResolution(
+                    status: .approved,
+                    resolvedBy: senderName(for: context, teamName: target.teamName) ?? Self.teamLeadName,
+                    feedback: normalized(feedback)
                 )
             )
+        }
+
+        if let pendingPrompt {
+            let feedbackLine = normalized(feedback).map { "\n\nLeader feedback: \($0)" } ?? ""
+            writeMailboxMessage(
+                teamName: target.teamName,
+                recipientName: member.name,
+                fromName: Self.teamLeadName,
+                text: pendingPrompt + feedbackLine,
+                messageType: "approved_execution",
+                summary: summarize(pendingPrompt)
+            )
+            refreshMailboxMetadata(teamName: target.teamName, memberID: member.id, markBusy: true)
+            memberSignals[member.id]?.yield()
         }
         appendTranscriptMessage(
             sessionID: member.sessionID,
@@ -508,37 +442,68 @@ final class TeamSwarmCoordinator {
 
     private func runMemberLoop(
         memberID: String,
-        initialStream: AsyncStream<QueuedMessage>,
+        signalStream: AsyncStream<Void>,
         executeTool: @escaping @Sendable (String, String, BridgeInvokeRequest) async -> BridgeInvokeResponse
     ) async {
-        for await message in initialStream {
-            guard let resolved = resolveMember(memberID: memberID) else { continue }
-            updateMember(teamName: resolved.teamName, memberID: memberID) { member in
-                let current = member.queuedMessageCount ?? 0
-                member.queuedMessageCount = max(current - 1, 0)
-                member.lastUpdatedAt = Date()
-            }
-            if message.messageType == "shutdown_request" {
-                finishMember(teamName: resolved.teamName, memberID: memberID, status: .stopped, result: "Shutdown requested.", error: nil)
-                appendTranscriptMessage(
-                    sessionID: resolved.member.sessionID,
-                    title: resolved.member.sessionTitle,
-                    role: .system,
-                    text: "Teammate stopped."
-                )
+        if await processMailbox(memberID: memberID, executeTool: executeTool) == false {
+            return
+        }
+
+        for await _ in signalStream {
+            if await processMailbox(memberID: memberID, executeTool: executeTool) == false {
                 break
             }
-
-            if resolved.member.planModeRequired, !resolved.member.hasApprovedPlan {
-                await runPlanStep(teamName: resolved.teamName, member: resolved.member, queuedMessage: message)
-                continue
-            }
-
-            await runExecutionStep(teamName: resolved.teamName, member: resolved.member, queuedMessage: message, executeTool: executeTool)
         }
     }
 
-    private func runPlanStep(teamName: String, member: TeamMember, queuedMessage: QueuedMessage) async {
+    private func processMailbox(
+        memberID: String,
+        executeTool: @escaping @Sendable (String, String, BridgeInvokeRequest) async -> BridgeInvokeResponse
+    ) async -> Bool {
+        guard let resolved = resolveMember(memberID: memberID),
+              let teamDirectoryURL = teamDirectoryURL(teamName: resolved.teamName)
+        else {
+            return true
+        }
+
+        let unreadMessages = TeamMailbox.unreadMessages(teamDirectoryURL: teamDirectoryURL, recipientName: resolved.member.name)
+        guard !unreadMessages.isEmpty else {
+            refreshMailboxMetadata(teamName: resolved.teamName, memberID: memberID)
+            return true
+        }
+
+        for message in unreadMessages {
+            guard let current = resolveMember(memberID: memberID) else {
+                break
+            }
+
+            if message.messageType == "shutdown_request" {
+                try? TeamMailbox.markRead(teamDirectoryURL: teamDirectoryURL, recipientName: current.member.name, messageIDs: [message.id])
+                finishMember(teamName: current.teamName, memberID: memberID, status: .stopped, result: "Shutdown requested.", error: nil)
+                appendTranscriptMessage(
+                    sessionID: current.member.sessionID,
+                    title: current.member.sessionTitle,
+                    role: .system,
+                    text: "Teammate stopped."
+                )
+                refreshMailboxMetadata(teamName: current.teamName, memberID: memberID)
+                return false
+            }
+
+            if current.member.planModeRequired, !current.member.hasApprovedPlan, message.messageType != "approved_execution" {
+                await runPlanStep(teamName: current.teamName, member: current.member, queuedMessage: message)
+            } else {
+                await runExecutionStep(teamName: current.teamName, member: current.member, queuedMessage: message, executeTool: executeTool)
+            }
+
+            try? TeamMailbox.markRead(teamDirectoryURL: teamDirectoryURL, recipientName: current.member.name, messageIDs: [message.id])
+            refreshMailboxMetadata(teamName: current.teamName, memberID: memberID)
+        }
+
+        return true
+    }
+
+    private func runPlanStep(teamName: String, member: TeamMember, queuedMessage: TeamMailboxMessage) async {
         guard let modelConfig else {
             finishMember(teamName: teamName, memberID: member.id, status: .failed, result: nil, error: "No configured model for teammate planning.")
             return
@@ -547,7 +512,7 @@ final class TeamSwarmCoordinator {
             member.status = .awaitingPlanApproval
             member.isIdle = true
             member.awaitingPlanApproval = true
-            member.pendingExecutionPrompt = queuedMessage.body
+            member.pendingExecutionPrompt = queuedMessage.text
             member.lastUpdatedAt = Date()
         }
         let wrappedPrompt = """
@@ -555,8 +520,8 @@ final class TeamSwarmCoordinator {
         Prepare an implementation plan only.
         Do not make edits or execute destructive tools.
 
-        Assigned work from \(queuedMessage.fromName):
-        \(queuedMessage.body)
+        Assigned work from \(queuedMessage.from):
+        \(queuedMessage.text)
         """
 
         do {
@@ -575,10 +540,12 @@ final class TeamSwarmCoordinator {
                 }
             )
             memberHistories[member.id] = output.messages
+            let planRequestID = persistPlanApprovalRequest(teamName: teamName, member: member, plan: output.content)
             updateMember(teamName: teamName, memberID: member.id) { member in
                 member.lastPlan = output.content
                 member.lastResult = output.content
                 member.lastError = nil
+                member.pendingPlanRequestID = planRequestID
                 member.lastUpdatedAt = Date()
             }
             appendTranscriptMessage(sessionID: member.sessionID, title: member.sessionTitle, role: .assistant, text: output.content)
@@ -599,7 +566,7 @@ final class TeamSwarmCoordinator {
     private func runExecutionStep(
         teamName: String,
         member: TeamMember,
-        queuedMessage: QueuedMessage,
+        queuedMessage: TeamMailboxMessage,
         executeTool: @escaping @Sendable (String, String, BridgeInvokeRequest) async -> BridgeInvokeResponse
     ) async {
         guard let modelConfig else {
@@ -613,11 +580,11 @@ final class TeamSwarmCoordinator {
             systemPrompt: [
                 baseDefinition.systemPrompt,
                 "You are teammate \(member.name) in team \(teamName).",
-                "Use TaskList/TaskUpdate to coordinate work and SendMessage to communicate with team-lead or peers.",
+                "Use team_task_list/team_task_update to coordinate work and team_message_send to communicate with team-lead or peers.",
                 "Do not create nested teams.",
             ].joined(separator: "\n\n"),
             toolPolicy: baseDefinition.toolPolicy,
-            disallowedFunctionNames: baseDefinition.disallowedFunctionNames.union(["TeamCreate", "TeamDelete"]),
+            disallowedFunctionNames: baseDefinition.disallowedFunctionNames.union(["team_create", "team_delete"]),
             maxTurns: max(baseDefinition.maxTurns, 8),
             supportsBackground: true
         )
@@ -637,6 +604,11 @@ final class TeamSwarmCoordinator {
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
                 modelConfig: modelConfig,
+                authorizeTool: { [definition] request in
+                    definition.allowsTool(functionName: request.name)
+                        ? .allow
+                        : .deny("TOOL_NOT_ALLOWED: \(request.name)")
+                },
                 executeTool: { request in
                     await executeTool(teamName, member.id, request)
                 }
@@ -652,7 +624,7 @@ final class TeamSwarmCoordinator {
         }
     }
 
-    private func executionPrompt(teamName: String, member: TeamMember, queuedMessage: QueuedMessage) -> String {
+    private func executionPrompt(teamName: String, member: TeamMember, queuedMessage: TeamMailboxMessage) -> String {
         let taskLines = teamsByName[teamName]?.tasks.sorted { $0.id < $1.id }.map { task in
             let owner = task.owner ?? "unassigned"
             return "- [#\(task.id)] \(task.status.rawValue) | owner=\(owner) | \(task.title)"
@@ -662,8 +634,8 @@ final class TeamSwarmCoordinator {
         Current team task list:
         \(taskLines)
 
-        Latest message from \(queuedMessage.fromName):
-        \(queuedMessage.body)
+        Latest message from \(queuedMessage.from):
+        \(queuedMessage.text)
         """
     }
 
@@ -719,6 +691,91 @@ final class TeamSwarmCoordinator {
         }
     }
 
+    private func writeMailboxMessage(
+        teamName: String,
+        recipientName: String,
+        fromName: String,
+        text: String,
+        messageType: String,
+        summary: String?
+    ) {
+        guard let teamDirectoryURL = teamDirectoryURL(teamName: teamName) else { return }
+        let message = TeamMailboxMessage(
+            id: UUID().uuidString,
+            from: fromName,
+            text: text,
+            timestamp: Date(),
+            read: false,
+            color: resolveColor(for: fromName, teamName: teamName),
+            summary: summary,
+            messageType: messageType
+        )
+        try? TeamMailbox.append(teamDirectoryURL: teamDirectoryURL, recipientName: recipientName, message: message)
+    }
+
+    private func refreshMailboxMetadata(teamName: String, memberID: String, markBusy: Bool = false) {
+        guard let resolved = resolveMember(memberID: memberID),
+              resolved.teamName == teamName,
+              let teamDirectoryURL = teamDirectoryURL(teamName: teamName)
+        else {
+            return
+        }
+        let unreadCount = TeamMailbox.unreadCount(teamDirectoryURL: teamDirectoryURL, recipientName: resolved.member.name)
+        let preview = summarize(TeamMailbox.lastPreview(teamDirectoryURL: teamDirectoryURL, recipientName: resolved.member.name))
+        updateMember(teamName: teamName, memberID: memberID) { member in
+            member.queuedMessageCount = unreadCount
+            member.lastMailboxPreview = preview
+            member.lastUpdatedAt = Date()
+            if markBusy {
+                member.status = .busy
+                member.isIdle = false
+            }
+        }
+    }
+
+    private func persistPlanApprovalRequest(teamName: String, member: TeamMember, plan: String) -> String? {
+        guard let teamDirectoryURL = teamDirectoryURL(teamName: teamName) else { return nil }
+        let request = TeamPermissionRequest(
+            id: UUID().uuidString,
+            kind: "plan_execution",
+            workerID: member.id,
+            workerName: member.name,
+            teamName: teamName,
+            toolName: "team.plan.approve",
+            description: summarize(plan, limit: 280) ?? "Plan approval requested.",
+            inputJSON: nil,
+            status: .pending,
+            resolvedBy: nil,
+            resolvedAt: nil,
+            feedback: nil,
+            createdAt: Date()
+        )
+        _ = try? TeamPermissionSync.writePending(teamDirectoryURL: teamDirectoryURL, request: request)
+        return request.id
+    }
+
+    private func pendingPermissions(for teamName: String) -> [TeamPermissionRequest] {
+        guard let teamDirectoryURL = teamDirectoryURL(teamName: teamName) else { return [] }
+        return TeamPermissionSync.readPending(teamDirectoryURL: teamDirectoryURL)
+    }
+
+    private func leaderMailboxSummary(for teamName: String) -> (count: Int, preview: String?) {
+        guard let teamDirectoryURL = teamDirectoryURL(teamName: teamName) else {
+            return (0, nil)
+        }
+        return (
+            TeamMailbox.unreadCount(teamDirectoryURL: teamDirectoryURL, recipientName: Self.teamLeadName),
+            summarize(TeamMailbox.lastPreview(teamDirectoryURL: teamDirectoryURL, recipientName: Self.teamLeadName))
+        )
+    }
+
+    private func resolveColor(for senderName: String, teamName: String) -> String? {
+        guard senderName.caseInsensitiveCompare(Self.teamLeadName) != .orderedSame else {
+            return nil
+        }
+        return teamsByName[teamName]?.members.first(where: { $0.name.caseInsensitiveCompare(senderName) == .orderedSame })?.colorName
+    }
+
     private func appendLeaderMessage(team: TeamRecord, fromName: String, text: String) {
         appendTranscriptMessage(
             sessionID: team.leadSessionID,
@@ -769,7 +826,14 @@ final class TeamSwarmCoordinator {
             return resolved.teamName
         }
         if let sessionID = context.sessionID {
-            return teamsByName.values.first(where: { $0.leadSessionID == sessionID })?.name
+            if let matchedBySession = teamsByName.values.first(where: { $0.leadSessionID == sessionID })?.name {
+                return matchedBySession
+            }
+            if let activeAgentID = activeAgentID(from: sessionID) {
+                return teamsByName.values.first(where: {
+                    $0.leadAgentID == activeAgentID || $0.members.contains(where: { $0.id == activeAgentID })
+                })?.name
+            }
         }
         return nil
     }
@@ -816,44 +880,190 @@ final class TeamSwarmCoordinator {
         return Self.teamLeadName
     }
 
+    private func activeAgentID(from sessionID: String) -> String? {
+        guard let separatorRange = sessionID.range(of: "::") else { return nil }
+        let rawValue = String(sessionID[..<separatorRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return rawValue.isEmpty || rawValue == "global" ? nil : rawValue
+    }
+
     private func teammateSessionID(teamName: String, memberName: String) -> String {
         "team:\(teamName):member:\(memberName)"
     }
 
     private func persist() {
-        guard let persistenceURL else { return }
-        let envelope = PersistedEnvelope(teams: Array(teamsByName.values).sorted { $0.name < $1.name })
-        guard let data = try? JSONEncoder().encode(envelope) else { return }
-        try? FileManager.default.createDirectory(at: persistenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: persistenceURL, options: [.atomic])
+        synchronizeTeamDirectories()
     }
 
     private func loadPersistedTeams() {
-        memberStreams.removeAll()
+        memberSignals.removeAll()
         memberTasks.values.forEach { $0.cancel() }
         memberTasks.removeAll()
         memberHistories.removeAll()
-        guard let persistenceURL,
-              let data = try? Data(contentsOf: persistenceURL),
-              let envelope = try? JSONDecoder().decode(PersistedEnvelope.self, from: data)
-        else {
+
+        let persistedFiles = loadTeamFilesFromDirectories() ?? [:]
+        let teamProfiles = TeamStore.load().teams
+        let agentByID = Dictionary(uniqueKeysWithValues: AgentStore.load().agents.map { ($0.id, $0) })
+        let loadedTeams = teamProfiles.compactMap { teamRecord(for: $0, persisted: persistedFiles[$0.name], agentByID: agentByID) }
+
+        guard !loadedTeams.isEmpty else {
             teamsByName.removeAll()
             return
         }
-        teamsByName = Dictionary(uniqueKeysWithValues: envelope.teams.map { record in
+
+        teamsByName = Dictionary(uniqueKeysWithValues: loadedTeams.map { record in
             var team = record
             team.members = team.members.map { member in
                 var member = member
                 member.status = .stopped
                 member.isIdle = true
+                member.awaitingPlanApproval = member.pendingPlanRequestID != nil
+                if let teamDirectoryURL = teamDirectoryURL(teamName: team.name) {
+                    member.queuedMessageCount = TeamMailbox.unreadCount(teamDirectoryURL: teamDirectoryURL, recipientName: member.name)
+                    member.lastMailboxPreview = summarize(TeamMailbox.lastPreview(teamDirectoryURL: teamDirectoryURL, recipientName: member.name))
+                }
                 return member
             }
             return (team.name, team)
         })
     }
 
-    private var persistenceURL: URL? {
-        runtimeRootURL?.appendingPathComponent("team-swarms/state.json", isDirectory: false)
+    private func synchronizeTeamDirectories() {
+        guard let rootURL = teamRootURL else { return }
+        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        let currentNames = Set(teamsByName.keys)
+        if let existingURLs = try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil) {
+            for url in existingURLs where !currentNames.contains(url.lastPathComponent) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        for team in teamsByName.values {
+            guard let directoryURL = teamDirectoryURL(teamName: team.name) else { continue }
+            try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let teamFile = TeamFile(
+                name: team.name,
+                description: team.description,
+                createdAt: team.createdAt,
+                updatedAt: team.updatedAt,
+                leadAgentId: team.leadAgentID ?? "\(Self.teamLeadName)@\(team.name)",
+                leadSessionId: team.leadSessionID,
+                hiddenPaneIds: team.hiddenPaneIDs ?? [],
+                teamAllowedPaths: team.allowedPaths ?? [],
+                nextTaskID: team.nextTaskID,
+                tasks: team.tasks,
+                members: team.members.map { member in
+                    TeamFileMember(
+                        agentId: member.id,
+                        name: member.name,
+                        agentType: member.agentType,
+                        model: nil,
+                        prompt: member.pendingExecutionPrompt,
+                        color: member.colorName,
+                        planModeRequired: member.planModeRequired,
+                        joinedAt: member.spawnedAt,
+                        sessionId: member.sessionID,
+                        subscriptions: [],
+                        backendType: member.backendType,
+                        isActive: member.status != .stopped,
+                        mode: member.permissionMode,
+                        queuedMessageCount: member.queuedMessageCount,
+                        lastStatus: member.status.rawValue,
+                        pendingPlanRequestID: member.pendingPlanRequestID
+                    )
+                }
+            )
+            guard let data = try? JSONEncoder().encode(teamFile) else { continue }
+            try? data.write(to: directoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+        }
+    }
+
+    private func loadTeamFilesFromDirectories() -> [String: TeamFile]? {
+        guard let rootURL = teamRootURL,
+              let directoryURLs = try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)
+        else {
+            return nil
+        }
+
+        let files = directoryURLs.compactMap { url -> TeamFile? in
+            let configURL = url.appendingPathComponent("config.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: configURL),
+                  let teamFile = try? JSONDecoder().decode(TeamFile.self, from: data)
+            else {
+                return nil
+            }
+            return teamFile
+        }
+
+        guard !files.isEmpty else { return nil }
+        return Dictionary(uniqueKeysWithValues: files.map { ($0.name, $0) })
+    }
+
+    private func teamRecord(
+        for profile: TeamProfile,
+        persisted: TeamFile?,
+        agentByID: [UUID: AgentProfile]
+    ) -> TeamRecord? {
+        let members = profile.agentPoolIDs.enumerated().compactMap { offset, agentID -> TeamMember? in
+            guard let agent = agentByID[agentID] else { return nil }
+            let persistedMember = persisted?.members.first(where: { $0.agentId == agentID.uuidString })
+            return TeamMember(
+                id: agentID.uuidString,
+                name: agent.name,
+                agentType: persistedMember?.agentType ?? SubAgentRegistry.generalPurpose.agentType,
+                sessionID: persistedMember?.sessionId ?? teammateSessionID(teamName: profile.name, memberName: agent.name),
+                sessionTitle: "[\(profile.name)] \(agent.name)",
+                workspacePath: agent.workspacePath,
+                colorName: persistedMember?.color ?? colors[offset % colors.count],
+                spawnedAt: persistedMember?.joinedAt ?? profile.createdAt,
+                description: nil,
+                planModeRequired: persistedMember?.planModeRequired ?? false,
+                backendType: persistedMember?.backendType ?? .inProcess,
+                permissionMode: persistedMember?.mode,
+                status: MemberStatus(rawValue: persistedMember?.lastStatus ?? "stopped") ?? .stopped,
+                isIdle: !(persistedMember?.isActive ?? false),
+                awaitingPlanApproval: persistedMember?.pendingPlanRequestID != nil,
+                hasApprovedPlan: (persistedMember?.planModeRequired ?? false) ? persistedMember?.pendingPlanRequestID == nil : true,
+                pendingExecutionPrompt: persistedMember?.prompt,
+                pendingPlanRequestID: persistedMember?.pendingPlanRequestID,
+                lastPlan: nil,
+                lastResult: nil,
+                lastError: nil,
+                lastUpdatedAt: persisted?.updatedAt ?? profile.updatedAt,
+                shutdownRequested: false,
+                queuedMessageCount: persistedMember?.queuedMessageCount,
+                lastMailboxPreview: nil,
+                lastIdleSummary: nil,
+                lastPeerMessageSummary: nil
+            )
+        }
+
+        guard !members.isEmpty else { return nil }
+
+        let leadAgentString = profile.leadAgentID?.uuidString ?? profile.agentPoolIDs.first?.uuidString
+        let leadSessionID = persisted?.leadSessionId ?? leadAgentString ?? profile.name
+
+        return TeamRecord(
+            name: profile.name,
+            description: normalized(profile.description),
+            leadAgentID: leadAgentString,
+            leadSessionID: leadSessionID,
+            createdAt: persisted?.createdAt ?? profile.createdAt,
+            updatedAt: persisted?.updatedAt ?? profile.updatedAt,
+            hiddenPaneIDs: persisted?.hiddenPaneIds ?? [],
+            allowedPaths: persisted?.teamAllowedPaths ?? [],
+            nextTaskID: max(persisted?.nextTaskID ?? 1, 1),
+            members: members,
+            tasks: persisted?.tasks ?? []
+        )
+    }
+
+    private var teamRootURL: URL? {
+        runtimeRootURL?.appendingPathComponent("team-swarms", isDirectory: true)
+    }
+
+    private func teamDirectoryURL(teamName: String) -> URL? {
+        teamRootURL?.appendingPathComponent(teamName, isDirectory: true)
     }
 
     private func notifyChanged() {

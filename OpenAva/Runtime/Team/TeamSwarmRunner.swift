@@ -10,6 +10,11 @@ struct TeamSwarmTurnOutput {
     let messages: [ChatRequestBody.Message]
 }
 
+enum TeamToolAuthorization {
+    case allow
+    case deny(String)
+}
+
 @MainActor
 enum TeamSwarmRunner {
     static func runTurn(
@@ -18,6 +23,7 @@ enum TeamSwarmRunner {
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
+        authorizeTool: (@Sendable (ToolRequest) async -> TeamToolAuthorization)? = nil,
         executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse
     ) async throws -> TeamSwarmTurnOutput {
         let start = Date()
@@ -74,7 +80,11 @@ enum TeamSwarmRunner {
             totalToolCalls += response.tools.count
 
             for toolRequest in response.tools {
-                let toolResponse = await executeToolCall(toolRequest, executeTool: executeTool)
+                let toolResponse = await executeToolCall(
+                    toolRequest,
+                    authorizeTool: authorizeTool,
+                    executeTool: executeTool
+                )
                 requestMessages.append(
                     .tool(
                         content: .text(toolResponse.text),
@@ -126,8 +136,18 @@ enum TeamSwarmRunner {
 
     private static func executeToolCall(
         _ toolRequest: ToolRequest,
+        authorizeTool: (@Sendable (ToolRequest) async -> TeamToolAuthorization)? = nil,
         executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse
     ) async -> (text: String, isError: Bool) {
+        if let authorizeTool {
+            switch await authorizeTool(toolRequest) {
+            case .allow:
+                break
+            case let .deny(message):
+                return (trimmedToolResponse(message), true)
+            }
+        }
+
         guard let command = await ToolRegistry.shared.command(forFunctionName: toolRequest.name) else {
             return ("TOOL_NOT_FOUND: \(toolRequest.name)", true)
         }
