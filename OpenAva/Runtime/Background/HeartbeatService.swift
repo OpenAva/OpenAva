@@ -1,7 +1,6 @@
 import ChatClient
 import ChatUI
 import Foundation
-import MemoryKit
 import OSLog
 import UIKit
 import UserNotifications
@@ -251,7 +250,8 @@ final class HeartbeatService {
             baseSystemPrompt: configuration.baseSystemPrompt,
             chatClient: configuration.chatClient,
             agentName: configuration.agentName,
-            agentEmoji: configuration.agentEmoji
+            agentEmoji: configuration.agentEmoji,
+            shouldExtractDurableMemory: false
         )
         let heartbeatDelegate = HeartbeatSessionDelegate(base: agentDelegate)
         let sessionConfiguration = ConversationSession.Configuration(
@@ -436,18 +436,6 @@ private final class HeartbeatSessionDelegate: SessionDelegate {
 
     func composeSystemPrompt() async -> String? {
         await base.composeSystemPrompt()
-    }
-
-    func memoryCoordinator(for sessionID: String) async -> MemoryCoordinator? {
-        await base.memoryCoordinator(for: sessionID)
-    }
-
-    func loadSessionMemoryState(for sessionID: String) async -> SessionMemoryState {
-        await base.loadSessionMemoryState(for: sessionID)
-    }
-
-    func saveSessionMemoryState(_ state: SessionMemoryState, for sessionID: String) async {
-        await base.saveSessionMemoryState(state, for: sessionID)
     }
 
     func sessionDidReportUsage(_ usage: TokenUsage, for sessionID: String) {

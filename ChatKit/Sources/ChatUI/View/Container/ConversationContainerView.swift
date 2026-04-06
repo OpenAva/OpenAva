@@ -112,9 +112,6 @@ extension ConversationContainerView: ChatInputDelegate {
         case "/new":
             guard let session = messageListView.session else { return }
             Task { @MainActor in
-                // Schedule memory archiving in background; records are captured now.
-                // Conversation switches immediately without waiting for LLM consolidation.
-                Task { await session.beginMemoryArchiveForNewConversation() }
                 guard let config = activeSessionConfiguration else { return }
                 let newSessionID = newSessionIDProvider()
                 load(sessionID: newSessionID, models: conversationModels, sessionConfiguration: config)

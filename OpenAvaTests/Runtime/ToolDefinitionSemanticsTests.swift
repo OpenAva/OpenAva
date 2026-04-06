@@ -30,15 +30,29 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
         XCTAssertTrue(weather.resolvedIsConcurrencySafe)
         XCTAssertFalse(weather.resolvedIsDestructive)
 
-        let memoryAppend = ToolDefinition(
-            functionName: "memory_append_history",
-            command: "memory.append_history",
+        let memoryForget = ToolDefinition(
+            functionName: "memory_forget",
+            command: "memory.forget",
             description: "",
-            parametersSchema: .init([:] as [String: Any])
+            parametersSchema: .init([:] as [String: Any]),
+            isReadOnly: false,
+            isDestructive: true,
+            isConcurrencySafe: false
         )
-        XCTAssertFalse(memoryAppend.resolvedIsReadOnly)
-        XCTAssertTrue(memoryAppend.resolvedIsDestructive)
-        XCTAssertFalse(memoryAppend.resolvedIsConcurrencySafe)
+        XCTAssertFalse(memoryForget.resolvedIsReadOnly)
+        XCTAssertTrue(memoryForget.resolvedIsDestructive)
+        XCTAssertFalse(memoryForget.resolvedIsConcurrencySafe)
+    }
+
+    func testMemoryDefinitionsExposeClaudeStyleSemantics() {
+        let definitions = MemoryToolDefinitions().toolDefinitions()
+        let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
+
+        XCTAssertEqual(byName["memory_recall"]?.resolvedIsReadOnly, true)
+        XCTAssertEqual(byName["memory_recall"]?.resolvedIsConcurrencySafe, true)
+        XCTAssertEqual(byName["memory_transcript_search"]?.resolvedIsReadOnly, true)
+        XCTAssertEqual(byName["memory_upsert"]?.resolvedIsDestructive, true)
+        XCTAssertEqual(byName["memory_forget"]?.resolvedIsDestructive, true)
     }
 
     func testToolRegistryDefinitionLookupPreservesMetadata() async {

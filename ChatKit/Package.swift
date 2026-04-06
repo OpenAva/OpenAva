@@ -14,10 +14,6 @@ let package = Package(
             targets: ["ChatClient"]
         ),
         .library(
-            name: "MemoryKit",
-            targets: ["MemoryKit"]
-        ),
-        .library(
             name: "ChatUI",
             // Keep ChatUI static to avoid missing runtime embed on device builds.
             targets: ["ChatUI"]
@@ -38,17 +34,9 @@ let package = Package(
             path: "Sources/ChatClient"
         ),
         .target(
-            name: "MemoryKit",
-            dependencies: [
-                "ChatClient",
-            ],
-            path: "Sources/MemoryKit"
-        ),
-        .target(
             name: "ChatUI",
             dependencies: [
                 "ChatClient",
-                "MemoryKit",
                 "ListViewKit",
                 "MarkdownView",
                 .product(name: "MarkdownParser", package: "MarkdownView"),
@@ -63,13 +51,6 @@ let package = Package(
         .testTarget(
             name: "ChatClientKitTests",
             dependencies: ["ChatClient"]
-        ),
-        .testTarget(
-            name: "MemoryKitTests",
-            dependencies: [
-                "ChatClient",
-                "MemoryKit",
-            ]
         ),
     ]
 )

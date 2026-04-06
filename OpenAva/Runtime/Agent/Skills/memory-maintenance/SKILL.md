@@ -1,6 +1,6 @@
 ---
 name: memory-maintenance
-description: Review, distill, and maintain long-term memory and searchable history.
+description: Review, distill, and maintain durable agent memory topics and transcript-backed history.
 metadata:
   display_name: Memory Maintenance
   emoji: 🧠
@@ -12,22 +12,22 @@ Use this skill when the task is specifically about cleaning up, curating, or con
 
 ## Retrieval Rules
 
-- Read current long-term memory before making broad edits.
-- For historical events, call `memory_history_search` with a focused query.
-- Read recent `memory/YYYY-MM-DD.md` files when the request depends on raw daily notes.
+- Start with `memory_recall` to inspect relevant durable memory topics.
+- Use `memory_transcript_search` only when exact past conversation details or timelines matter.
 
 ## Update Rules
 
-- Save durable facts to long-term memory only when confidence is high.
-- Use `memory_write_long_term` instead of generic file writes for `MEMORY.md`.
-- Use `memory_append_history` instead of generic file writes for `HISTORY.md`.
-- Keep history entries factual, concise, and time-oriented.
-- Do not duplicate unchanged long-term memory content.
+- Save durable facts only when confidence is high.
+- Use `memory_upsert` to create or update typed durable memories.
+- Use `memory_forget` when a memory is stale, superseded, or incorrect.
+- Prefer updating an existing topic over creating duplicates.
+- Reserve `memory_transcript_search` for recall, not as a write path.
 
 ## Workflow
 
-1. Inspect the current memory state.
+1. Inspect the current durable memory state with `memory_recall`.
 2. Separate durable facts from transient notes.
-3. Update `MEMORY.md` only with information worth carrying forward.
-4. Append a factual `HISTORY.md` entry when a decision, milestone, or summary should stay searchable.
-5. Report what changed and why.
+3. Update or create typed memory topics with `memory_upsert`.
+4. Remove obsolete topics with `memory_forget` when needed.
+5. Use `memory_transcript_search` if you need evidence from past sessions before editing.
+6. Report what changed and why.

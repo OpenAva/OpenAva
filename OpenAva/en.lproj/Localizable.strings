@@ -298,8 +298,6 @@
 "settings.context.filePurpose.tools" = "Stores environment-specific tool notes and operational shortcuts.";
 "settings.context.filePurpose.identity" = "Defines the agent's self-description, vibe, and avatar metadata.";
 "settings.context.filePurpose.user" = "Defines user preferences, habits, and background information.";
-"settings.context.filePurpose.memory" = "Stores durable memory that should be carried across interactions.";
-"settings.context.filePurpose.history" = "Records key progress updates and milestones in this workspace.";
 
 "settings.cron.scheduled.header" = "Scheduled Jobs";
 "settings.cron.scheduled.footer" = "Swipe left on a job to delete it.";

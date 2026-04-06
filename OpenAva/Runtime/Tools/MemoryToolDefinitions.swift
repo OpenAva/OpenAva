@@ -7,28 +7,19 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
-                functionName: "memory_history_search",
-                command: "memory.history_search",
-                description: "Search archived history events from HISTORY.md on demand using keyword or regex.",
+                functionName: "memory_recall",
+                command: "memory.recall",
+                description: "Recall relevant durable memories by searching indexed agent memory topics.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
                         "query": [
                             "type": "string",
-                            "description": "Keyword or regex pattern to search for",
-                        ],
-                        "mode": [
-                            "type": "string",
-                            "description": "Search mode: keyword or regex (default: keyword)",
-                            "enum": ["keyword", "regex"],
-                        ],
-                        "caseInsensitive": [
-                            "type": "boolean",
-                            "description": "Whether keyword search is case-insensitive (default: true)",
+                            "description": "Natural language query describing the memory you want to recall",
                         ],
                         "limit": [
                             "type": "integer",
-                            "description": "Maximum number of hits to return (default: 20, range: 1-200)",
+                            "description": "Maximum number of memory hits to return (default: 5, range: 1-20)",
                         ],
                     ],
                     "required": ["query"],
@@ -39,23 +30,35 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
                 maxResultSizeChars: 24 * 1024
             ),
             ToolDefinition(
-                functionName: "memory_write_long_term",
-                command: "memory.write_long_term",
-                description: "Update curated long-term memory in MEMORY.md. Prefer this over generic file writes for memory updates.",
+                functionName: "memory_upsert",
+                command: "memory.upsert",
+                description: "Create or update a durable typed memory topic in the agent runtime memory store.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
+                        "name": [
+                            "type": "string",
+                            "description": "Short human-readable memory title",
+                        ],
+                        "type": [
+                            "type": "string",
+                            "description": "Memory type",
+                            "enum": ["user", "feedback", "project", "reference"],
+                        ],
+                        "description": [
+                            "type": "string",
+                            "description": "One-line description for the memory index",
+                        ],
                         "content": [
                             "type": "string",
-                            "description": "Memory content to write or append",
+                            "description": "Full durable memory content to store in the topic file",
                         ],
-                        "mode": [
+                        "slug": [
                             "type": "string",
-                            "description": "Write mode: replace overwrites the file, append adds a new block unless it already exists (default: append)",
-                            "enum": ["replace", "append"],
+                            "description": "Optional stable slug / filename stem for updates",
                         ],
                     ],
-                    "required": ["content"],
+                    "required": ["name", "type", "description", "content"],
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
@@ -63,23 +66,54 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
                 isConcurrencySafe: false
             ),
             ToolDefinition(
-                functionName: "memory_append_history",
-                command: "memory.append_history",
-                description: "Append a timestamped factual history entry to HISTORY.md. Prefer this over generic file writes for history updates.",
+                functionName: "memory_forget",
+                command: "memory.forget",
+                description: "Remove a stale durable memory topic by slug / filename stem.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
-                        "entry": [
+                        "slug": [
                             "type": "string",
-                            "description": "History summary to append. The runtime adds the timestamp prefix.",
+                            "description": "Memory slug or filename stem to delete",
                         ],
                     ],
-                    "required": ["entry"],
+                    "required": ["slug"],
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
                 isDestructive: true,
                 isConcurrencySafe: false
+            ),
+            ToolDefinition(
+                functionName: "memory_transcript_search",
+                command: "memory.transcript_search",
+                description: "Search persisted agent transcripts when durable memory is insufficient and exact past conversation details matter.",
+                parametersSchema: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "query": [
+                            "type": "string",
+                            "description": "Keyword or phrase to search for in persisted transcripts",
+                        ],
+                        "sessionID": [
+                            "type": "string",
+                            "description": "Optional session identifier to limit search to one transcript",
+                        ],
+                        "caseInsensitive": [
+                            "type": "boolean",
+                            "description": "Whether to perform case-insensitive matching (default: true)",
+                        ],
+                        "limit": [
+                            "type": "integer",
+                            "description": "Maximum number of hits to return (default: 20, range: 1-100)",
+                        ],
+                    ],
+                    "required": ["query"],
+                    "additionalProperties": false,
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
         ]
     }

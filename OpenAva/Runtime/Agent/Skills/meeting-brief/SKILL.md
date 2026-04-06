@@ -14,12 +14,13 @@ Use this skill to prepare users for upcoming meetings with concise, actionable c
 
 - Upcoming events from `calendar_events`.
 - Relevant pending items from `reminders_list`.
-- Historical commitments via `memory_history_search` when needed.
+- Durable commitments or relationship context via `memory_recall` when needed.
+- Exact past meeting details via `memory_transcript_search` when durable memory is insufficient.
 
 ## Workflow
 
 1. Identify the target meeting (usually next event or user-specified event).
-2. Collect context from calendar, reminders, and memory history.
+2. Collect context from calendar, reminders, durable memory, and transcript recall when needed.
 3. Build a briefing package with:
    - Meeting objective
    - Key commitments and unresolved items

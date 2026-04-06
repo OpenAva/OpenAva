@@ -298,8 +298,6 @@
 "settings.context.filePurpose.tools" = "存放环境相关的工具说明和操作快捷方式。";
 "settings.context.filePurpose.identity" = "定义 Agent 的自我描述、风格和头像元数据。";
 "settings.context.filePurpose.user" = "定义用户偏好、习惯和背景信息。";
-"settings.context.filePurpose.memory" = "存放需要跨会话保留的长期记忆。";
-"settings.context.filePurpose.history" = "记录该工作区的重要进展和里程碑。";
 
 "settings.cron.scheduled.header" = "计划任务";
 "settings.cron.scheduled.footer" = "左滑任务可删除。";

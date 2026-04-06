@@ -7,7 +7,6 @@
 
 import ChatClient
 import Foundation
-import MemoryKit
 
 extension ConversationSession {
     private func instructionMessage(
@@ -59,15 +58,6 @@ extension ConversationSession {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let dateString = formatter.string(from: Date())
         systemParts.append("Current date and time: \(dateString).")
-
-        if let memoryContext = await sessionDelegate?.proactiveMemoryContext(), !memoryContext.isEmpty {
-            systemParts.append(memoryContext)
-        } else if let coordinator = await sessionDelegate?.memoryCoordinator(for: id) {
-            let fallbackMemory = await coordinator.memoryContext()
-            if !fallbackMemory.isEmpty {
-                systemParts.append(fallbackMemory)
-            }
-        }
 
         if let searchPrompt = sessionDelegate?.searchSensitivityPrompt() {
             systemParts.append(searchPrompt)

@@ -7,7 +7,6 @@
 
 import ChatClient
 import Foundation
-import MemoryKit
 
 /// Delegate for application-level behaviors during conversation execution.
 ///
@@ -49,24 +48,13 @@ public protocol SessionDelegate: AnyObject, Sendable {
     /// Called when token usage is reported after an inference step.
     func sessionDidReportUsage(_ usage: TokenUsage, for sessionID: String)
 
-    // MARK: - Optional Context
+    /// Called after messages have been persisted for the session.
+    func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async
 
-    /// Provide proactive memory context to inject into system prompt.
-    func proactiveMemoryContext() async -> String?
+    // MARK: - Optional Context
 
     /// Provide search sensitivity prompt text.
     func searchSensitivityPrompt() -> String?
-
-    // MARK: - Memory (Hybrid mode)
-
-    /// Provide a session-scoped memory coordinator.
-    func memoryCoordinator(for sessionID: String) async -> MemoryCoordinator?
-
-    /// Load persisted memory state for the session.
-    func loadSessionMemoryState(for sessionID: String) async -> SessionMemoryState
-
-    /// Persist memory state after successful consolidation.
-    func saveSessionMemoryState(_ state: SessionMemoryState, for sessionID: String) async
 
     /// Compose a fully built system prompt for this inference step.
     ///
@@ -77,6 +65,7 @@ public protocol SessionDelegate: AnyObject, Sendable {
     ///
     /// Returning nil falls back to the built-in behavior.
     func composeSystemPrompt() async -> String?
+
 }
 
 // MARK: - Default Implementations
@@ -93,23 +82,10 @@ public extension SessionDelegate {
     func sessionExecutionDidFinish(for _: String, success _: Bool, errorDescription _: String?) {}
     func sessionExecutionDidInterrupt(for _: String, reason _: String) {}
     func sessionDidReportUsage(_: TokenUsage, for _: String) {}
-    func proactiveMemoryContext() async -> String? {
-        nil
-    }
-
+    func sessionDidPersistMessages(_: [ConversationMessage], for _: String) async {}
     func searchSensitivityPrompt() -> String? {
         nil
     }
-
-    func memoryCoordinator(for _: String) async -> MemoryCoordinator? {
-        nil
-    }
-
-    func loadSessionMemoryState(for _: String) async -> SessionMemoryState {
-        .init()
-    }
-
-    func saveSessionMemoryState(_: SessionMemoryState, for _: String) async {}
 
     func composeSystemPrompt() async -> String? {
         nil

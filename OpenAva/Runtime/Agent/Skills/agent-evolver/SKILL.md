@@ -62,17 +62,20 @@ Example:
 
 ### Phase 4 — Write Memory
 
-Write each lesson to the appropriate layer. Do not create separate files.
+Write each lesson into the runtime durable memory system. Do not create ad-hoc files.
 
-- **`HISTORY.md`** (via `memory_append_history`): Write all task-level lessons here with domain tags. This is the primary store for experience — searchable on demand, not loaded into every session.
-- **`MEMORY.md`** (via `memory_write_long_term`, mode: append): Only write a lesson here if it is universal across all task types and worth loading into every future session. Keep this rare — `MEMORY.md` is always fully injected and must stay lean.
+- Use `memory_upsert` to save validated lessons as typed durable memory topics.
+- Prefer `feedback` for working-style rules and `project` for domain- or codebase-specific lessons.
+- Reuse the same slug/topic when refining an existing lesson instead of creating duplicates.
+- Use `memory_forget` when a lesson is disproven or obsolete.
 
 ### Phase 5 — Evolve (next task start)
 
 Before acting on any new task, retrieve relevant lessons from memory and inject them.
 
 Retrieval rules:
-- Call `memory_history_search` with keywords or regex matching the current task domain and type.
+- Call `memory_recall` with keywords matching the current task domain, failure mode, or constraint.
+- Use `memory_transcript_search` only when exact historical evidence is needed and durable memory is not enough.
 - Prefer lessons tagged `[confidence:high]`; treat `[confidence:low]` lessons as advisory only.
 - Deduplicate overlapping lessons before injection.
 

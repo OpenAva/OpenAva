@@ -7,8 +7,6 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
     case tools
     case identity
     case user
-    case memory
-    case history
 
     var id: String {
         fileName
@@ -28,10 +26,6 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
             return "IDENTITY.md"
         case .user:
             return "USER.md"
-        case .memory:
-            return "MEMORY.md"
-        case .history:
-            return "HISTORY.md"
         }
     }
 
@@ -49,10 +43,6 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
             return "Defines the agent's self-description, vibe, and avatar metadata."
         case .user:
             return "Defines user preferences, habits, and background information."
-        case .memory:
-            return "Stores durable memory that should be carried across interactions."
-        case .history:
-            return "Records key progress updates and milestones in this workspace."
         }
     }
 
@@ -70,20 +60,11 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
             return L10n.tr("settings.context.filePurpose.identity")
         case .user:
             return L10n.tr("settings.context.filePurpose.user")
-        case .memory:
-            return L10n.tr("settings.context.filePurpose.memory")
-        case .history:
-            return L10n.tr("settings.context.filePurpose.history")
         }
     }
 
     var supportsTemplate: Bool {
-        switch self {
-        case .memory, .history:
-            return false
-        case .agents, .heartbeat, .soul, .tools, .identity, .user:
-            return true
-        }
+        true
     }
 }
 
@@ -107,8 +88,6 @@ enum AgentContextLoader {
         ["TOOLS.md"],
         ["IDENTITY.md"],
         ["USER.md"],
-        ["MEMORY.md"],
-        ["HISTORY.md"],
     ]
 
     private static let rootEnvironmentKeys = [

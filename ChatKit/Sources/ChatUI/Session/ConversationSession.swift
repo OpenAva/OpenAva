@@ -9,27 +9,10 @@
 import ChatClient
 import Combine
 import Foundation
-import MemoryKit
 
 /// Coordinates the message state and inference execution for a conversation.
 @MainActor
 public final class ConversationSession: Identifiable, Sendable {
-    enum MemoryConsolidationMode: Int {
-        case window
-        case archiveAll
-
-        init(archiveAll: Bool) {
-            self = archiveAll ? .archiveAll : .window
-        }
-
-        var shouldArchiveAll: Bool {
-            self == .archiveAll
-        }
-
-        func merged(with other: MemoryConsolidationMode) -> MemoryConsolidationMode {
-            rawValue >= other.rawValue ? self : other
-        }
-    }
 
     public struct Model: Sendable {
         public var client: any ChatClient
@@ -142,14 +125,6 @@ public final class ConversationSession: Identifiable, Sendable {
     var lastSubmittedInput: UserInput?
     /// Whether UI should show the trailing "retry" action row.
     var showsInterruptedRetryAction = false
-
-    // MARK: - Memory
-
-    var memoryState: SessionMemoryState = .init()
-    var memoryStateLoaded = false
-    var memoryConsolidationTask: Task<Void, Never>?
-    var activeMemoryConsolidationMode: MemoryConsolidationMode?
-    var pendingMemoryConsolidationMode: MemoryConsolidationMode?
 
     // MARK: - Lifecycle
 

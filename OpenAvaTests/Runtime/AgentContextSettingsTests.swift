@@ -25,10 +25,10 @@ final class AgentContextSettingsTests: XCTestCase {
 
         let environment = ["ICLAW_AGENT_CONTEXT_DIR": tempRoot.path]
         // Save and verify content persistence.
-        try AgentContextLoader.saveEditableContent("# Notes", for: .memory, environment: environment)
+        try AgentContextLoader.saveEditableContent("# Identity", for: .identity, environment: environment)
 
-        let loaded = try AgentContextLoader.loadEditableContent(for: .memory, environment: environment)
-        XCTAssertEqual(loaded, "# Notes")
+        let loaded = try AgentContextLoader.loadEditableContent(for: .identity, environment: environment)
+        XCTAssertEqual(loaded, "# Identity")
     }
 
     func testTemplateContentLoadsBuiltInAgentGuidance() {
@@ -40,11 +40,6 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertEqual(agentsTemplate?.contains("# AGENTS.md - Your Workspace"), true)
         XCTAssertEqual(toolsTemplate?.contains("# TOOLS.md - Local Notes"), true)
         XCTAssertEqual(identityTemplate?.contains("# IDENTITY.md - Who Am I?"), true)
-    }
-
-    func testTemplateContentSkipsKindsWithoutTemplate() {
-        // Memory documents do not have templates.
-        XCTAssertNil(AgentContextLoader.templateContent(for: .memory))
     }
 
     func testEditableContentIsolatedByRootOverride() throws {
@@ -228,11 +223,9 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertNil(notFound)
     }
 
-    func testPromptBuilderDoesNotDuplicateMemoryAndHistoryWorkspaceFiles() {
+    func testPromptBuilderSeparatesRuntimeMemoryFromWorkspaceMemoryFiles() {
         let context = AgentContextLoader.LoadedContext(documents: [
             .init(fileName: "SOUL.md", content: "# Soul\nBe direct."),
-            .init(fileName: "MEMORY.md", content: "- Durable memory"),
-            .init(fileName: "HISTORY.md", content: "[2026-03-22] Did a thing."),
             .init(fileName: "USER.md", content: "# User\nPrefers Chinese."),
         ])
 
@@ -240,16 +233,13 @@ final class AgentContextSettingsTests: XCTestCase {
             baseSystemPrompt: nil,
             context: context,
             skillCatalog: [],
-            memoryContext: "- Consolidated memory",
+            memoryContext: "- Indexed durable memory",
             rootDirectory: nil
         )
 
-        XCTAssertTrue(prompt.contains("Consolidated memory snapshot:"))
-        XCTAssertTrue(prompt.contains("MEMORY.md is handled via the Memory section and is not duplicated below."))
-        XCTAssertTrue(prompt.contains("HISTORY.md records past events; query or inspect it only when historical details matter."))
+        XCTAssertTrue(prompt.contains("Indexed durable memories:"))
         XCTAssertTrue(prompt.contains("### SOUL.md"))
         XCTAssertTrue(prompt.contains("### USER.md"))
         XCTAssertFalse(prompt.contains("### MEMORY.md"))
-        XCTAssertFalse(prompt.contains("### HISTORY.md"))
     }
 }

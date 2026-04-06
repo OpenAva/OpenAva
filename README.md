@@ -17,7 +17,7 @@ OpenAva is a native iOS/macOS application that brings a full agent runtime to mo
 | **Agent Runtime** | Full OpenClaw protocol support; multi-agent sessions; agent presets & onboarding wizard |
 | **Device Tools** | Camera, Photos, Screen capture, Location, Contacts, Calendar, Reminders, Motion, Apple Watch |
 | **Web & Search** | Web search with reranking, page fetch, free image search, YouTube transcript extraction |
-| **Files & Memory** | Full filesystem access (`fs_*`); persistent long-term memory; timestamped history search |
+| **Files & Memory** | Full filesystem access (`fs_*`); durable agent memory topics; transcript-backed historical recall |
 | **Data** | Weather forecast (Open-Meteo); China A-share market data; device status & diagnostics |
 | **Chat UI** | Streaming markdown rendering, tool-call display, multi-session management |
 | **Speech** | Text-to-speech via ElevenLabs; system speech synthesizer fallback; on-device STT |
@@ -39,7 +39,7 @@ Tools are registered per-session and exposed to the LLM as callable functions. C
 | **Scheduling** | `calendar_events`, `calendar_add`, `reminders_list`, `reminders_add`, `cron` |
 | **Web & Search** | `web_search`, `web_fetch`, `image_search`, `youtube_transcript` |
 | **Files** | `fs_read`, `fs_write`, `fs_delete`, `fs_list`, `fs_mkdir`, `fs_copy`, `fs_move` |
-| **Memory** | `memory_write_long_term`, `memory_append_history`, `memory_history_search` |
+| **Memory** | `memory_recall`, `memory_upsert`, `memory_forget`, `memory_transcript_search` |
 | **Data & Device** | `weather_get`, `a_share_market`, `device_status`, `device_info`, `skill_load` |
 
 > Some tools (camera, location, calendar, etc.) are unavailable on macOS Catalyst due to platform restrictions.
@@ -66,7 +66,6 @@ OpenAva (iOS App)
 │
 ├── ChatKit/                Chat rendering library (iOS 17+)
 │   ├── ChatClient          Streaming message client
-│   ├── MemoryKit           Conversation memory
 │   └── ChatUI              UIKit-based chat interface
 │
 └── ActivityWidget/         Live Activities extension

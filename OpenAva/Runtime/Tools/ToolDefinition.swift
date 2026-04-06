@@ -65,7 +65,6 @@ private extension ToolDefinition {
         "fs.list",
         "fs.find",
         "fs.grep",
-        "memory.history_search",
         "web.search",
         "web.fetch",
         "image.search",
@@ -92,8 +91,6 @@ private extension ToolDefinition {
         "fs.replace",
         "fs.append",
         "fs.delete",
-        "memory.write_long_term",
-        "memory.append_history",
     ]
 
     nonisolated static let defaultSerializedReadOnlyCommands: Set<String> = [

@@ -59,7 +59,7 @@ extension ConversationSession {
         compactLogger.info("Token usage \(estimated)/\(contextLength) exceeds threshold \(threshold), starting compaction")
 
         do {
-            try await performCompaction(
+            try await performBestAvailableCompaction(
                 model: model,
                 trigger: "auto",
                 preTokens: estimated,
@@ -88,27 +88,31 @@ extension ConversationSession {
             }
         }
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
-        try await performCompaction(model: model, trigger: "manual", preTokens: preTokens, tools: tools)
+        try await performBestAvailableCompaction(model: model, trigger: "manual", preTokens: preTokens, tools: tools)
     }
 
     // MARK: - Core
 
-    private func performCompaction(
+    private func performBestAvailableCompaction(
         model: ConversationSession.Model,
         trigger: String,
         preTokens: Int,
         tools: [ChatRequestBody.Tool]?
     ) async throws {
+        let summaryText = try await generateCompactionSummary(model: model)
+        try applyCompaction(summaryText: summaryText, trigger: trigger, preTokens: preTokens, tools: tools)
+    }
+
+    private func generateCompactionSummary(model: ConversationSession.Model) async throws -> String {
         // Keep the most recent messages verbatim for continuity.
         let keepCount = min(compactKeepRecentMessageCount, messages.count)
         let keepIndex = messages.count - keepCount
         guard keepIndex >= 4 else {
             compactLogger.info("Too few messages to compact (\(self.messages.count)); skipping")
-            return
+            throw CompactionError.tooFewMessages
         }
 
         let messagesToCompact = Array(messages[0 ..< keepIndex])
-        let keptMessages = Array(messages[keepIndex...])
 
         // Build a plain-text transcript for the LLM to summarise.
         let conversationText = messagesToCompact.map { msg in
@@ -130,6 +134,24 @@ extension ConversationSession {
         guard !summaryText.isEmpty else {
             throw CompactionError.emptySummary
         }
+        return summaryText
+    }
+
+    private func applyCompaction(
+        summaryText: String,
+        trigger: String,
+        preTokens: Int,
+        tools: [ChatRequestBody.Tool]?
+    ) throws {
+        let keepCount = min(compactKeepRecentMessageCount, messages.count)
+        let keepIndex = messages.count - keepCount
+        guard keepIndex >= 4 else {
+            compactLogger.info("Too few messages to compact (\(self.messages.count)); skipping")
+            throw CompactionError.tooFewMessages
+        }
+
+        let messagesToCompact = Array(messages[0 ..< keepIndex])
+        let keptMessages = Array(messages[keepIndex...])
 
         // Determine creation timestamp: just before the oldest kept message so it sorts first.
         let anchorDate: Date
@@ -209,11 +231,14 @@ extension ConversationSession {
 
 private enum CompactionError: LocalizedError {
     case emptySummary
+    case tooFewMessages
 
     var errorDescription: String? {
         switch self {
         case .emptySummary:
             "Compaction produced an empty summary."
+        case .tooFewMessages:
+            "Not enough messages to compact."
         }
     }
 }

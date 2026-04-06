@@ -14,8 +14,9 @@ final class SubAgentCapabilityTests: XCTestCase {
 
         XCTAssertTrue(definition.allowsTool(functionName: "fs_read"))
         XCTAssertTrue(definition.allowsTool(functionName: "web_search"))
+        XCTAssertTrue(definition.allowsTool(functionName: "memory_recall"))
         XCTAssertFalse(definition.allowsTool(functionName: "fs_write"))
-        XCTAssertFalse(definition.allowsTool(functionName: "memory_write_long_term"))
+        XCTAssertFalse(definition.allowsTool(functionName: "memory_upsert"))
         XCTAssertFalse(definition.allowsTool(functionName: "subagent_run"))
     }
 

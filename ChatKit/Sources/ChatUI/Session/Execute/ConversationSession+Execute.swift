@@ -133,11 +133,11 @@ public extension ConversationSession {
         stopThinkingForAll()
         await requestUpdate(view: messageListView)
         persistMessages()
+        let persistedMessages = messages
+        let sessionID = id
 
-        // Fire memory consolidation in the background so allowIdleTimer() is not delayed
-        // by coordinator setup or disk I/O. The consolidation Task is tracked on self.
-        Task { [weak self] in
-            await self?.scheduleMemoryConsolidationIfNeeded()
+        Task { [weak self, persistedMessages, sessionID] in
+            await self?.sessionDelegate?.sessionDidPersistMessages(persistedMessages, for: sessionID)
         }
 
         sessionDelegate?.allowIdleTimer()

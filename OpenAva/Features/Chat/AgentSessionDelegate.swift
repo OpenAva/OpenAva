@@ -1,7 +1,6 @@
 import ChatClient
 import ChatUI
 import Foundation
-import MemoryKit
 import UIKit
 import UserNotifications
 
@@ -21,14 +20,12 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
 
     private let sessionID: String
     private let workspaceRootURL: URL
-    private let runtimeRootURL: URL?
     private let baseSystemPrompt: String?
-    private let resolvedWorkspaceRootURL: URL
-    private let resolvedRuntimeRootURL: URL
-    private let coordinatorPool: MemoryCoordinatorPool
-    private let stateRepository: MemoryStateRepository
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
     private let transcriptStorageProvider: TranscriptStorageProvider
+    private let memoryStore: AgentMemoryStore
+    private let durableMemoryExtractor: AgentDurableMemoryExtractor
+    private let shouldExtractDurableMemory: Bool
     private let hapticLock = NSLock()
     private var lastHapticAt: TimeInterval = 0
     private let minimumHapticInterval: TimeInterval = 0.2
@@ -42,7 +39,8 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         baseSystemPrompt: String?,
         chatClient: (any ChatClient)?,
         agentName: String,
-        agentEmoji: String
+        agentEmoji: String,
+        shouldExtractDurableMemory: Bool = true
     ) {
         // Agent pipelines require a concrete runtime root directory.
         guard let runtimeRootURL else {
@@ -53,32 +51,23 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         }
         self.sessionID = sessionID
         self.workspaceRootURL = workspaceRootURL.standardizedFileURL
-        self.runtimeRootURL = runtimeRootURL
         self.baseSystemPrompt = baseSystemPrompt
         self.agentName = agentName
         self.agentEmoji = agentEmoji
-        // Session state is persisted at workspace/.runtime/session_memory_states.json.
-        resolvedWorkspaceRootURL = workspaceRootURL.standardizedFileURL
-        resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
-        coordinatorPool = MemoryCoordinatorPool(
-            workspaceRoot: resolvedWorkspaceRootURL,
-            chatClient: chatClient,
-            memoryWindow: 20
-        )
-        stateRepository = MemoryStateRepository(runtimeRoot: resolvedRuntimeRootURL)
+        self.shouldExtractDurableMemory = shouldExtractDurableMemory
+        let resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
         transcriptStorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
+        memoryStore = AgentMemoryStore(runtimeRootURL: resolvedRuntimeRootURL)
+        durableMemoryExtractor = AgentDurableMemoryExtractor(
+            runtimeRootURL: resolvedRuntimeRootURL,
+            chatClient: chatClient
+        )
     }
 
     /// Compose the full system prompt at inference time so the tool list
     /// is always current (ToolRegistry may change between sessions).
     func composeSystemPrompt() async -> String? {
-        var memoryContext: String?
-        if let coordinator = await memoryCoordinator(for: sessionID) {
-            let text = await coordinator.memoryContext().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                memoryContext = text
-            }
-        }
+        let memoryContext = try? await memoryStore.promptContext()
         return await AgentContextLoader.composeSystemPrompt(
             baseSystemPrompt: baseSystemPrompt,
             memoryContext: memoryContext,
@@ -86,16 +75,9 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         )
     }
 
-    func memoryCoordinator(for sessionID: String) async -> MemoryCoordinator? {
-        await coordinatorPool.coordinator(for: sessionID)
-    }
-
-    func loadSessionMemoryState(for sessionID: String) async -> SessionMemoryState {
-        await stateRepository.loadState(for: sessionID)
-    }
-
-    func saveSessionMemoryState(_ state: SessionMemoryState, for sessionID: String) async {
-        await stateRepository.saveState(state, for: sessionID)
+    func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async {
+        guard shouldExtractDurableMemory else { return }
+        await durableMemoryExtractor.extractIfNeeded(for: sessionID, messages: messages)
     }
 
     func beginBackgroundTask(expiration: @escaping @Sendable () -> Void) -> Any? {

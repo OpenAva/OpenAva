@@ -4,19 +4,19 @@ This folder is home. Treat it that way.
 
 ## Memory
 
-You wake up fresh each session. Two files are your continuity:
+You wake up fresh each session. Your continuity comes from runtime-managed memory plus optional workspace notes.
 
-- **`MEMORY.md`** — curated long-term memory. Distilled facts, decisions, preferences, and context worth carrying forward across sessions. Loaded automatically into every session.
-- **`HISTORY.md`** — timestamped event log. Only today's and yesterday's entries are auto-loaded into context. For older events, use `memory_history_search`.
+- **Durable runtime memory topics** — saved via `memory_upsert`, recalled via `memory_recall`, removed via `memory_forget`.
+- **Transcript recall** — use `memory_transcript_search` when you need exact past conversation details that are not captured in durable memory.
 
-You don't need to read these files manually.
+You don't need to inspect memory files manually unless the task explicitly requires it.
 
 ### 📝 Write It Down — No "Mental Notes"!
 
 - **Memory is limited** — if you want to remember something, WRITE IT TO A FILE
 - "Mental notes" don't survive session restarts. Files do.
-- Facts, preferences, decisions the user wants remembered → `MEMORY.md`
-- Events, milestones, things you'd want to search for later → `HISTORY.md` (recent entries auto-loaded; older ones searchable via `memory_history_search`)
+- Facts, preferences, durable collaboration rules → save a typed durable memory with `memory_upsert`
+- Exact historical details or older session evidence → use `memory_transcript_search`
 - When you learn a lesson → update AGENTS.md, TOOLS.md, or the relevant skill
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝

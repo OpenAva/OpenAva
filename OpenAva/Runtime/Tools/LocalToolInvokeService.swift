@@ -1,7 +1,6 @@
 import ChatClient
 import CoreLocation
 import Foundation
-import MemoryKit
 import OpenClawKit
 import OpenClawProtocol
 import UserNotifications
@@ -1818,7 +1817,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
 
         // Memory tools
-        register(["memory.history_search", "memory.write_long_term", "memory.append_history"]) { [weak self] request in
+        register(["memory.recall", "memory.upsert", "memory.forget", "memory.transcript_search"]) { [weak self] request in
             guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
             return try await self.handleMemoryInvoke(request)
         }
@@ -2456,12 +2455,14 @@ final class LocalToolInvokeService: @unchecked Sendable {
 
     private func handleMemoryInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         switch request.command {
-        case "memory.history_search":
-            return try await handleMemoryHistorySearchInvoke(request)
-        case "memory.write_long_term":
-            return try await handleMemoryWriteLongTermInvoke(request)
-        case "memory.append_history":
-            return try await handleMemoryAppendHistoryInvoke(request)
+        case "memory.recall":
+            return try await handleMemoryRecallInvoke(request)
+        case "memory.upsert":
+            return try await handleMemoryUpsertInvoke(request)
+        case "memory.forget":
+            return try await handleMemoryForgetInvoke(request)
+        case "memory.transcript_search":
+            return try await handleMemoryTranscriptSearchInvoke(request)
         default:
             return BridgeInvokeResponse(
                 id: request.id,
@@ -2471,133 +2472,134 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
     }
 
-    private func handleMemoryHistorySearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        struct MemoryHistorySearchParams: Decodable {
+    private func handleMemoryRecallInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
             var query: String
-            var mode: String?
+            var limit: Int?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let runtimeRootURL = activeAgentRuntimeRootURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
+            )
+        }
+
+        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let hits = try await store.recall(query: params.query, limit: min(max(params.limit ?? 5, 1), 20))
+        let lines = hits.map { hit in
+            """
+            - [\(hit.entry.type.rawValue)] \(hit.entry.name) (slug=\(hit.entry.slug), score=\(hit.score))
+              - description: \(hit.entry.description)
+              - file: \(hit.entry.fileURL.path)
+              - content: \(hit.entry.content.replacingOccurrences(of: "\n", with: " "))
+            """
+        }
+        let text = lines.isEmpty
+            ? "## Memory Recall\n- query: \(params.query)\n- summary: no matching durable memories"
+            : "## Memory Recall\n- query: \(params.query)\n- summary: found \(hits.count) durable memory hit(s)\n\(lines.joined(separator: "\n"))"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleMemoryUpsertInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            var name: String
+            var type: String
+            var description: String
+            var content: String
+            var slug: String?
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let runtimeRootURL = activeAgentRuntimeRootURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
+            )
+        }
+        guard let type = AgentMemoryStore.MemoryType(rawValue: params.type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: type must be user, feedback, project, or reference")
+            )
+        }
+
+        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let entry = try await store.upsert(
+            name: params.name,
+            type: type,
+            description: params.description,
+            content: params.content,
+            slug: params.slug
+        )
+        let text = "## Memory Upsert\n- status: updated\n- type: \(entry.type.rawValue)\n- slug: \(entry.slug)\n- file: \(entry.fileURL.path)"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleMemoryForgetInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            var slug: String
+        }
+
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let runtimeRootURL = activeAgentRuntimeRootURL() else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
+            )
+        }
+
+        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let removed = try await store.forget(slug: params.slug)
+        let text = removed
+            ? "## Memory Forget\n- status: removed\n- slug: \(params.slug)"
+            : "## Memory Forget\n- status: not_found\n- slug: \(params.slug)"
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
+    }
+
+    private func handleMemoryTranscriptSearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            var query: String
+            var sessionID: String?
             var caseInsensitive: Bool?
             var limit: Int?
         }
 
-        struct SearchHitPayload: Codable {
-            var lineNumber: Int
-            var line: String
-        }
-
-        struct SearchPayload: Codable {
-            var mode: String
-            var query: String
-            var historyFile: String
-            var hits: [SearchHitPayload]
-            var count: Int
-            var message: String
-        }
-
-        let params = try Self.decodeParams(MemoryHistorySearchParams.self, from: request.paramsJSON)
-        guard let workspaceURL = activeAgentWorkspaceURL() else {
+        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
+        guard let runtimeRootURL = activeAgentRuntimeRootURL() else {
             return BridgeInvokeResponse(
                 id: request.id,
                 ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
             )
         }
 
-        let modeRaw = (params.mode ?? MemoryService.HistorySearchMode.keyword.rawValue)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard let mode = MemoryService.HistorySearchMode(rawValue: modeRaw) else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: mode must be keyword or regex")
-            )
-        }
-
-        let service = try MemoryService(workspaceDirectory: workspaceURL)
-        let result = try await service.searchHistory(
+        let service = AgentTranscriptSearchService(runtimeRootURL: runtimeRootURL)
+        let hits = try service.search(
             query: params.query,
-            mode: mode,
-            caseInsensitive: params.caseInsensitive ?? true,
-            limit: params.limit ?? 20
+            sessionID: params.sessionID,
+            limit: min(max(params.limit ?? 20, 1), 100),
+            caseInsensitive: params.caseInsensitive ?? true
         )
-
-        let hitPayload = result.hits.map { SearchHitPayload(lineNumber: $0.lineNumber, line: $0.line) }
-        let message = hitPayload.isEmpty ? "No matching history events." : "Found \(hitPayload.count) matching history event\(hitPayload.count == 1 ? "" : "s")."
-        let lines = hitPayload.map { "- L\($0.lineNumber): \($0.line)" }
+        let lines = hits.map { hit in
+            "- session=\(hit.sessionID) type=\(hit.entryType) line=\(hit.lineNumber) file=\(hit.fileURL.path)\n  \(hit.snippet)"
+        }
         let body = lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n")
-        let text = "## Memory History Search\n- mode: \(result.mode.rawValue)\n- query: \(result.query)\n- file: \(result.fileURL.path)\n- summary: \(message)\n\(body)"
+        let text = "## Memory Transcript Search\n- query: \(params.query)\n- hits: \(hits.count)\n\(body)"
         return BridgeInvokeResponse(id: request.id, ok: true, payload: text)
-    }
-
-    private func handleMemoryWriteLongTermInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        struct Params: Decodable {
-            var content: String
-            var mode: String?
-        }
-
-        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
-        let modeRaw = (params.mode ?? MemoryService.LongTermMemoryWriteMode.append.rawValue)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard let mode = MemoryService.LongTermMemoryWriteMode(rawValue: modeRaw) else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: mode must be replace or append")
-            )
-        }
-
-        guard let workspaceURL = activeAgentWorkspaceURL() else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
-            )
-        }
-
-        let service = try MemoryService(workspaceDirectory: workspaceURL)
-        let result = try await service.writeLongTermMemory(content: params.content, mode: mode)
-        let status: String
-        if result.duplicateSkipped {
-            status = "unchanged (duplicate skipped)"
-        } else if result.changed {
-            status = mode == .replace ? "updated" : "appended"
-        } else {
-            status = "unchanged"
-        }
-
-        return BridgeInvokeResponse(
-            id: request.id,
-            ok: true,
-            payload: "OK: \(status) -> \(result.fileURL.path)"
-        )
-    }
-
-    private func handleMemoryAppendHistoryInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        struct Params: Decodable {
-            var entry: String
-        }
-
-        let params = try Self.decodeParams(Params.self, from: request.paramsJSON)
-        guard let workspaceURL = activeAgentWorkspaceURL() else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent workspace")
-            )
-        }
-
-        let service = try MemoryService(workspaceDirectory: workspaceURL)
-        let result = try await service.appendHistory(entry: params.entry)
-        return BridgeInvokeResponse(
-            id: request.id,
-            ok: true,
-            payload: "OK: appended history entry -> \(result.fileURL.path)\n\(result.entry)"
-        )
     }
 
     private func activeAgentWorkspaceURL() -> URL? {
         AgentStore.load().activeAgent?.workspaceURL
+    }
+
+    private func activeAgentRuntimeRootURL() -> URL? {
+        AgentStore.load().activeAgent?.runtimeURL ?? runtimeRootURL?.standardizedFileURL
     }
 
     private func handleWeatherInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {

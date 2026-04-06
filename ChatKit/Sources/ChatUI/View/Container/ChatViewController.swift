@@ -689,9 +689,6 @@ public extension ChatViewController {
         case "/new":
             guard let session = currentSession else { return }
             Task { @MainActor in
-                // Schedule memory archiving in background; records are captured now.
-                // Conversation switches immediately without waiting for LLM consolidation.
-                Task { await session.beginMemoryArchiveForNewConversation() }
                 let newSessionID = menuDelegate?.chatViewControllerRequestNewSessionID(self, from: sessionID)
                     ?? configuration.newSessionIDProvider()
                 switchSession(to: newSessionID)
