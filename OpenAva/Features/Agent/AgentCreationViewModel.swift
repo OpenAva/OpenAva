@@ -3,15 +3,51 @@ import SwiftUI
 
 @MainActor @Observable
 final class AgentCreationViewModel {
+    enum CreationMode: String, CaseIterable, Identifiable {
+        case singleAgent
+        case defaultTeam
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .singleAgent:
+                L10n.tr("agent.creation.mode.single.title")
+            case .defaultTeam:
+                L10n.tr("agent.creation.mode.team.title")
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .singleAgent:
+                L10n.tr("agent.creation.mode.single.subtitle")
+            case .defaultTeam:
+                L10n.tr("agent.creation.mode.team.subtitle")
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .singleAgent:
+                "sparkles"
+            case .defaultTeam:
+                "person.3.fill"
+            }
+        }
+    }
+
     // MARK: - State
 
     var data = AgentCreationData()
-    var currentStep: CreationStep = .userInfo
+    var isUserInfoExpanded: Bool
+    var creationMode: CreationMode
     var isCreating = false
     var errorText: String?
     var emojiNoticeText: String?
     var selectedPresetID: String?
     var selectedDefaultTeamPresetIDs = Set(AgentPresetCatalog.defaultTeamPresetIDs)
+    private(set) var hasAppliedInitialDefaults = false
     private let defaults: UserDefaults
     let presets: [AgentPreset]
 
@@ -48,32 +84,20 @@ final class AgentCreationViewModel {
     ]
 
     init(
+        initialMode: CreationMode = .singleAgent,
         defaults: UserDefaults = .standard,
         presets: [AgentPreset] = AgentPresetCatalog.load()
     ) {
+        creationMode = initialMode
         self.defaults = defaults
         self.presets = presets
-        if let savedUserInfo = AgentUserInfoDefaults.load(defaults: defaults) {
+        isUserInfoExpanded = true
+        if let savedUserInfo = AgentUserInfoDefaults.load(defaults: defaults),
+           !savedUserInfo.callName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
             data.userCallName = savedUserInfo.callName
             data.userContext = savedUserInfo.context
-        }
-    }
-
-    // MARK: - Steps
-
-    enum CreationStep: Int, CaseIterable {
-        case userInfo = 1
-        case agentAndSoul = 2
-
-        var title: String {
-            switch self {
-            case .userInfo: "About You"
-            case .agentAndSoul: "Agent & Core Truths"
-            }
-        }
-
-        var progressText: String {
-            "Step \(rawValue) of \(Self.allCases.count)"
+            isUserInfoExpanded = false
         }
     }
 
@@ -84,8 +108,14 @@ final class AgentCreationViewModel {
     }
 
     var canComplete: Bool {
-        !data.agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        switch creationMode {
+        case .singleAgent:
+            canProceedFromUserInfo &&
+                !data.agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                !data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .defaultTeam:
+            canCreateDefaultTeam
+        }
     }
 
     var defaultTeamPresets: [AgentPreset] {
@@ -100,19 +130,12 @@ final class AgentCreationViewModel {
         canProceedFromUserInfo && !selectedDefaultTeamPresets.isEmpty
     }
 
-    // MARK: - Navigation
+    // MARK: - Initial Setup
 
-    func goToNextStep(avoiding usedEmojis: Set<String>) {
-        if currentStep == .userInfo {
-            applyAgentDefaults(avoiding: usedEmojis)
-        }
-        guard let next = CreationStep(rawValue: currentStep.rawValue + 1) else { return }
-        currentStep = next
-    }
-
-    func goToPreviousStep() {
-        guard let prev = CreationStep(rawValue: currentStep.rawValue - 1) else { return }
-        currentStep = prev
+    func applyAgentDefaultsIfNeeded(avoiding usedEmojis: Set<String>) {
+        guard !hasAppliedInitialDefaults else { return }
+        hasAppliedInitialDefaults = true
+        applyAgentDefaults(avoiding: usedEmojis)
     }
 
     // MARK: - Emoji
@@ -122,11 +145,22 @@ final class AgentCreationViewModel {
         emojiNoticeText = nil
     }
 
+    func setCreationMode(_ mode: CreationMode, avoiding usedEmojis: Set<String>) {
+        guard creationMode != mode else { return }
+        creationMode = mode
+        errorText = nil
+
+        if mode == .singleAgent {
+            applyAgentDefaults(avoiding: usedEmojis)
+        }
+    }
+
     func applyVibeOption(_ option: String) {
         data.agentVibe = option
     }
 
     func applyPreset(_ preset: AgentPreset, avoiding usedEmojis: Set<String>) {
+        creationMode = .singleAgent
         selectedPresetID = preset.id
         data.agentName = preset.agentName
         data.agentVibe = preset.agentVibe
@@ -154,6 +188,7 @@ final class AgentCreationViewModel {
     }
 
     func toggleDefaultTeamPreset(_ preset: AgentPreset) {
+        creationMode = .defaultTeam
         if selectedDefaultTeamPresetIDs.contains(preset.id) {
             selectedDefaultTeamPresetIDs.remove(preset.id)
         } else {
@@ -235,11 +270,20 @@ final class AgentCreationViewModel {
         let presets = selectedDefaultTeamPresets
         guard !presets.isEmpty else { return }
 
-        _ = try containerStore.createAgents(
+        let createdProfiles = try containerStore.createAgents(
             from: presets,
             callName: data.userCallName,
             context: data.userContext
         )
+
+        _ = TeamStore.createTeam(
+            name: L10n.tr("agent.creation.mode.team.title"),
+            description: presets.map(\.title).joined(separator: " · "),
+            agentPoolIDs: createdProfiles.map(\.id),
+            leadAgentID: createdProfiles.first?.id,
+            defaultTopology: .automatic
+        )
+        TeamSwarmCoordinator.shared.reload()
 
         AgentUserInfoDefaults.save(
             callName: data.userCallName,

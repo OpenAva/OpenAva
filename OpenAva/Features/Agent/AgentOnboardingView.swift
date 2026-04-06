@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AgentOnboardingView: View {
-    @State private var showLocalCreation = false
+    @State private var selectedMode: AgentCreationViewModel.CreationMode?
 
     let onComplete: () -> Void
 
@@ -37,45 +37,23 @@ struct AgentOnboardingView: View {
                     .padding(.bottom, 56)
 
                     VStack(spacing: 16) {
-                        // Local Agent Creation
-                        Button {
-                            showLocalCreation = true
-                        } label: {
-                            HStack(spacing: 16) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.accentColor.opacity(0.12))
-                                        .frame(width: 52, height: 52)
-                                    Image(systemName: "cpu")
-                                        .font(.system(size: 24, weight: .medium))
-                                        .foregroundStyle(Color.accentColor)
-                                }
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(L10n.tr("agent.onboarding.createLocal.title"))
-                                        .font(.system(.headline, design: .rounded, weight: .semibold))
-                                        .foregroundStyle(.primary)
-                                    Text(L10n.tr("agent.onboarding.createLocal.subtitle"))
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer(minLength: 0)
-
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundStyle(Color.accentColor.opacity(0.8))
-                            }
-                            .padding(16)
-                            .background(Color(.systemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                            .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-                            )
+                        onboardingCard(
+                            title: L10n.tr("agent.onboarding.createSingle.title"),
+                            subtitle: L10n.tr("agent.onboarding.createSingle.subtitle"),
+                            systemImage: "sparkles",
+                            tint: .accentColor
+                        ) {
+                            selectedMode = .singleAgent
                         }
-                        .buttonStyle(ScaleButtonStyle())
+
+                        onboardingCard(
+                            title: L10n.tr("agent.onboarding.createTeam.title"),
+                            subtitle: L10n.tr("agent.onboarding.createTeam.subtitle"),
+                            systemImage: "person.3.fill",
+                            tint: .orange
+                        ) {
+                            selectedMode = .defaultTeam
+                        }
                     }
                     .padding(.horizontal, 24)
 
@@ -85,12 +63,58 @@ struct AgentOnboardingView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
         }
-        .fullScreenCover(isPresented: $showLocalCreation) {
-            AgentCreationView(onComplete: {
-                showLocalCreation = false
+        .fullScreenCover(item: $selectedMode) { mode in
+            AgentCreationView(initialMode: mode, onComplete: {
+                selectedMode = nil
                 onComplete()
             })
         }
+    }
+
+    private func onboardingCard(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(0.12))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: systemImage)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(tint)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(tint.opacity(0.8))
+            }
+            .padding(16)
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+        }
+        .buttonStyle(ScaleButtonStyle())
     }
 }
 

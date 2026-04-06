@@ -2,10 +2,22 @@ import SwiftUI
 
 struct AgentCreationView: View {
     @Environment(\.appContainerStore) private var containerStore
-    @State private var viewModel = AgentCreationViewModel()
+    @State private var viewModel: AgentCreationViewModel
     @State private var isEmojiPickerPresented = false
 
+    private let pageBackgroundColor = Color.white
+    private let inputFillColor = Color(uiColor: .systemGray6)
+    private let inputBorderColor = Color(uiColor: .systemGray4).opacity(0.45)
+
     let onComplete: () -> Void
+
+    init(
+        initialMode: AgentCreationViewModel.CreationMode = .singleAgent,
+        onComplete: @escaping () -> Void
+    ) {
+        self.onComplete = onComplete
+        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode))
+    }
 
     private var usedEmojis: Set<String> {
         Set(containerStore.agents.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
@@ -13,137 +25,114 @@ struct AgentCreationView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch viewModel.currentStep {
-                case .userInfo:
-                    userInfoStep
-                case .agentAndSoul:
-                    agentAndSoulStep
+            agentAndSoulStep
+                .navigationTitle(L10n.tr("agent.creation.nav.title"))
+                .navigationBarTitleDisplayMode(.inline)
+                .onAppear {
+                    viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
                 }
-            }
-            .navigationTitle(L10n.tr("agent.creation.nav.title"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if viewModel.currentStep != .userInfo {
-                        Button {
-                            viewModel.goToPreviousStep()
-                        } label: {
-                            Label(L10n.tr("common.back"), systemImage: "chevron.left")
-                        }
-                    }
-                }
-            }
         }
     }
 
-    // MARK: - Step 1: User Info
+    // MARK: - Collapsible About You Section
 
-    private var userInfoStep: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.tr("agent.creation.about.title"))
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text(L10n.tr("agent.creation.about.subtitle"))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
-            }
+    private var aboutYouSection: some View {
+        Section {
+            DisclosureGroup(
+                isExpanded: $viewModel.isUserInfoExpanded
+            ) {
+                VStack(spacing: 12) {
+                    TextField(L10n.tr("agent.creation.callName.placeholder"), text: $viewModel.data.userCallName)
+                        .textInputAutocapitalization(.words)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            inputFillColor,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(inputBorderColor, lineWidth: 1)
+                        )
 
-            Section {
-                TextField(L10n.tr("agent.creation.callName.placeholder"), text: $viewModel.data.userCallName)
-                    .textInputAutocapitalization(.words)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    ZStack(alignment: .topLeading) {
+                        if viewModel.data.userContext.isEmpty {
+                            Text(L10n.tr("agent.creation.context.placeholder"))
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $viewModel.data.userContext)
+                            .frame(minHeight: 100)
+                            .scrollContentBackground(.hidden)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .background(
-                        Color(uiColor: .secondarySystemBackground),
+                        inputFillColor,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                     )
-                    .listRowBackground(Color.clear)
-            } header: {
-                Text(L10n.tr("agent.creation.callName.header"))
-            }
-
-            Section {
-                ZStack(alignment: .topLeading) {
-                    if viewModel.data.userContext.isEmpty {
-                        Text(L10n.tr("agent.creation.context.placeholder"))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(inputBorderColor, lineWidth: 1)
+                    )
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(L10n.tr("agent.creation.about.title"))
+                        .font(.subheadline.weight(.semibold))
+                    if !viewModel.isUserInfoExpanded, !viewModel.data.userCallName.isEmpty {
+                        Text("·")
                             .foregroundStyle(.tertiary)
-                            .padding(.top, 8)
-                            .padding(.leading, 4)
-                            .allowsHitTesting(false)
+                        Text(viewModel.data.userCallName)
+                            .foregroundStyle(.secondary)
                     }
-                    TextEditor(text: $viewModel.data.userContext)
-                        .frame(minHeight: 120)
-                        .scrollContentBackground(.hidden)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    Color(uiColor: .secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
-                .listRowBackground(Color.clear)
-            } header: {
-                Text(L10n.tr("agent.creation.context.header"))
-            } footer: {
-                Text(L10n.tr("agent.creation.context.footer"))
+                .font(.subheadline)
             }
-
-            if let errorText = viewModel.errorText {
-                Section {
-                    Text(errorText)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            Section {
-                Button {
-                    viewModel.goToNextStep(avoiding: usedEmojis)
-                } label: {
-                    Text(L10n.tr("common.continue"))
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(viewModel.canProceedFromUserInfo ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .disabled(!viewModel.canProceedFromUserInfo)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            }
+            .listRowBackground(Color.clear)
+        } footer: {
+            Text(L10n.tr("agent.creation.context.footer"))
         }
-        .scrollContentBackground(.hidden)
-        .background(Color.white)
-        #if !targetEnvironment(macCatalyst)
-            .scrollDismissesKeyboard(.interactively)
-        #endif
     }
+
+    // MARK: - Step 1: User Info (removed — merged into single page)
 
     // MARK: - Step 2: Agent & Soul
 
     private var agentAndSoulStep: some View {
         Form {
+            aboutYouSection
+
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.tr("agent.creation.design.title"))
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text(L10n.tr("agent.creation.design.subtitle"))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                Picker(
+                    L10n.tr("agent.creation.mode.header"),
+                    selection: Binding(
+                        get: { viewModel.creationMode },
+                        set: { viewModel.setCreationMode($0, avoiding: usedEmojis) }
+                    )
+                ) {
+                    ForEach(AgentCreationViewModel.CreationMode.allCases) { mode in
+                        Text(mode.title)
+                            .tag(mode)
+                    }
                 }
+                .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
+
+                modeSummaryCard
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            } header: {
+                Text(L10n.tr("agent.creation.mode.header"))
+            } footer: {
+                Text(L10n.tr("agent.creation.mode.footer"))
             }
 
-            if !viewModel.presets.isEmpty {
+            if viewModel.creationMode == .singleAgent, !viewModel.presets.isEmpty {
                 Section {
                     presetPicker
                         .listRowSeparator(.hidden)
@@ -155,140 +144,26 @@ struct AgentCreationView: View {
                 }
             }
 
-            if !viewModel.defaultTeamPresets.isEmpty {
+            if viewModel.creationMode == .defaultTeam {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(L10n.tr("agent.creation.team.description"))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    teamSelectionSummaryCard
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
 
-                        teamPresetPicker
-
-                        Button {
-                            Task {
-                                await createDefaultTeam()
-                            }
-                        } label: {
-                            Text(L10n.tr("agent.creation.team.create"))
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    (viewModel.canCreateDefaultTeam && !viewModel.isCreating)
-                                        ? Color.accentColor
-                                        : Color(uiColor: .tertiarySystemFill)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!viewModel.canCreateDefaultTeam || viewModel.isCreating)
-                    }
+                Section {
+                    teamPresetGrid
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 } header: {
-                    Text(L10n.tr("agent.creation.team.header"))
+                    Text(L10n.tr("agent.creation.team.selection.header"))
                 } footer: {
-                    Text(L10n.tr("agent.creation.team.footer"))
+                    Text(L10n.tr("agent.creation.team.selection.footer"))
                 }
             }
 
-            Section {
-                HStack {
-                    TextField(L10n.tr("common.name"), text: $viewModel.data.agentName, prompt: Text(L10n.tr("agent.creation.agentName.placeholder")))
-                        .textInputAutocapitalization(.words)
-
-                    Divider()
-                        .padding(.vertical, 8)
-
-                    Button {
-                        isEmojiPickerPresented = true
-                    } label: {
-                        Text(viewModel.data.agentEmoji)
-                            .font(.title3)
-                            .frame(width: 34, height: 34)
-                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 34, height: 34)
-                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    Color(uiColor: .secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
-                .listRowBackground(Color.clear)
-            } header: {
-                Text(L10n.tr("agent.creation.identity.header"))
-            }
-
-            Section {
-                TextField(L10n.tr("agent.creation.vibe.placeholder"), text: $viewModel.data.agentVibe)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .listRowSeparator(.hidden)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        Color(uiColor: .secondarySystemBackground),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .listRowBackground(Color.clear)
-
-                optionWrap(options: viewModel.vibeOptions) { option in
-                    viewModel.applyVibeOption(option)
-                }
-                .padding(.vertical, 4)
-                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
-                .listRowBackground(Color.white)
-            } header: {
-                Text(L10n.tr("agent.creation.vibe.header"))
-            }
-
-            Section {
-                ZStack(alignment: .topLeading) {
-                    if viewModel.data.soulCoreTruths.isEmpty {
-                        Text(L10n.tr("agent.creation.truths.placeholder"))
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 8)
-                            .padding(.leading, 4)
-                            .allowsHitTesting(false)
-                    }
-                    TextEditor(text: $viewModel.data.soulCoreTruths)
-                        .frame(minHeight: 120)
-                        .scrollContentBackground(.hidden)
-                }
-                .listRowSeparator(.hidden)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    Color(uiColor: .secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
-                .listRowBackground(Color.clear)
-
-                optionWrap(options: viewModel.truthOptions) { option in
-                    viewModel.toggleTruthOption(option)
-                } isActive: { option in
-                    viewModel.containsTruthOption(option)
-                }
-                .padding(.vertical, 4)
-                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
-                .listRowBackground(Color.white)
-            } header: {
-                Text(L10n.tr("agent.creation.truths.header"))
+            if viewModel.creationMode == .singleAgent {
+                singleAgentSections
             }
 
             if let emojiNoticeText = viewModel.emojiNoticeText {
@@ -307,11 +182,7 @@ struct AgentCreationView: View {
             }
 
             Section {
-                Button {
-                    Task {
-                        await createAgent()
-                    }
-                } label: {
+                Button(action: performPrimaryAction) {
                     if viewModel.isCreating {
                         HStack(spacing: 8) {
                             ProgressView()
@@ -319,22 +190,22 @@ struct AgentCreationView: View {
                             Text(L10n.tr("agent.creation.creating"))
                         }
                     } else {
-                        Text(L10n.tr("agent.creation.create"))
+                        Text(primaryActionTitle)
                     }
                 }
-                .disabled(!viewModel.canComplete || viewModel.isCreating)
+                .disabled(!canPerformPrimaryAction || viewModel.isCreating)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background((viewModel.canComplete && !viewModel.isCreating) ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
+                .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(pageBackgroundColor)
         #if !targetEnvironment(macCatalyst)
             .scrollDismissesKeyboard(.interactively)
         #endif
@@ -355,7 +226,167 @@ struct AgentCreationView: View {
             }
     }
 
+    private var stepTwoTitle: String {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            L10n.tr("agent.creation.design.title")
+        case .defaultTeam:
+            L10n.tr("agent.creation.team.mode.title")
+        }
+    }
+
+    private var stepTwoSubtitle: String {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            L10n.tr("agent.creation.design.subtitle")
+        case .defaultTeam:
+            L10n.tr("agent.creation.team.mode.subtitle")
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            L10n.tr("agent.creation.create")
+        case .defaultTeam:
+            L10n.tr("agent.creation.team.create")
+        }
+    }
+
+    private var canPerformPrimaryAction: Bool {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            viewModel.canComplete
+        case .defaultTeam:
+            viewModel.canCreateDefaultTeam
+        }
+    }
+
+    @ViewBuilder
+    private var singleAgentSections: some View {
+        Section {
+            HStack {
+                TextField(L10n.tr("common.name"), text: $viewModel.data.agentName, prompt: Text(L10n.tr("agent.creation.agentName.placeholder")))
+                    .textInputAutocapitalization(.words)
+
+                Divider()
+                    .padding(.vertical, 8)
+
+                Button {
+                    isEmojiPickerPresented = true
+                } label: {
+                    Text(viewModel.data.agentEmoji)
+                        .font(.title3)
+                        .frame(width: 34, height: 34)
+                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
+                } label: {
+                    Image(systemName: "shuffle")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 34, height: 34)
+                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                inputFillColor,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(inputBorderColor, lineWidth: 1)
+            )
+            .listRowBackground(Color.clear)
+        } header: {
+            Text(L10n.tr("agent.creation.identity.header"))
+        }
+
+        Section {
+            TextField(L10n.tr("agent.creation.vibe.placeholder"), text: $viewModel.data.agentVibe)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .listRowSeparator(.hidden)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    inputFillColor,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(inputBorderColor, lineWidth: 1)
+                )
+                .listRowBackground(Color.clear)
+
+            optionWrap(options: viewModel.vibeOptions) { option in
+                viewModel.applyVibeOption(option)
+            }
+            .padding(.vertical, 4)
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
+            .listRowBackground(pageBackgroundColor)
+        } header: {
+            Text(L10n.tr("agent.creation.vibe.header"))
+        }
+
+        Section {
+            ZStack(alignment: .topLeading) {
+                if viewModel.data.soulCoreTruths.isEmpty {
+                    Text(L10n.tr("agent.creation.truths.placeholder"))
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 8)
+                        .padding(.leading, 4)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $viewModel.data.soulCoreTruths)
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+            }
+            .listRowSeparator(.hidden)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                inputFillColor,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(inputBorderColor, lineWidth: 1)
+            )
+            .listRowBackground(Color.clear)
+
+            optionWrap(options: viewModel.truthOptions) { option in
+                viewModel.toggleTruthOption(option)
+            } isActive: { option in
+                viewModel.containsTruthOption(option)
+            }
+            .padding(.vertical, 4)
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
+            .listRowBackground(pageBackgroundColor)
+        } header: {
+            Text(L10n.tr("agent.creation.truths.header"))
+        }
+    }
+
     // MARK: - Actions
+
+    private func performPrimaryAction() {
+        Task {
+            switch viewModel.creationMode {
+            case .singleAgent:
+                await createAgent()
+            case .defaultTeam:
+                await createDefaultTeam()
+            }
+        }
+    }
 
     private func createAgent() async {
         do {
@@ -373,6 +404,70 @@ struct AgentCreationView: View {
         } catch {
             viewModel.errorText = error.localizedDescription
         }
+    }
+
+    private func stepIntroCard(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.primary)
+
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var modeSummaryCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: viewModel.creationMode.systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.creationMode.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(viewModel.creationMode.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var teamSelectionSummaryCard: some View {
+        let selectedPresets = viewModel.selectedDefaultTeamPresets
+        let selectedTitles = selectedPresets.map(\.title).joined(separator: " · ")
+        let isEmpty = selectedPresets.isEmpty
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: isEmpty ? "circle.dashed" : "checkmark.circle.fill")
+                    .foregroundStyle(isEmpty ? Color.secondary : Color.accentColor)
+                Text(selectedTeamSummaryText)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+
+            Text(isEmpty ? L10n.tr("agent.creation.team.selectedEmpty") : selectedTitles)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var selectedTeamSummaryText: String {
+        String(format: L10n.tr("agent.creation.team.selectedCount"), viewModel.selectedDefaultTeamPresets.count)
     }
 
     private var emojiPickerGrid: some View {
@@ -477,6 +572,57 @@ struct AgentCreationView: View {
             .padding(.vertical, 1)
             .padding(.horizontal, 2)
         }
+    }
+
+    private var teamPresetGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            ForEach(viewModel.defaultTeamPresets, id: \.id) { preset in
+                let isSelected = viewModel.containsDefaultTeamPreset(preset)
+
+                Button {
+                    viewModel.toggleDefaultTeamPreset(preset)
+                } label: {
+                    teamPresetCard(preset: preset, isSelected: isSelected)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func teamPresetCard(preset: AgentPreset, isSelected: Bool) -> some View {
+        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemBackground)
+        let borderColor = isSelected ? Color.accentColor.opacity(0.72) : Color.secondary.opacity(0.18)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Text(displayEmoji(for: preset))
+                    .font(.title3)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            }
+
+            Text(preset.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Text(preset.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        )
     }
 
     private func displayEmoji(for preset: AgentPreset) -> String {

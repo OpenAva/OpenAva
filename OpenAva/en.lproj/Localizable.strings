@@ -1,4 +1,8 @@
 "agent.onboarding.title" = "Welcome to OpenAva";
+"agent.onboarding.createSingle.title" = "Create One Agent";
+"agent.onboarding.createSingle.subtitle" = "Create a focused agent for a specific role or task.";
+"agent.onboarding.createTeam.title" = "Create Agent Team";
+"agent.onboarding.createTeam.subtitle" = "Create a ready-to-collaborate default team in one go.";
 "agent.onboarding.subtitle" = "Your personal intelligent assistant.\nSecure, fast, and on-device.";
 "agent.onboarding.createLocal.title" = "Create Local Agent";
 "agent.onboarding.createLocal.subtitle" = "Run AI agent securely on your device";
@@ -24,6 +28,17 @@
 "agent.creation.emojiPicker.title" = "Pick Emoji";
 "agent.creation.emojiPicker.choose" = "Choose %@";
 "agent.creation.presets.header" = "Role Presets";
+"agent.creation.mode.header" = "Creation Mode";
+"agent.creation.mode.footer" = "You can switch modes anytime. Your user info will be kept.";
+"agent.creation.mode.single.title" = "One Agent";
+"agent.creation.mode.single.subtitle" = "Best for creating one dedicated agent for a role or task, starting from a preset if helpful.";
+"agent.creation.mode.team.title" = "Agent Team";
+"agent.creation.mode.team.subtitle" = "Best for quickly creating a collaborative set of role-based agents.";
+"agent.creation.team.mode.title" = "Create an Agent Team";
+"agent.creation.team.mode.subtitle" = "Choose the roles you want to include, then create the whole collaborative team at once.";
+"agent.creation.team.selection.header" = "Choose Team Members";
+"agent.creation.team.selection.footer" = "Tap cards to include the roles you want to create together. Keep at least one selected.";
+"agent.creation.team.selectedCount" = "Selected %lld roles";
 "agent.creation.presets.footer" = "Start from a role, then refine the name, vibe, and core truths. Create multiple agents to assemble your own agent team.";
 "agent.creation.team.header" = "Default Agent Team";
 "agent.creation.team.description" = "Select the roles you want, then create a ready-to-use default agent team.";
