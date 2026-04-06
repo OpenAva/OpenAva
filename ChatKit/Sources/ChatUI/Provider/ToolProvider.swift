@@ -16,6 +16,21 @@ public protocol ToolExecutor: Sendable {
     var displayName: String { get }
     /// SF Symbol name for the tool icon.
     var iconName: String { get }
+    /// Whether this tool is read-only from the agent's perspective.
+    var isReadOnly: Bool { get }
+    /// Whether this tool can destroy or overwrite data.
+    var isDestructive: Bool { get }
+    /// Whether this tool is safe to execute in parallel with other tool calls.
+    var isConcurrencySafe: Bool { get }
+    /// Optional per-tool output truncation limit.
+    var maxResultSizeChars: Int? { get }
+}
+
+public extension ToolExecutor {
+    var isReadOnly: Bool { false }
+    var isDestructive: Bool { false }
+    var isConcurrencySafe: Bool { false }
+    var maxResultSizeChars: Int? { nil }
 }
 
 /// Result of a tool execution.

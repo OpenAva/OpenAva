@@ -33,7 +33,10 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
                     ],
                     "required": ["query"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
             ToolDefinition(
                 functionName: "memory_write_long_term",
@@ -54,7 +57,10 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
                     ],
                     "required": ["content"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "memory_append_history",
@@ -70,7 +76,10 @@ struct MemoryToolDefinitions: ToolDefinitionProvider {
                     ],
                     "required": ["entry"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
         ]
     }

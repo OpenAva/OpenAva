@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 extension YahooFinanceService: ToolDefinitionProvider {
-    func toolDefinitions() -> [ToolDefinition] {
+    nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
                 functionName: "yahoo_finance",
@@ -62,7 +62,10 @@ extension YahooFinanceService: ToolDefinitionProvider {
                     ],
                     "required": ["action"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
         ]
     }

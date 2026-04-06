@@ -12,11 +12,19 @@ final class RegistryToolExecutor: ToolExecutor {
     let displayName: String
     let iconName: String
     let command: String
+    let isReadOnly: Bool
+    let isDestructive: Bool
+    let isConcurrencySafe: Bool
+    let maxResultSizeChars: Int?
 
-    init(displayName: String, iconName: String, command: String) {
-        self.displayName = displayName
+    init(definition: ToolDefinition, iconName: String) {
+        self.displayName = definition.functionName
+        self.command = definition.command
         self.iconName = iconName
-        self.command = command
+        self.isReadOnly = definition.resolvedIsReadOnly
+        self.isDestructive = definition.resolvedIsDestructive
+        self.isConcurrencySafe = definition.resolvedIsConcurrencySafe
+        self.maxResultSizeChars = definition.maxResultSizeChars
     }
 }
 
@@ -43,14 +51,13 @@ final class RegistryToolProvider: ToolProvider {
     }
 
     func findTool(for request: ToolRequest) async -> ToolExecutor? {
-        guard let command = await ToolRegistry.shared.command(forFunctionName: request.name) else {
+        guard let definition = await ToolRegistry.shared.definition(forFunctionName: request.name) else {
             return nil
         }
-        let iconName = iconNameForCommand(command)
+        let iconName = iconNameForCommand(definition.command)
         return RegistryToolExecutor(
-            displayName: request.name,
-            iconName: iconName,
-            command: command
+            definition: definition,
+            iconName: iconName
         )
     }
 

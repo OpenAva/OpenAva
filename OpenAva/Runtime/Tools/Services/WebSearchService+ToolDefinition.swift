@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 extension WebSearchService: ToolDefinitionProvider {
-    func toolDefinitions() -> [ToolDefinition] {
+    nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
                 functionName: "web_search",
@@ -40,7 +40,10 @@ extension WebSearchService: ToolDefinitionProvider {
                     ],
                     "required": ["query"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 32 * 1024
             ),
         ]
     }

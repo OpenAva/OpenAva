@@ -30,7 +30,10 @@ extension AShareMarketService: ToolDefinitionProvider {
                     ],
                     "required": ["codes"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
         ]
     }

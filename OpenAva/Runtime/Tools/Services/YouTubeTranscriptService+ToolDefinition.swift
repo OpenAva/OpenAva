@@ -34,7 +34,10 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
                     ],
                     "required": ["input"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 32 * 1024
             ),
         ]
     }

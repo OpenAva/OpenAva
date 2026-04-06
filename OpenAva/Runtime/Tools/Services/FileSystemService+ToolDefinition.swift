@@ -4,7 +4,7 @@ import OpenClawProtocol
 
 /// Tool definition provider for file system service
 extension FileSystemService: ToolDefinitionProvider {
-    func toolDefinitions() -> [ToolDefinition] {
+    nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
                 functionName: "fs_read",
@@ -28,7 +28,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 48 * 1024
             ),
             ToolDefinition(
                 functionName: "fs_write",
@@ -52,7 +55,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path", "content"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "fs_replace",
@@ -76,7 +82,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path", "oldText", "newText"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "fs_append",
@@ -96,7 +105,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path", "content"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "fs_list",
@@ -112,7 +124,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
             ToolDefinition(
                 functionName: "fs_mkdir",
@@ -136,7 +151,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "fs_delete",
@@ -152,7 +170,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["path"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: false,
+                isDestructive: true,
+                isConcurrencySafe: false
             ),
             ToolDefinition(
                 functionName: "fs_find",
@@ -176,7 +197,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["glob"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
             ToolDefinition(
                 functionName: "fs_grep",
@@ -208,7 +232,10 @@ extension FileSystemService: ToolDefinitionProvider {
                     ],
                     "required": ["pattern"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 24 * 1024
             ),
         ]
     }

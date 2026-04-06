@@ -4,7 +4,7 @@ import OpenClawProtocol
 
 /// Tool definition provider for web fetch service
 extension WebFetchService: ToolDefinitionProvider {
-    func toolDefinitions() -> [ToolDefinition] {
+    nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
                 functionName: "web_fetch",
@@ -24,7 +24,10 @@ extension WebFetchService: ToolDefinitionProvider {
                     ],
                     "required": ["url", "prompt"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 48 * 1024
             ),
         ]
     }

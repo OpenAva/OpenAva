@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 extension WeatherService: ToolDefinitionProvider {
-    func toolDefinitions() -> [ToolDefinition] {
+    nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(
                 functionName: "weather_get",
@@ -41,7 +41,10 @@ extension WeatherService: ToolDefinitionProvider {
                         ["required": ["latitude", "longitude"]],
                     ],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true,
+                maxResultSizeChars: 16 * 1024
             ),
         ]
     }

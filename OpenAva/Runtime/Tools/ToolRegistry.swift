@@ -49,6 +49,16 @@ actor ToolRegistry {
         functionNameToCommand[functionName]
     }
 
+    /// Get full definition for a function name
+    func definition(forFunctionName functionName: String) -> ToolDefinition? {
+        definitions.first { $0.functionName == functionName }
+    }
+
+    /// Get full definition for a command
+    func definition(forCommand command: String) -> ToolDefinition? {
+        definitions.first { $0.command == command }
+    }
+
     /// Clear all registered tools (useful for testing)
     func clear() {
         definitions.removeAll()
