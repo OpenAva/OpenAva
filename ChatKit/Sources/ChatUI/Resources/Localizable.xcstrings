@@ -79,6 +79,8 @@
             "value" : "聊天"
           }
         }
+      }
+    },
     "Context --%" : {
       "localizations" : {
         "zh-Hans" : {
@@ -97,8 +99,6 @@
             "value" : "上下文 %1$lld%%"
           }
         }
-      }
-    },
       }
     },
     "Convert to Images" : {
