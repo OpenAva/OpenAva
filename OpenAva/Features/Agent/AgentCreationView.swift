@@ -153,8 +153,8 @@ struct AgentCreationView: View {
 
                 Section {
                     teamPresetGrid
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 } header: {
                     Text(L10n.tr("agent.creation.team.selection.header"))
                 } footer: {

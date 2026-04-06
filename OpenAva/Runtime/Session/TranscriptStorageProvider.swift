@@ -756,7 +756,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         if let stopReason = record.stopReason {
             metadata["finishReason"] = stopReason
         }
-        let message = ConversationMessage(
+        return ConversationMessage(
             id: record.uuid,
             sessionID: sessionID,
             role: MessageRole(rawValue: record.role),
@@ -764,7 +764,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             createdAt: createdAt,
             metadata: metadata
         )
-        return message
     }
 
     private func mapParts(from record: TranscriptMessageRecord) -> [ContentPart] {

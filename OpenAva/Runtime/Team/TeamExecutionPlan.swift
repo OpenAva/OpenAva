@@ -2,7 +2,10 @@ import Foundation
 
 struct TeamExecutionPlan: Codable, Equatable, Identifiable {
     struct Node: Codable, Equatable, Identifiable {
-        var id: UUID { agentID }
+        var id: UUID {
+            agentID
+        }
+
         let agentID: UUID
         let role: String?
 

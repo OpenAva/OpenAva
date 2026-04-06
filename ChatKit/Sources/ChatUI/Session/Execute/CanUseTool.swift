@@ -1,13 +1,13 @@
 import ChatClient
 import Foundation
 
-enum ToolPermissionBehavior: String, Sendable {
+enum ToolPermissionBehavior: String {
     case allow
     case deny
     case ask
 }
 
-struct ToolPermissionDecision: Equatable, Sendable {
+struct ToolPermissionDecision: Equatable {
     let behavior: ToolPermissionBehavior
     let message: String?
     let reason: String?

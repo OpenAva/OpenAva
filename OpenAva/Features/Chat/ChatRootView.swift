@@ -42,9 +42,9 @@ struct ChatRootView: View {
     var body: some View {
         NavigationStack(path: $destinationPath) {
             rootContent
-            .navigationDestination(for: MenuDestination.self) { destination in
-                destinationView(for: destination)
-            }
+                .navigationDestination(for: MenuDestination.self) { destination in
+                    destinationView(for: destination)
+                }
         }
         .fullScreenCover(isPresented: $showsAgentOnboarding) {
             AgentOnboardingView(onComplete: {
@@ -110,7 +110,6 @@ struct ChatRootView: View {
         }
     }
 
-    @ViewBuilder
     private var rootContent: some View {
         chatScreenView
     }

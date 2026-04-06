@@ -7,7 +7,9 @@ final class AgentCreationViewModel {
         case singleAgent
         case defaultTeam
 
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
 
         var title: String {
             switch self {

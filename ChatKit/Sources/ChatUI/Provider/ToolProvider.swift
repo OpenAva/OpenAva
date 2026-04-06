@@ -27,10 +27,21 @@ public protocol ToolExecutor: Sendable {
 }
 
 public extension ToolExecutor {
-    var isReadOnly: Bool { false }
-    var isDestructive: Bool { false }
-    var isConcurrencySafe: Bool { false }
-    var maxResultSizeChars: Int? { nil }
+    var isReadOnly: Bool {
+        false
+    }
+
+    var isDestructive: Bool {
+        false
+    }
+
+    var isConcurrencySafe: Bool {
+        false
+    }
+
+    var maxResultSizeChars: Int? {
+        nil
+    }
 }
 
 /// Result of a tool execution.
