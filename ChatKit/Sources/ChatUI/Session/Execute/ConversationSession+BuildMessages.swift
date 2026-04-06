@@ -25,6 +25,13 @@ extension ConversationSession {
         case .system:
             let content = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !content.isEmpty else { return [] }
+            if message.isCompactBoundary {
+                return []
+            }
+            if ConversationMarkers.isContextSummary(content) {
+                return [.user(content: .text(content))]
+            }
+            guard !ConversationMarkers.isToolUseSummary(content) else { return [] }
             if capabilities.contains(.developerRole) {
                 return [.developer(content: .text(content))]
             }

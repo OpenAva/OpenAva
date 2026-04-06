@@ -67,91 +67,52 @@ public extension ConversationSession {
         notifyMessagesDidChange()
     }
 
+    internal func requestUpdate(view: MessageListView, scrolling: Bool) async {
+        await view.stopLoading()
+        notifyMessagesDidChange(scrolling: scrolling)
+    }
+
     private func executeInference(
         model: ConversationSession.Model,
         messageListView: MessageListView,
         input: UserInput
     ) async {
-        let modelCapabilities = model.capabilities
-        let modelContextLength = model.contextLength
-
         // Prevent screen lock
         sessionDelegate?.preventIdleTimer()
-        persistMessages()
+        let queryEngine = QueryEngine(config: .init(
+            session: self,
+            model: model,
+            messageListView: messageListView
+        ))
 
-        // Build request messages from conversation history
-        var requestMessages = buildRequestMessages(capabilities: modelCapabilities)
-
-        // Add user message
-        _ = appendNewMessage(role: .user) { msg in
-            msg.textContent = input.text
-            for attachment in input.attachments {
-                msg.parts.append(attachment)
-            }
-        }
-        await requestUpdate(view: messageListView)
-        persistMessages()
-
-        // Add user content to request using the same builder as history reconstruction.
-        let latestUserMessage = buildUserRequestMessage(
-            text: input.text,
-            attachments: input.attachments,
-            capabilities: modelCapabilities
-        )
-        requestMessages.append(latestUserMessage)
-
-        // Inject system command
-        await injectSystemPrompt(&requestMessages, capabilities: modelCapabilities)
-
-        // Build tools list
-        var tools: [ChatRequestBody.Tool]? = nil
-        if modelCapabilities.contains(.tool), let toolProvider {
-            await toolProvider.prepareForConversation()
-            let toolDefs = await toolProvider.enabledTools()
-            if !toolDefs.isEmpty {
-                tools = toolDefs
-            }
-        }
-
-        // Compact context if auto-compact is enabled and threshold is exceeded
-        if model.autoCompactEnabled {
-            await compactIfNeeded(
-                requestMessages: &requestMessages,
-                tools: tools,
-                model: model,
-                capabilities: modelCapabilities
-            )
-        }
-
-        // Trim context
-        await messageListView.loading(with: String.localized("Calculating context window..."))
-        await trimToContextLength(
-            &requestMessages,
-            tools: tools,
-            maxTokens: modelContextLength
-        )
-
-        await messageListView.stopLoading()
-
-        // Execute inference loop
         do {
-            var shouldContinue = false
-            repeat {
-                try checkCancellation()
-                shouldContinue = try await executeInferenceStep(
-                    messageListView: messageListView,
-                    model: model,
-                    requestMessages: &requestMessages,
-                    tools: tools
-                )
-                persistMessages()
-            } while shouldContinue
+            var queryResult: QueryResult?
+            for try await event in queryEngine.submitMessage(input) {
+                switch event {
+                case let .loading(status):
+                    if let status,
+                       !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    {
+                        await messageListView.loading(with: status)
+                    } else {
+                        await messageListView.loading()
+                    }
+                case let .refresh(scrolling):
+                    await requestUpdate(view: messageListView, scrolling: scrolling)
+                case let .result(result):
+                    queryResult = result
+                }
+            }
 
             await requestUpdate(view: messageListView)
 
             await updateTitle()
             showsInterruptedRetryAction = false
-            sessionDelegate?.sessionExecutionDidFinish(for: id, success: true, errorDescription: nil)
+            sessionDelegate?.sessionExecutionDidFinish(
+                for: id,
+                success: queryResult?.finishReason != .error,
+                errorDescription: queryResult?.finishReason == .error ? String.localized("Query execution failed.") : nil
+            )
         } catch is CancellationError {
             // Surface a manual retry affordance instead of auto-resume.
             showsInterruptedRetryAction = true

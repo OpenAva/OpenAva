@@ -42,40 +42,63 @@ that will be available going forward.
 extension ConversationSession {
     /// Called from the execute flow. Compacts old messages when token usage exceeds the threshold.
     /// Rebuilds `requestMessages` and re-injects the system prompt after compaction.
+    @discardableResult
     func compactIfNeeded(
         requestMessages: inout [ChatRequestBody.Message],
         tools: [ChatRequestBody.Tool]?,
         model: ConversationSession.Model,
         capabilities: Set<ModelCapability>
-    ) async {
+    ) async -> Bool {
         let contextLength = model.contextLength
-        guard contextLength > 0 else { return }
+        guard contextLength > 0 else { return false }
 
         let estimated = await estimateTokenCount(messages: requestMessages, tools: tools)
         let threshold = Int(Double(contextLength) * compactThresholdRatio)
-        guard estimated >= threshold else { return }
+        guard estimated >= threshold else { return false }
 
         compactLogger.info("Token usage \(estimated)/\(contextLength) exceeds threshold \(threshold), starting compaction")
 
         do {
-            try await performCompaction(model: model)
+            try await performCompaction(
+                model: model,
+                trigger: "auto",
+                preTokens: estimated,
+                tools: tools
+            )
             // Rebuild request messages from the now-compacted history.
             requestMessages = buildRequestMessages(capabilities: capabilities)
             await injectSystemPrompt(&requestMessages, capabilities: capabilities)
             compactLogger.info("Compaction complete, rebuilt request messages")
+            return true
         } catch {
             compactLogger.error("Compaction failed: \(error.localizedDescription); falling back to trim")
+            return false
         }
     }
 
     /// Public API for manually triggering compaction (e.g. from a debug action or future UI button).
     public func compact(model: ConversationSession.Model) async throws {
-        try await performCompaction(model: model)
+        let requestMessages = buildRequestMessages(capabilities: model.capabilities)
+        var tools: [ChatRequestBody.Tool]?
+        if model.capabilities.contains(.tool), let toolProvider {
+            await toolProvider.prepareForConversation()
+            let enabledTools = await toolProvider.enabledTools()
+            if !enabledTools.isEmpty {
+                tools = enabledTools
+            }
+        }
+        let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
+        try await performCompaction(model: model, trigger: "manual", preTokens: preTokens, tools: tools)
     }
 
     // MARK: - Core
 
-    private func performCompaction(model: ConversationSession.Model) async throws {
+    private func performCompaction(
+        model: ConversationSession.Model,
+        trigger: String,
+        preTokens: Int,
+        tools: [ChatRequestBody.Tool]?
+    ) async throws {
         // Keep the most recent messages verbatim for continuity.
         let keepCount = min(compactKeepRecentMessageCount, messages.count)
         let keepIndex = messages.count - keepCount
@@ -116,28 +139,69 @@ extension ConversationSession {
             anchorDate = Date(timeIntervalSince1970: 0)
         }
 
-        // Persist the summary as a system message.
-        let summaryMessage = storageProvider.createMessage(in: id, role: .system)
-        summaryMessage.textContent = "[Context Summary]\n\n\(summaryText)"
-        summaryMessage.createdAt = anchorDate
-        summaryMessage.metadata["isCompactionSummary"] = "true"
-        storageProvider.save([summaryMessage])
+        let boundaryMessage = storageProvider.createMessage(in: id, role: .system)
+        boundaryMessage.textContent = "\(ConversationMarkers.compactBoundaryPrefix)\n\nConversation compacted."
+        boundaryMessage.createdAt = anchorDate
+        boundaryMessage.subtype = "compact_boundary"
 
-        // Delete compacted messages from storage.
-        let idsToDelete = messagesToCompact.map(\.id)
-        storageProvider.delete(idsToDelete)
+        let discoveredToolNames = compactDiscoveredToolNames(from: tools)
+
+        let summaryMessage = storageProvider.createMessage(in: id, role: .system)
+        summaryMessage.textContent = "\(ConversationMarkers.contextSummaryPrefix)\n\n\(summaryText)"
+        summaryMessage.createdAt = anchorDate.addingTimeInterval(0.001)
+        summaryMessage.metadata["isCompactionSummary"] = "true"
+
+        if let firstKept = keptMessages.first,
+           let lastKept = keptMessages.last
+        {
+            boundaryMessage.compactBoundaryMetadata = CompactBoundaryMetadata(
+                trigger: trigger,
+                preTokens: preTokens,
+                userContext: nil,
+                messagesSummarized: messagesToCompact.count,
+                preCompactDiscoveredTools: discoveredToolNames,
+                preservedSegment: .init(
+                    headUUID: firstKept.id,
+                    anchorUUID: summaryMessage.id,
+                    tailUUID: lastKept.id
+                )
+            )
+        } else {
+            boundaryMessage.compactBoundaryMetadata = CompactBoundaryMetadata(
+                trigger: trigger,
+                preTokens: preTokens,
+                userContext: nil,
+                messagesSummarized: messagesToCompact.count,
+                preCompactDiscoveredTools: discoveredToolNames
+            )
+        }
 
         // Update in-memory message array.
+        let idsToDelete = messagesToCompact.map(\.id)
         messages.removeAll { idsToDelete.contains($0.id) }
 
-        // Insert summary at the start of the array (before kept messages).
+        // Insert boundary + summary before kept messages to match post-compact ordering.
         if let insertIndex = messages.firstIndex(where: { keptMessages.first?.id == $0.id }) {
-            messages.insert(summaryMessage, at: insertIndex)
+            messages.insert(boundaryMessage, at: insertIndex)
+            messages.insert(summaryMessage, at: insertIndex + 1)
         } else {
-            messages.insert(summaryMessage, at: 0)
+            messages.insert(boundaryMessage, at: 0)
+            messages.insert(summaryMessage, at: 1)
         }
 
         notifyMessagesDidChange(scrolling: false)
+    }
+
+    private func compactDiscoveredToolNames(from tools: [ChatRequestBody.Tool]?) -> [String]? {
+        guard let tools else { return nil }
+        let names = tools.compactMap { tool -> String? in
+            switch tool {
+            case let .function(name, _, _, _):
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+        return names.isEmpty ? nil : names
     }
 }
 

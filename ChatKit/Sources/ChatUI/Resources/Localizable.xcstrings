@@ -337,7 +337,13 @@
         }
       }
     },
+    "Query execution failed." : {
+
+    },
     "Range" : {
+
+    },
+    "Reached maximum number of turns." : {
 
     },
     "Rollback" : {
@@ -548,6 +554,12 @@
           }
         }
       }
+    },
+    "Tool execution requires approval." : {
+
+    },
+    "Tool execution was denied." : {
+
     },
     "Transcript Stopped" : {
       "localizations" : {

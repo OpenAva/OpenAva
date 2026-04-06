@@ -80,13 +80,19 @@ extension ConversationSession {
             await partialResult + estimateTokens(for: message)
         }
 
-        let toolTokens: Int = if let tools, let data = try? JSONEncoder().encode(tools), let string = String(data: data, encoding: .utf8) {
-            await tokenEstimator.count(for: string)
-        } else {
-            0
-        }
+        let toolTokens = await estimateToolTokenCount(tools)
 
         return max(1, messageTokens + toolTokens)
+    }
+
+    func estimateToolTokenCount(_ tools: [ChatRequestBody.Tool]?) async -> Int {
+        if let tools,
+           let data = try? JSONEncoder().encode(tools),
+           let string = String(data: data, encoding: .utf8)
+        {
+            return await tokenEstimator.count(for: string)
+        }
+        return 0
     }
 
     func estimateTokens(for message: ChatRequestBody.Message) async -> Int {

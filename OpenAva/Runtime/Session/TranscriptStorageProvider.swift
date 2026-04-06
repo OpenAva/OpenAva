@@ -32,6 +32,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let toolUseID: String?
         let toolName: String?
         let stopReason: String?
+        let metadata: [String: String]?
     }
 
     private struct UsagePayload: Codable {
@@ -598,7 +599,13 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func previewText(from messages: [ConversationMessage]) -> String? {
         for message in messages.reversed() {
+            if message.isCompactBoundary {
+                continue
+            }
             let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            if ConversationMarkers.isToolUseSummary(trimmed) {
+                continue
+            }
             if !trimmed.isEmpty {
                 return String(trimmed.prefix(120))
             }
@@ -609,10 +616,11 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     private func summaryText(from message: ConversationMessage) -> String? {
         let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("[Context Summary]") {
-            return trimmed
-                .replacingOccurrences(of: "[Context Summary]", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        if message.isCompactBoundary {
+            return message.compactBoundaryMetadata?.messagesSummarized.map { "messages_summarized=\($0)" }
+        }
+        if ConversationMarkers.isContextSummary(trimmed) {
+            return ConversationMarkers.stripContextSummaryPrefix(from: trimmed)
         }
         return trimmed
     }
@@ -639,7 +647,8 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             content: storedBlocks,
             toolUseID: firstToolResult?.toolCallID,
             toolName: firstToolCall?.toolName,
-            stopReason: message.finishReason?.rawValue
+            stopReason: message.finishReason?.rawValue,
+            metadata: message.metadata.isEmpty ? nil : message.metadata
         )
     }
 
@@ -743,17 +752,18 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func makeConversationMessage(from record: TranscriptMessageRecord, sessionID: String) -> ConversationMessage {
         let createdAt = Self.iso8601Formatter.date(from: record.timestamp) ?? Date(timeIntervalSince1970: 0)
+        var metadata = record.metadata ?? [:]
+        if let stopReason = record.stopReason {
+            metadata["finishReason"] = stopReason
+        }
         let message = ConversationMessage(
             id: record.uuid,
             sessionID: sessionID,
             role: MessageRole(rawValue: record.role),
             parts: mapParts(from: record),
             createdAt: createdAt,
-            metadata: [:]
+            metadata: metadata
         )
-        if let stopReason = record.stopReason {
-            message.metadata["finishReason"] = stopReason
-        }
         return message
     }
 
