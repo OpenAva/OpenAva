@@ -132,7 +132,7 @@ final class ToolHintView: MessageListRowView {
                 UIColor.systemGreen.withAlphaComponent(0.08).cgColor,
                 UIColor.systemGreen.withAlphaComponent(0.12).cgColor,
             ]
-            let image = UIImage(systemName: "checkmark.seal", withConfiguration: configuration)
+            let image = UIImage(systemName: "checkmark.circle", withConfiguration: configuration)
             symbolView.image = image
             symbolView.tintColor = .systemGreen
             label.stopShimmer()
@@ -150,7 +150,7 @@ final class ToolHintView: MessageListRowView {
                 UIColor.systemRed.withAlphaComponent(0.08).cgColor,
                 UIColor.systemRed.withAlphaComponent(0.12).cgColor,
             ]
-            let image = UIImage(systemName: "xmark.seal", withConfiguration: configuration)
+            let image = UIImage(systemName: "xmark.circle", withConfiguration: configuration)
             symbolView.image = image
             symbolView.tintColor = .systemRed
             label.stopShimmer()
