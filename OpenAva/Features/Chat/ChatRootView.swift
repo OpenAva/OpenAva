@@ -36,6 +36,8 @@ struct ChatRootView: View {
         case context
         case cron
         case skills
+        case teams
+        case team(UUID)
         case remoteControl
     }
 
@@ -124,6 +126,7 @@ struct ChatRootView: View {
             currentSessionKey: currentSessionKey ?? resolvedDefaultSessionKey,
             defaultSessionKey: resolvedDefaultSessionKey,
             sessions: sessions,
+            teams: containerStore.teams,
             agents: containerStore.agents,
             activeAgentID: containerStore.activeAgent?.id,
             activeAgentName: currentActiveAgentName,
@@ -406,21 +409,25 @@ struct ChatRootView: View {
         }
 
         #if targetEnvironment(macCatalyst)
-            let section: SettingsWindowSection = switch action {
+            let payload: (section: SettingsWindowSection, teamID: UUID?) = switch action {
             case .openLLM:
-                .llm
+                (.llm, nil)
             case .openContext:
-                .context
+                (.context, nil)
             case .openCron:
-                .cron
+                (.cron, nil)
             case .openSkills:
-                .skills
+                (.skills, nil)
+            case .openTeams:
+                (.teams, nil)
+            case let .openTeam(teamID):
+                (.teams, teamID)
             case .openRemoteControl:
-                .remoteControl
+                (.remoteControl, nil)
             case .runHeartbeatNow:
-                .llm
+                (.llm, nil)
             }
-            windowCoordinator.openSettings(section)
+            windowCoordinator.openSettings(payload.section, teamID: payload.teamID)
             openWindow(id: AppWindowID.settings)
         #else
             switch action {
@@ -432,6 +439,10 @@ struct ChatRootView: View {
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
                 destinationPath.append(MenuDestination.skills)
+            case .openTeams:
+                destinationPath.append(MenuDestination.teams)
+            case let .openTeam(teamID):
+                destinationPath.append(MenuDestination.team(teamID))
             case .openRemoteControl:
                 destinationPath.append(MenuDestination.remoteControl)
             case .runHeartbeatNow:
@@ -472,6 +483,12 @@ struct ChatRootView: View {
             case .skills:
                 SkillListView()
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
+            case .teams:
+                TeamManagementView()
+                    .navigationTitle(L10n.tr("team.management.navigationTitle"))
+            case let .team(teamID):
+                TeamManagementView(initialTeamID: teamID)
+                    .navigationTitle(L10n.tr("team.management.navigationTitle"))
             case .remoteControl:
                 RemoteControlSettingsView()
                     .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
@@ -507,6 +524,7 @@ private struct ChatScreen: View {
     private let currentSessionKey: String
     private let defaultSessionKey: String
     private let sessions: [ChatSession]
+    private let teams: [TeamProfile]
     private let agents: [AgentProfile]
     private let activeAgentID: UUID?
     private let activeAgentName: String
@@ -530,6 +548,7 @@ private struct ChatScreen: View {
         currentSessionKey: String,
         defaultSessionKey: String,
         sessions: [ChatSession],
+        teams: [TeamProfile],
         agents: [AgentProfile],
         activeAgentID: UUID?,
         activeAgentName: String,
@@ -552,6 +571,7 @@ private struct ChatScreen: View {
         self.currentSessionKey = currentSessionKey
         self.defaultSessionKey = defaultSessionKey
         self.sessions = sessions
+        self.teams = teams
         self.agents = agents
         self.activeAgentID = activeAgentID
         self.activeAgentName = activeAgentName
@@ -583,6 +603,7 @@ private struct ChatScreen: View {
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
             sessions: sessions,
+            teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,

@@ -1,6 +1,6 @@
 import UIKit
 
-extension UIImage {
+public extension UIImage {
     static func chatInputIcon(named name: String) -> UIImage? {
         // Prefer packaged asset icons, then fallback to SF Symbols by name.
         if let assetImage = UIImage(named: name, in: .module, compatibleWith: nil) {

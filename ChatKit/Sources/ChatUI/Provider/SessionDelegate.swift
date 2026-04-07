@@ -65,7 +65,6 @@ public protocol SessionDelegate: AnyObject, Sendable {
     ///
     /// Returning nil falls back to the built-in behavior.
     func composeSystemPrompt() async -> String?
-
 }
 
 // MARK: - Default Implementations

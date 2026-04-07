@@ -11,9 +11,13 @@ final class AgentMemoryStoreTests: XCTestCase {
         let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
         let memoryDirectory = runtimeRoot.appendingPathComponent("memory", isDirectory: true)
 
-        XCTAssertEqual(try await store.promptContext(), "")
-        XCTAssertTrue(try await store.recall(query: "anything").isEmpty)
-        XCTAssertTrue(try await store.listEntries().isEmpty)
+        let promptContext = try await store.promptContext()
+        let recallHits = try await store.recall(query: "anything")
+        let entries = try await store.listEntries()
+
+        XCTAssertEqual(promptContext, "")
+        XCTAssertTrue(recallHits.isEmpty)
+        XCTAssertTrue(entries.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: memoryDirectory.path))
     }
 

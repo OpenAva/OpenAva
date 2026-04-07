@@ -1,14 +1,14 @@
 import Foundation
 
 actor AgentMemoryStore {
-    enum MemoryType: String, CaseIterable, Sendable {
+    enum MemoryType: String, CaseIterable {
         case user
         case feedback
         case project
         case reference
     }
 
-    struct Entry: Equatable, Sendable {
+    struct Entry: Equatable {
         let slug: String
         let name: String
         let type: MemoryType
@@ -18,7 +18,7 @@ actor AgentMemoryStore {
         let modifiedAt: Date
     }
 
-    struct RecallHit: Equatable, Sendable {
+    struct RecallHit: Equatable {
         let entry: Entry
         let score: Int
     }
@@ -164,6 +164,7 @@ actor AgentMemoryStore {
             modifiedAt: modifiedAt
         )
     }
+
     private static func splitFrontmatter(in raw: String) -> (header: String, body: String) {
         guard raw.hasPrefix("---\n") else {
             return (header: "", body: raw)

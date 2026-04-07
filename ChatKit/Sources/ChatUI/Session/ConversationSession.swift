@@ -13,7 +13,6 @@ import Foundation
 /// Coordinates the message state and inference execution for a conversation.
 @MainActor
 public final class ConversationSession: Identifiable, Sendable {
-
     public struct Model: Sendable {
         public var client: any ChatClient
         public var capabilities: Set<ModelCapability>

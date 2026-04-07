@@ -501,16 +501,6 @@ open class ChatViewController: UIViewController {
         let resolvedTitle = resolveTitle(from: storedTitleMetadata)
 
         resolvedTitleMetadata = .init(title: resolvedTitle, avatar: storedTitleMetadata?.avatar ?? ConversationTitleMetadata.defaultAvatar)
-        // Keep hamburger menu icon instead of emoji avatar
-        let hamburgerImage = UIImage(systemName: "line.3.horizontal")
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        #if targetEnvironment(macCatalyst)
-            applyCatalystMenuButtonStyle(avatarButton, image: hamburgerImage, symbolConfiguration: symbolConfig)
-        #else
-            avatarButton.setImage(hamburgerImage, for: .normal)
-            avatarButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
-        #endif
-        avatarButton.tintColor = UIColor.secondaryLabel.withAlphaComponent(0.5)
         if prefersNavigationBarManaged {
             navigationItem.title = headerState.agentName
         }

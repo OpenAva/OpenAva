@@ -21,15 +21,24 @@ private final class ContextUsagePanelOverlayController: UIViewController {
             providerName: providerName,
             onClose: { [weak self] in
                 self?.dismiss(animated: true)
-            }
+            },
+            onManualCompact: onManualCompact
         )
     )
+    private let onManualCompact: () -> Void
 
-    init(snapshot: ContextUsageSnapshot, modelName: String, providerName: String?, anchorView: UIView) {
+    init(
+        snapshot: ContextUsageSnapshot,
+        modelName: String,
+        providerName: String?,
+        anchorView: UIView,
+        onManualCompact: @escaping () -> Void
+    ) {
         self.snapshot = snapshot
         self.modelName = modelName
         self.providerName = providerName
         self.anchorView = anchorView
+        self.onManualCompact = onManualCompact
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overCurrentContext
         modalTransitionStyle = .crossDissolve
@@ -204,6 +213,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case openContext
         case openCron
         case openSkills
+        case openTeams
+        case openTeam(UUID)
         case openRemoteControl
         case runHeartbeatNow
     }
@@ -215,6 +226,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let toolProvider: ToolProvider?
     let systemPrompt: String?
     let sessions: [ChatSession]
+    let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeAgentID: UUID?
     let activeAgentName: String
@@ -241,6 +253,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         Coordinator(
             onMenuAction: onMenuAction,
             sessions: sessions,
+            teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,
@@ -358,9 +371,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
             .command(id: "new-conversation", title: L10n.tr("chat.command.newConversation"), icon: "plus", command: "/new"),
-            .command(id: "manual-compact", title: L10n.tr("chat.command.compact"), icon: "rectangle.compress.vertical", command: QuickCommand.compact),
             .command(id: "context-usage", title: L10n.tr("chat.contextUsage.badgePlaceholder"), icon: "gauge", command: QuickCommand.context),
-            .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "bolt.heart", command: "/heartbeat"),
+            .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "heartbeat", command: "/heartbeat"),
         ]
 
         let frequentSkills = buildFrequentSkillItems()
@@ -401,6 +413,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
         context.coordinator.sessions = sessions
+        context.coordinator.teams = teams
         context.coordinator.agents = agents
         context.coordinator.activeAgentID = activeAgentID
         context.coordinator.activeAgentName = activeAgentName
@@ -454,6 +467,7 @@ extension ChatViewControllerWrapper {
         var processedAutoSendID: String?
         var onMenuAction: ((MenuAction) -> Void)?
         var sessions: [ChatSession]
+        var teams: [TeamProfile]
         var agents: [AgentProfile]
         var activeAgentID: UUID?
         var activeAgentName: String
@@ -473,6 +487,7 @@ extension ChatViewControllerWrapper {
         init(
             onMenuAction: ((MenuAction) -> Void)?,
             sessions: [ChatSession],
+            teams: [TeamProfile],
             agents: [AgentProfile],
             activeAgentID: UUID?,
             activeAgentName: String,
@@ -491,6 +506,7 @@ extension ChatViewControllerWrapper {
         ) {
             self.onMenuAction = onMenuAction
             self.sessions = sessions
+            self.teams = teams
             self.agents = agents
             self.activeAgentID = activeAgentID
             self.activeAgentName = activeAgentName
@@ -664,6 +680,25 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerLeadingButton(_: ChatViewController, button: UIButton) {
+            let image = standardizedMenuIcon(
+                UIImage.chatInputIcon(named: "users"),
+                canvasSize: CGSize(width: 20, height: 20),
+                targetSize: CGSize(width: 17, height: 17)
+            )
+            if #available(iOS 15.0, *) {
+                var configuration = button.configuration ?? .plain()
+                configuration.image = image
+                configuration.contentInsets = NSDirectionalEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+                configuration.imagePadding = 0
+                button.configuration = configuration
+            } else {
+                button.setImage(image, for: .normal)
+                button.imageEdgeInsets = UIEdgeInsets(top: 1, left: 1, bottom: 1, right: 1)
+            }
+            button.tintColor = UIColor.label.withAlphaComponent(0.9)
+            button.imageView?.contentMode = .scaleAspectFit
+            button.contentHorizontalAlignment = .center
+            button.contentVerticalAlignment = .center
             button.showsMenuAsPrimaryAction = true
             button.menu = buildAgentMenu()
         }
@@ -736,7 +771,23 @@ extension ChatViewControllerWrapper {
                 snapshot: snapshot,
                 modelName: model,
                 providerName: provider.isEmpty ? nil : provider,
-                anchorView: anchorView
+                anchorView: anchorView,
+                onManualCompact: { [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    Task { @MainActor in
+                        (controller.presentedViewController as? ContextUsagePanelOverlayController)?
+                            .dismiss(animated: true)
+                        do {
+                            try await controller.performManualCompact()
+                            await self.presentContextUsagePanel(from: controller)
+                        } catch {
+                            self.presentCommandErrorAlert(
+                                from: controller,
+                                message: error.localizedDescription
+                            )
+                        }
+                    }
+                }
             )
             controller.present(overlayController, animated: true)
         }
@@ -749,32 +800,151 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
-            let agentActions: [UIAction]
-            if agents.isEmpty {
-                agentActions = [
-                    UIAction(title: L10n.tr("chat.menu.noAgentsAvailable"), attributes: [.disabled]) { _ in },
-                ]
+            let groupedAgentIDs = Set(teams.flatMap(\.agentPoolIDs))
+            let teamMenus = teams
+                .sorted(by: compareTeams)
+                .map(buildTeamSubmenu)
+
+            let ungroupedAgents = agents.filter { !groupedAgentIDs.contains($0.id) }
+            let ungroupedMenu: UIMenu? = if ungroupedAgents.isEmpty {
+                nil
             } else {
-                agentActions = agents.map { agent in
-                    let title = agent.name
-                    let image = self.makeAgentMenuImage(for: agent)
-                    let state: UIMenuElement.State = (agent.id == self.activeAgentID) ? .on : .off
-                    return UIAction(title: title, image: image, state: state) { [weak self] _ in
-                        self?.onAgentSwitch?(agent.id)
-                    }
-                }
+                UIMenu(
+                    title: L10n.tr("chat.menu.ungroupedAgents"),
+                    image: UIImage(systemName: activeAgentIsUngrouped ? "person.crop.circle.badge.questionmark.fill" : "person.crop.circle.badge.questionmark"),
+                    children: ungroupedAgents.map(makeAgentAction)
+                )
             }
 
-            // Keep creation entries in a separate inline section so they stay at the bottom.
+            let fallbackMenu: UIMenu? = if teamMenus.isEmpty, ungroupedMenu == nil {
+                UIMenu(
+                    title: "",
+                    options: .displayInline,
+                    children: [UIAction(title: L10n.tr("chat.menu.noAgentsAvailable"), attributes: [.disabled]) { _ in }]
+                )
+            } else {
+                nil
+            }
+
             let createLocalAction = UIAction(
                 title: L10n.tr("chat.menu.newLocalAgent"),
-                image: UIImage(systemName: "plus")
+                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.plus"))
             ) { [weak self] _ in
                 self?.onCreateLocalAgent?()
             }
-            let agentSection = UIMenu(title: "", options: .displayInline, children: agentActions)
-            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction])
-            return UIMenu(title: "", children: [agentSection, entrySection])
+            let manageTeamsAction = UIAction(
+                title: L10n.tr("chat.menu.manageTeams"),
+                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.cog"))
+            ) { [weak self] _ in
+                self?.onMenuAction?(.openTeams)
+            }
+
+            let contentChildren = teamMenus + [ungroupedMenu, fallbackMenu].compactMap { $0 }
+            let contentSection = UIMenu(title: "", options: .displayInline, children: contentChildren)
+            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction, manageTeamsAction])
+            return UIMenu(title: "", children: [contentSection, entrySection])
+        }
+
+        private func buildTeamSubmenu(for team: TeamProfile) -> UIMenu {
+            let memberActions = team.agentPoolIDs.compactMap { agentID in
+                agents.first(where: { $0.id == agentID }).map { makeAgentAction(for: $0, team: team) }
+            }
+
+            let memberSection = UIMenu(
+                title: "",
+                options: .displayInline,
+                children: memberActions.isEmpty
+                    ? [UIAction(title: L10n.tr("chat.menu.noAgentsAvailable"), attributes: [.disabled]) { _ in }]
+                    : memberActions
+            )
+
+            let manageSection = UIMenu(
+                title: "",
+                options: .displayInline,
+                children: [manageTeamAction(for: team)]
+            )
+
+            return UIMenu(
+                title: teamMenuTitle(for: team),
+                image: teamMenuImage(for: team),
+                children: [memberSection, manageSection]
+            )
+        }
+
+        private func makeAgentAction(for agent: AgentProfile) -> UIAction {
+            makeAgentAction(for: agent, team: nil)
+        }
+
+        private func makeAgentAction(for agent: AgentProfile, team: TeamProfile?) -> UIAction {
+            let title = agent.name
+            let image = makeAgentMenuImage(for: agent)
+            let state: UIMenuElement.State = (agent.id == activeAgentID) ? .on : .off
+            let attributes: UIMenuElement.Attributes = isLead(agent: agent, in: team) ? [.keepsMenuPresented] : []
+            return UIAction(title: title, image: image, identifier: nil, discoverabilityTitle: nil, attributes: attributes, state: state) { [weak self] _ in
+                self?.onAgentSwitch?(agent.id)
+            }
+        }
+
+        private func teamMenuTitle(for team: TeamProfile) -> String {
+            return team.name
+        }
+
+        private func teamMenuImage(for team: TeamProfile) -> UIImage? {
+            makeEmojiMenuImage(from: team.emoji, showsRunningIndicator: false)
+        }
+
+        private func compareTeams(lhs: TeamProfile, rhs: TeamProfile) -> Bool {
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+
+        private var activeAgentIsUngrouped: Bool {
+            guard let activeAgentID else { return false }
+            return !teams.contains { $0.agentPoolIDs.contains(activeAgentID) }
+        }
+
+        private func manageTeamAction(for team: TeamProfile) -> UIAction {
+            let title = String(format: L10n.tr("chat.menu.team.manage"), team.name)
+            return UIAction(title: title, image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.cog"))) { [weak self] _ in
+                self?.onMenuAction?(.openTeam(team.id))
+            }
+        }
+
+        private func standardizedMenuIcon(
+            _ image: UIImage?,
+            canvasSize: CGSize = CGSize(width: 20, height: 20),
+            targetSize: CGSize = CGSize(width: 15, height: 15)
+        ) -> UIImage? {
+            guard let image else { return nil }
+            let renderer = UIGraphicsImageRenderer(size: canvasSize)
+            let rendered = renderer.image { _ in
+                let drawRect = aspectFitRect(contentSize: image.size, in: CGRect(origin: .zero, size: targetSize))
+                    .offsetBy(
+                        dx: (canvasSize.width - targetSize.width) / 2,
+                        dy: (canvasSize.height - targetSize.height) / 2
+                    )
+                image.draw(in: drawRect)
+            }
+            return rendered.withRenderingMode(image.renderingMode)
+        }
+
+        private func aspectFitRect(contentSize: CGSize, in bounds: CGRect) -> CGRect {
+            guard contentSize.width > 0, contentSize.height > 0 else { return bounds }
+            let scale = min(bounds.width / contentSize.width, bounds.height / contentSize.height)
+            let fittedSize = CGSize(width: contentSize.width * scale, height: contentSize.height * scale)
+            return CGRect(
+                x: bounds.minX + (bounds.width - fittedSize.width) / 2,
+                y: bounds.minY + (bounds.height - fittedSize.height) / 2,
+                width: fittedSize.width,
+                height: fittedSize.height
+            )
+        }
+
+        private func isLead(agent: AgentProfile, in team: TeamProfile?) -> Bool {
+            guard let team else { return false }
+            return team.leadAgentID == agent.id
         }
 
         private func makeAgentMenuImage(for agent: AgentProfile) -> UIImage? {
@@ -789,7 +959,7 @@ extension ChatViewControllerWrapper {
                 return nil
             }
 
-            let size = CGSize(width: 20, height: 20)
+            let size = CGSize(width: 17, height: 17)
             let renderer = UIGraphicsImageRenderer(size: size)
             let image = renderer.image { context in
                 if !trimmed.isEmpty {
@@ -797,7 +967,7 @@ extension ChatViewControllerWrapper {
                     paragraph.alignment = .center
 
                     let attributes: [NSAttributedString.Key: Any] = [
-                        .font: UIFont.systemFont(ofSize: 16),
+                        .font: UIFont.systemFont(ofSize: 14),
                         .paragraphStyle: paragraph,
                     ]
 
@@ -814,7 +984,7 @@ extension ChatViewControllerWrapper {
 
                 if showsRunningIndicator {
                     // Draw a small green dot to indicate there is an in-flight task.
-                    let dotDiameter: CGFloat = 7
+                    let dotDiameter: CGFloat = 5.5
                     let dotRect = CGRect(
                         x: size.width - dotDiameter - 1,
                         y: size.height - dotDiameter - 1,

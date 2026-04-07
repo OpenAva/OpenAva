@@ -200,7 +200,7 @@ actor AgentDurableMemoryExtractor {
         }
 
         guard let fallbackTailID = latestCompactionTailID(in: messages),
-            let fallbackIndex = messages.firstIndex(where: { $0.id == fallbackTailID })
+              let fallbackIndex = messages.firstIndex(where: { $0.id == fallbackTailID })
         else {
             return messages
         }
@@ -227,7 +227,7 @@ actor AgentDurableMemoryExtractor {
     }
 
     private func containsManualMemoryMutation(in messages: [ConversationMessage]) -> Bool {
-        let memoryToolNames: Set<String> = [
+        let memoryToolNames: Set = [
             "memory_upsert",
             "memory_forget",
         ]

@@ -7,6 +7,7 @@ struct ChatContextUsagePanelView: View {
     let modelName: String
     let providerName: String?
     let onClose: () -> Void
+    let onManualCompact: () -> Void
 
     var body: some View {
         ZStack {
@@ -48,18 +49,34 @@ struct ChatContextUsagePanelView: View {
 
             Spacer(minLength: 8)
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 28, height: 28)
-                    .background(pillBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(pillBorder, lineWidth: 1)
-                    )
+            HStack(spacing: 8) {
+                Button(action: onManualCompact) {
+                    Label(L10n.tr("chat.contextUsage.manualCompact"), systemImage: "rectangle.compress.vertical")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(pillBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(pillBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 28, height: 28)
+                        .background(pillBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(pillBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -101,7 +118,7 @@ struct ChatContextUsagePanelView: View {
                         MetaPill(icon: "cpu", text: formattedModelName)
                         MetaPill(
                             icon: snapshot.autoCompactEnabled ? "rectangle.compress.vertical" : "rectangle.compress.vertical.badge.minus",
-                            text: snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled")
+                            text: "\(L10n.tr("chat.contextUsage.autoCompact")) · \(snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))"
                         )
                     }
 
@@ -109,7 +126,7 @@ struct ChatContextUsagePanelView: View {
                         MetaPill(icon: "cpu", text: formattedModelName)
                         MetaPill(
                             icon: snapshot.autoCompactEnabled ? "rectangle.compress.vertical" : "rectangle.compress.vertical.badge.minus",
-                            text: snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled")
+                            text: "\(L10n.tr("chat.contextUsage.autoCompact")) · \(snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))"
                         )
                     }
                 }
@@ -133,8 +150,6 @@ struct ChatContextUsagePanelView: View {
                 PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextLength))")
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.remaining"), value: "\(format(snapshot.remainingTokens)) (\(snapshot.remainingPercentage)%)")
-                PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.autoCompact"), value: snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.threshold"), value: "\(format(snapshot.autoCompactThresholdTokens)) (80%)")
                 PanelDivider()

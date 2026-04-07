@@ -1,7 +1,7 @@
 import Foundation
 
 struct AgentTranscriptSearchService {
-    struct SearchHit: Equatable, Sendable {
+    struct SearchHit: Equatable {
         let sessionID: String
         let entryType: String
         let lineNumber: Int
