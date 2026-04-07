@@ -441,6 +441,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onRenameCurrentAgent = onRenameCurrentAgent
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
+        context.coordinator.refreshLeadingMenu()
         uiViewController.updateAutoCompactEnabled(autoCompactEnabled)
 
         #if targetEnvironment(macCatalyst)
@@ -483,6 +484,8 @@ extension ChatViewControllerWrapper {
         var onRenameCurrentAgent: ((String) -> Bool)?
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
+        weak var leadingMenuButton: UIButton?
+        private var swarmObserver: NSObjectProtocol?
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
@@ -522,6 +525,24 @@ extension ChatViewControllerWrapper {
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
             self.onRenameCurrentAgent = onRenameCurrentAgent
             self.onToggleAutoCompact = onToggleAutoCompact
+            super.init()
+            swarmObserver = NotificationCenter.default.addObserver(
+                forName: .openAvaTeamSwarmDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refreshLeadingMenu()
+            }
+        }
+
+        deinit {
+            if let swarmObserver {
+                NotificationCenter.default.removeObserver(swarmObserver)
+            }
+        }
+
+        func refreshLeadingMenu() {
+            leadingMenuButton?.menu = buildAgentMenu()
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
@@ -700,6 +721,7 @@ extension ChatViewControllerWrapper {
             button.contentHorizontalAlignment = .center
             button.contentVerticalAlignment = .center
             button.showsMenuAsPrimaryAction = true
+            leadingMenuButton = button
             button.menu = buildAgentMenu()
         }
 
@@ -846,8 +868,10 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildTeamSubmenu(for team: TeamProfile) -> UIMenu {
+            let snapshot = TeamSwarmCoordinator.shared.menuSnapshot(teamName: team.name)
+
             let memberActions = team.agentPoolIDs.compactMap { agentID in
-                agents.first(where: { $0.id == agentID }).map { makeAgentAction(for: $0, team: team) }
+                agents.first(where: { $0.id == agentID }).map { makeAgentAction(for: $0, team: team, snapshot: snapshot) }
             }
 
             let memberSection = UIMenu(
@@ -858,26 +882,43 @@ extension ChatViewControllerWrapper {
                     : memberActions
             )
 
-            let manageSection = UIMenu(
-                title: "",
-                options: .displayInline,
-                children: [manageTeamAction(for: team)]
-            )
+            var bottomChildren: [UIMenuElement] = []
+            if let snapshot, snapshot.activeTaskCount > 0 {
+                let taskLabel = UIAction(
+                    title: String(format: L10n.tr("chat.menu.team.activeTasks"), snapshot.activeTaskCount),
+                    image: UIImage(systemName: "checklist"),
+                    attributes: [.disabled]
+                ) { _ in }
+                bottomChildren.append(UIMenu(title: "", options: .displayInline, children: [taskLabel]))
+            }
+            bottomChildren.append(UIMenu(title: "", options: .displayInline, children: [manageTeamAction(for: team)]))
 
             return UIMenu(
-                title: teamMenuTitle(for: team),
-                image: teamMenuImage(for: team),
-                children: [memberSection, manageSection]
+                title: teamMenuTitle(for: team, snapshot: snapshot),
+                image: teamMenuImage(for: team, snapshot: snapshot),
+                children: [memberSection] + bottomChildren
             )
         }
 
         private func makeAgentAction(for agent: AgentProfile) -> UIAction {
-            makeAgentAction(for: agent, team: nil)
+            makeAgentAction(for: agent, team: nil, snapshot: nil)
         }
 
-        private func makeAgentAction(for agent: AgentProfile, team: TeamProfile?) -> UIAction {
-            let title = agent.name
-            let image = makeAgentMenuImage(for: agent)
+        private func makeAgentAction(for agent: AgentProfile, team: TeamProfile?, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIAction {
+            var title = agent.name
+            if let snapshot, let memberStatus = snapshot.memberStatuses[agent.id.uuidString] {
+                let badge = statusBadge(for: memberStatus)
+                if !badge.isEmpty {
+                    if let summary = snapshot.memberSummaries[agent.id.uuidString] {
+                        let truncated = summary.count > 40 ? String(summary.prefix(40)) + "…" : summary
+                        title = "\(title) · \(truncated) \(badge)"
+                    } else {
+                        title = "\(title) \(badge)"
+                    }
+                }
+            }
+            let showsSwarmIndicator = snapshot?.memberStatuses[agent.id.uuidString] == .busy
+            let image = makeAgentMenuImage(for: agent, showsSwarmBusy: showsSwarmIndicator)
             let state: UIMenuElement.State = (agent.id == activeAgentID) ? .on : .off
             let attributes: UIMenuElement.Attributes = isLead(agent: agent, in: team) ? [.keepsMenuPresented] : []
             return UIAction(title: title, image: image, identifier: nil, discoverabilityTitle: nil, attributes: attributes, state: state) { [weak self] _ in
@@ -885,12 +926,34 @@ extension ChatViewControllerWrapper {
             }
         }
 
-        private func teamMenuTitle(for team: TeamProfile) -> String {
-            return team.name
+        private func statusBadge(for status: TeamSwarmCoordinator.MemberStatus) -> String {
+            switch status {
+            case .busy: return "🟢"
+            case .awaitingPlanApproval: return "🟡"
+            case .failed: return "🔴"
+            case .idle, .stopped: return ""
+            }
         }
 
-        private func teamMenuImage(for team: TeamProfile) -> UIImage? {
-            makeEmojiMenuImage(from: team.emoji, showsRunningIndicator: false)
+        private func teamMenuTitle(for team: TeamProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> String {
+            guard let snapshot else { return team.name }
+            var parts: [String] = []
+            if snapshot.busyCount > 0 {
+                parts.append(String(format: L10n.tr("chat.menu.team.busyCount"), snapshot.busyCount))
+            }
+            if snapshot.pendingApprovalCount > 0 {
+                parts.append(String(format: L10n.tr("chat.menu.team.pendingCount"), snapshot.pendingApprovalCount))
+            }
+            if snapshot.failedCount > 0 {
+                parts.append(String(format: L10n.tr("chat.menu.team.failedCount"), snapshot.failedCount))
+            }
+            if parts.isEmpty { return team.name }
+            return "\(team.name) · \(parts.joined(separator: " · "))"
+        }
+
+        private func teamMenuImage(for team: TeamProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIImage? {
+            let hasBusy = (snapshot?.busyCount ?? 0) > 0
+            return makeEmojiMenuImage(from: team.emoji, showsRunningIndicator: hasBusy)
         }
 
         private func compareTeams(lhs: TeamProfile, rhs: TeamProfile) -> Bool {
@@ -947,9 +1010,9 @@ extension ChatViewControllerWrapper {
             return team.leadAgentID == agent.id
         }
 
-        private func makeAgentMenuImage(for agent: AgentProfile) -> UIImage? {
+        private func makeAgentMenuImage(for agent: AgentProfile, showsSwarmBusy: Bool = false) -> UIImage? {
             let prefix = "agent:\(agent.id.uuidString)::"
-            let isRunning = ConversationSessionManager.shared.hasExecutingSession(withPrefix: prefix)
+            let isRunning = showsSwarmBusy || ConversationSessionManager.shared.hasExecutingSession(withPrefix: prefix)
             return makeEmojiMenuImage(from: agent.emoji, showsRunningIndicator: isRunning)
         }
 

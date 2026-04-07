@@ -137,6 +137,36 @@ final class TeamSwarmCoordinator {
         notifyChanged()
     }
 
+    struct TeamMenuSnapshot {
+        let busyCount: Int
+        let pendingApprovalCount: Int
+        let failedCount: Int
+        let activeTaskCount: Int
+        let memberStatuses: [String: MemberStatus]
+        let memberSummaries: [String: String]
+    }
+
+    func menuSnapshot(teamName: String) -> TeamMenuSnapshot? {
+        guard let team = teamsByName[teamName] else { return nil }
+        let pending = pendingPermissions(for: teamName)
+        var statuses: [String: MemberStatus] = [:]
+        var summaries: [String: String] = [:]
+        for member in team.members {
+            statuses[member.id] = member.status
+            if let summary = member.lastIdleSummary ?? member.lastError ?? member.lastMailboxPreview {
+                summaries[member.id] = summary
+            }
+        }
+        return TeamMenuSnapshot(
+            busyCount: team.members.filter { $0.status == .busy }.count,
+            pendingApprovalCount: pending.count,
+            failedCount: team.members.filter { $0.status == .failed }.count,
+            activeTaskCount: team.tasks.filter { $0.status == .inProgress || $0.status == .pending }.count,
+            memberStatuses: statuses,
+            memberSummaries: summaries
+        )
+    }
+
     func isTeammateSession(_ sessionID: String) -> Bool {
         sessionID.hasPrefix("team:")
     }

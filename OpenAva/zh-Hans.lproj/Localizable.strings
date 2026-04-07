@@ -274,6 +274,10 @@
 "chat.menu.team.approve" = "批准 %@";
 "chat.menu.team.stop" = "停止 %@";
 "chat.menu.team.profile" = "%1$@ · %2$lld 个 Agent · %3$@";
+"chat.menu.team.busyCount" = "%lld 个执行中";
+"chat.menu.team.pendingCount" = "%lld 个待批";
+"chat.menu.team.failedCount" = "%lld 个失败";
+"chat.menu.team.activeTasks" = "%lld 个活跃任务";
 "window.settings.title" = "设置";
 "window.agentCreation.title" = "新建 Agent";
 "chat.tool.error.invalidToolType" = "工具类型无效，无法执行";
@@ -469,3 +473,6 @@
 "intent.runSkill.meta.title" = "调用 OpenAva Skill";
 "intent.runSkill.meta.description" = "通过 Siri、快捷指令或小组件触发 OpenAva Skill。";
 "intent.runSkill.meta.shortTitle" = "运行 Skill";
+"settings.context.emptyPlaceholder" = "暂无内容，点击输入或应用模板。";
+"settings.context.reset.confirmTitle" = "确定重置？";
+"settings.context.reset.message" = "这会清空 %@ 的内容，且无法撤销。";

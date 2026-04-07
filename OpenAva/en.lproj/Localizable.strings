@@ -274,6 +274,10 @@
 "chat.menu.team.approve" = "Approve %@";
 "chat.menu.team.stop" = "Stop %@";
 "chat.menu.team.profile" = "%1$@ · %2$lld agents · %3$@";
+"chat.menu.team.busyCount" = "%lld busy";
+"chat.menu.team.pendingCount" = "%lld pending";
+"chat.menu.team.failedCount" = "%lld failed";
+"chat.menu.team.activeTasks" = "%lld active tasks";
 "window.settings.title" = "Settings";
 "window.agentCreation.title" = "New Agent";
 "chat.tool.error.invalidToolType" = "Invalid tool type for execution";
@@ -469,3 +473,6 @@
 "intent.runSkill.meta.title" = "Run OpenAva Skill";
 "intent.runSkill.meta.description" = "Trigger OpenAva skill via Siri, Shortcuts, or widgets.";
 "intent.runSkill.meta.shortTitle" = "Run Skill";
+"settings.context.emptyPlaceholder" = "No content. Tap to edit or apply a template.";
+"settings.context.reset.confirmTitle" = "Confirm Reset?";
+"settings.context.reset.message" = "This will clear the content of %@. This action cannot be undone.";
