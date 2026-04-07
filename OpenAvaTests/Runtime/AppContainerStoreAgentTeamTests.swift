@@ -71,4 +71,23 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
             _ = AgentStore.deleteAgent(profile.id, defaults: defaults, fileManager: fileManager)
         }
     }
+
+    func testCreateTeamAndAddAgentToExistingTeam() throws {
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileManager = FileManager.default
+        let containerStore = AppContainerStore(container: .makeDefault(), defaults: defaults, fileManager: fileManager)
+
+        let team = try XCTUnwrap(containerStore.createTeam(name: "Core Team", emoji: "🧭", description: "Main coordination team"))
+        XCTAssertEqual(containerStore.teams.map(\.name), ["Core Team"])
+        XCTAssertEqual(containerStore.teams.map(\.emoji), ["🧭"])
+        XCTAssertTrue(team.agentPoolIDs.isEmpty)
+
+        let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
+        let updatedTeam = try XCTUnwrap(containerStore.addAgents([agent.id], toTeam: team.id))
+        XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
+        XCTAssertEqual(updatedTeam.leadAgentID, agent.id)
+    }
 }

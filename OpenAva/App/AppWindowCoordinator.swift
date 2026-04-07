@@ -11,6 +11,7 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
     case skills
     case context
     case cron
+    case teams
     case remoteControl
 
     var id: String {
@@ -27,6 +28,8 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
             L10n.tr("settings.context.navigationTitle")
         case .cron:
             L10n.tr("settings.cron.navigationTitle")
+        case .teams:
+            L10n.tr("team.management.navigationTitle")
         case .remoteControl:
             L10n.tr("settings.remoteControl.navigationTitle")
         }
@@ -37,9 +40,11 @@ final class AppWindowCoordinator: ObservableObject {
     @Published private(set) var settingsSelection: SettingsWindowSection = .llm
     @Published private(set) var settingsRequestID: Int = 0
     @Published private(set) var agentCreationRequestID: Int = 0
+    @Published private(set) var selectedTeamID: UUID?
 
-    func openSettings(_ section: SettingsWindowSection) {
+    func openSettings(_ section: SettingsWindowSection, teamID: UUID? = nil) {
         settingsSelection = section
+        selectedTeamID = teamID
         settingsRequestID &+= 1
     }
 
@@ -78,6 +83,8 @@ struct SettingsWindowRootView: View {
             ContextSettingsView()
         case .cron:
             CronListView()
+        case .teams:
+            TeamManagementView()
         case .remoteControl:
             RemoteControlSettingsView()
         }

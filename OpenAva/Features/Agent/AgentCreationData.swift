@@ -10,6 +10,17 @@ struct AgentCreationData {
     /// Context about the user.
     var userContext: String = ""
 
+    // MARK: - TEAM fields
+
+    /// Team name.
+    var teamName: String = ""
+
+    /// Team emoji signature.
+    var teamEmoji: String = "👥"
+
+    /// Team description.
+    var teamDescription: String = ""
+
     // MARK: - IDENTITY.md fields
 
     /// Agent name.

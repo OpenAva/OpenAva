@@ -66,21 +66,28 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertTrue(TeamPermissionSync.readPending(teamDirectoryURL: teamDirectoryURL).isEmpty)
     }
 
-    func testTeamStoreCreatesProfileAndRemovesDeletedAgentReferences() {
+    func testTeamStoreSupportsEmptyTeamsAndDynamicMembership() throws {
         let firstAgentID = UUID()
         let secondAgentID = UUID()
 
         let created = TeamStore.createTeam(
             name: "Default Team",
-            agentPoolIDs: [firstAgentID, secondAgentID, firstAgentID],
-            leadAgentID: firstAgentID,
+            emoji: "🛰️",
             defaults: .standard
         )
 
         XCTAssertNotNil(created)
-        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
+        XCTAssertEqual(created?.emoji, "🛰️")
+        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [])
 
-        TeamStore.removeAgentReferences(firstAgentID, defaults: .standard)
+        _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id), defaults: .standard)
+        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
+        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.leadAgentID, firstAgentID)
+
+        _ = try TeamStore.setLeadAgent(secondAgentID, for: XCTUnwrap(created?.id), defaults: .standard)
+        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.leadAgentID, secondAgentID)
+
+        _ = try TeamStore.removeAgent(firstAgentID, from: XCTUnwrap(created?.id), defaults: .standard)
 
         let remaining = TeamStore.load(defaults: .standard).teams.first
         XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])

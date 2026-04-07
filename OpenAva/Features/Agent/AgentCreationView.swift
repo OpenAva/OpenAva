@@ -1,211 +1,150 @@
 import SwiftUI
 
+// MARK: - Reusable Input Components
+
+private struct StyledFieldModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Color(uiColor: .systemGray6),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(uiColor: .systemGray4).opacity(0.45), lineWidth: 1)
+            )
+    }
+}
+
+private extension View {
+    func styledField() -> some View {
+        modifier(StyledFieldModifier())
+    }
+}
+
+private struct PlaceholderTextEditor: View {
+    let placeholder: String
+    @Binding var text: String
+    var minHeight: CGFloat = 100
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 8)
+                    .padding(.leading, 4)
+                    .allowsHitTesting(false)
+            }
+            TextEditor(text: $text)
+                .frame(minHeight: minHeight)
+                .scrollContentBackground(.hidden)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Color(uiColor: .systemGray6),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(uiColor: .systemGray4).opacity(0.45), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Agent Creation View
+
 struct AgentCreationView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.appContainerStore) private var containerStore
     @State private var viewModel: AgentCreationViewModel
     @State private var isEmojiPickerPresented = false
 
-    private let pageBackgroundColor = Color.white
-    private let inputFillColor = Color(uiColor: .systemGray6)
-    private let inputBorderColor = Color(uiColor: .systemGray4).opacity(0.45)
+    private enum EmojiPickerTarget {
+        case agent
+        case team
+    }
 
+    @State private var emojiPickerTarget: EmojiPickerTarget = .agent
+
+    let targetTeamID: UUID?
     let onComplete: () -> Void
 
     init(
         initialMode: AgentCreationViewModel.CreationMode = .singleAgent,
+        targetTeamID: UUID? = nil,
         onComplete: @escaping () -> Void
     ) {
+        self.targetTeamID = targetTeamID
         self.onComplete = onComplete
-        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode))
+        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode, targetTeamID: targetTeamID))
     }
 
     private var usedEmojis: Set<String> {
         Set(containerStore.agents.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
     }
 
+    private var usedTeamEmojis: Set<String> {
+        Set(containerStore.teams.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
+    }
+
     var body: some View {
         NavigationStack {
-            agentAndSoulStep
+            formContent
                 .navigationTitle(L10n.tr("agent.creation.nav.title"))
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(L10n.tr("common.cancel")) {
+                            dismiss()
+                        }
+                    }
+                }
                 .onAppear {
-                    viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
+                    switch viewModel.creationMode {
+                    case .singleAgent:
+                        viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
+                    case .defaultTeam:
+                        viewModel.applyTeamDefaultsIfNeeded(avoiding: usedTeamEmojis)
+                    }
                 }
         }
     }
 
-    // MARK: - Collapsible About You Section
+    // MARK: - Form
 
-    private var aboutYouSection: some View {
-        Section {
-            DisclosureGroup(
-                isExpanded: $viewModel.isUserInfoExpanded
-            ) {
-                VStack(spacing: 12) {
-                    TextField(L10n.tr("agent.creation.callName.placeholder"), text: $viewModel.data.userCallName)
-                        .textInputAutocapitalization(.words)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            inputFillColor,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(inputBorderColor, lineWidth: 1)
-                        )
+    private var formContent: some View {
+        ScrollView {
+            VStack(spacing: 36) {
+                aboutYouSection
 
-                    ZStack(alignment: .topLeading) {
-                        if viewModel.data.userContext.isEmpty {
-                            Text(L10n.tr("agent.creation.context.placeholder"))
-                                .foregroundStyle(.tertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 4)
-                                .allowsHitTesting(false)
-                        }
-                        TextEditor(text: $viewModel.data.userContext)
-                            .frame(minHeight: 100)
-                            .scrollContentBackground(.hidden)
+                modeSection
+
+                if viewModel.creationMode == .singleAgent {
+                    if !viewModel.presets.isEmpty {
+                        presetSection
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(
-                        inputFillColor,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(inputBorderColor, lineWidth: 1)
-                    )
+
+                    singleAgentSections
                 }
-                .padding(.top, 8)
-            } label: {
-                HStack(spacing: 6) {
-                    Text(L10n.tr("agent.creation.about.title"))
-                        .font(.subheadline.weight(.semibold))
-                    if !viewModel.isUserInfoExpanded, !viewModel.data.userCallName.isEmpty {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(viewModel.data.userCallName)
-                            .foregroundStyle(.secondary)
-                    }
+
+                if viewModel.creationMode == .defaultTeam {
+                    teamIdentitySection
+
+                    teamSelectionSection
                 }
-                .font(.subheadline)
+
+                noticeSection
+
+                createButtonSection
             }
-            .listRowBackground(Color.clear)
-        } footer: {
-            Text(L10n.tr("agent.creation.context.footer"))
-        }
-    }
-
-    // MARK: - Step 1: User Info (removed — merged into single page)
-
-    // MARK: - Step 2: Agent & Soul
-
-    private var agentAndSoulStep: some View {
-        Form {
-            aboutYouSection
-
-            Section {
-                Picker(
-                    L10n.tr("agent.creation.mode.header"),
-                    selection: Binding(
-                        get: { viewModel.creationMode },
-                        set: { viewModel.setCreationMode($0, avoiding: usedEmojis) }
-                    )
-                ) {
-                    ForEach(AgentCreationViewModel.CreationMode.allCases) { mode in
-                        Text(mode.title)
-                            .tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-
-                modeSummaryCard
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            } header: {
-                Text(L10n.tr("agent.creation.mode.header"))
-            } footer: {
-                Text(L10n.tr("agent.creation.mode.footer"))
-            }
-
-            if viewModel.creationMode == .singleAgent, !viewModel.presets.isEmpty {
-                Section {
-                    presetPicker
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                } header: {
-                    Text(L10n.tr("agent.creation.presets.header"))
-                } footer: {
-                    Text(L10n.tr("agent.creation.presets.footer"))
-                }
-            }
-
-            if viewModel.creationMode == .defaultTeam {
-                Section {
-                    teamSelectionSummaryCard
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-
-                Section {
-                    teamPresetGrid
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                } header: {
-                    Text(L10n.tr("agent.creation.team.selection.header"))
-                } footer: {
-                    Text(L10n.tr("agent.creation.team.selection.footer"))
-                }
-            }
-
-            if viewModel.creationMode == .singleAgent {
-                singleAgentSections
-            }
-
-            if let emojiNoticeText = viewModel.emojiNoticeText {
-                Section {
-                    Text(emojiNoticeText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let errorText = viewModel.errorText {
-                Section {
-                    Text(errorText)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            Section {
-                Button(action: performPrimaryAction) {
-                    if viewModel.isCreating {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .tint(.white)
-                            Text(L10n.tr("agent.creation.creating"))
-                        }
-                    } else {
-                        Text(primaryActionTitle)
-                    }
-                }
-                .disabled(!canPerformPrimaryAction || viewModel.isCreating)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            }
+            .padding(.vertical, 24)
         }
         .scrollContentBackground(.hidden)
-        .background(pageBackgroundColor)
+        .background(Color(uiColor: .systemBackground))
         #if !targetEnvironment(macCatalyst)
             .scrollDismissesKeyboard(.interactively)
         #endif
@@ -226,271 +165,314 @@ struct AgentCreationView: View {
             }
     }
 
-    private var stepTwoTitle: String {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            L10n.tr("agent.creation.design.title")
-        case .defaultTeam:
-            L10n.tr("agent.creation.team.mode.title")
+    // MARK: - About You (Collapsible)
+
+    private var aboutYouSection: some View {
+        CustomSection {
+            DisclosureGroup(isExpanded: $viewModel.isUserInfoExpanded) {
+                VStack(alignment: .leading, spacing: 16) {
+                    labeledField(L10n.tr("agent.creation.callName.header")) {
+                        TextField(L10n.tr("agent.creation.callName.placeholder"), text: $viewModel.data.userCallName)
+                            .textInputAutocapitalization(.words)
+                            .styledField()
+                    }
+
+                    labeledField(L10n.tr("agent.creation.context.header")) {
+                        PlaceholderTextEditor(
+                            placeholder: L10n.tr("agent.creation.context.placeholder"),
+                            text: $viewModel.data.userContext
+                        )
+                    }
+
+                    Text(L10n.tr("agent.creation.context.footer"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+                .padding(.top, 12)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(L10n.tr("agent.creation.about.title"))
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    if !viewModel.isUserInfoExpanded, !viewModel.data.userCallName.isEmpty {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(viewModel.data.userCallName)
+                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                    }
+                }
+            }
+            .tint(.secondary)
+            .padding(.horizontal, 20)
         }
     }
 
-    private var stepTwoSubtitle: String {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            L10n.tr("agent.creation.design.subtitle")
-        case .defaultTeam:
-            L10n.tr("agent.creation.team.mode.subtitle")
+    // MARK: - Mode Selection
+
+    private var modeSection: some View {
+        CustomSection(title: L10n.tr("agent.creation.mode.header")) {
+            Picker(
+                L10n.tr("agent.creation.mode.header"),
+                selection: Binding(
+                    get: { viewModel.creationMode },
+                    set: {
+                        switch $0 {
+                        case .singleAgent:
+                            viewModel.setCreationMode($0, avoiding: usedEmojis)
+                        case .defaultTeam:
+                            viewModel.setCreationMode($0, avoiding: usedTeamEmojis)
+                        }
+                    }
+                )
+            ) {
+                ForEach(AgentCreationViewModel.CreationMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
         }
     }
 
-    private var primaryActionTitle: String {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            L10n.tr("agent.creation.create")
-        case .defaultTeam:
-            L10n.tr("agent.creation.team.create")
+    // MARK: - Presets Section
+
+    private var presetSection: some View {
+        CustomSection(title: L10n.tr("agent.creation.presets.header"), footer: {
+            Text(L10n.tr("agent.creation.presets.footer"))
+                .padding(.horizontal, 20)
+        }) {
+            presetPicker
         }
     }
 
-    private var canPerformPrimaryAction: Bool {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            viewModel.canComplete
-        case .defaultTeam:
-            viewModel.canCreateDefaultTeam
-        }
-    }
+    // MARK: - Single Agent Sections
 
     @ViewBuilder
     private var singleAgentSections: some View {
-        Section {
-            HStack {
-                TextField(L10n.tr("common.name"), text: $viewModel.data.agentName, prompt: Text(L10n.tr("agent.creation.agentName.placeholder")))
-                    .textInputAutocapitalization(.words)
-
-                Divider()
-                    .padding(.vertical, 8)
-
-                Button {
+        CustomSection(title: L10n.tr("agent.creation.identity.header")) {
+            nameEmojiRow(
+                name: $viewModel.data.agentName,
+                namePlaceholder: L10n.tr("agent.creation.agentName.placeholder"),
+                emoji: viewModel.data.agentEmoji,
+                onPick: {
+                    emojiPickerTarget = .agent
                     isEmojiPickerPresented = true
-                } label: {
-                    Text(viewModel.data.agentEmoji)
-                        .font(.title3)
-                        .frame(width: 34, height: 34)
-                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-
-                Button {
+                },
+                onShuffle: {
                     viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
-                } label: {
-                    Image(systemName: "shuffle")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 34, height: 34)
-                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                inputFillColor,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(inputBorderColor, lineWidth: 1)
-            )
-            .listRowBackground(Color.clear)
-        } header: {
-            Text(L10n.tr("agent.creation.identity.header"))
+            .padding(.horizontal, 20)
         }
 
-        Section {
-            TextField(L10n.tr("agent.creation.vibe.placeholder"), text: $viewModel.data.agentVibe)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .listRowSeparator(.hidden)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    inputFillColor,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(inputBorderColor, lineWidth: 1)
-                )
-                .listRowBackground(Color.clear)
+        CustomSection(title: L10n.tr("agent.creation.vibe.header")) {
+            VStack(alignment: .leading, spacing: 14) {
+                TextField(L10n.tr("agent.creation.vibe.placeholder"), text: $viewModel.data.agentVibe)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .styledField()
+                    .padding(.horizontal, 20)
 
-            optionWrap(options: viewModel.vibeOptions) { option in
-                viewModel.applyVibeOption(option)
-            }
-            .padding(.vertical, 4)
-            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
-            .listRowBackground(pageBackgroundColor)
-        } header: {
-            Text(L10n.tr("agent.creation.vibe.header"))
-        }
-
-        Section {
-            ZStack(alignment: .topLeading) {
-                if viewModel.data.soulCoreTruths.isEmpty {
-                    Text(L10n.tr("agent.creation.truths.placeholder"))
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 8)
-                        .padding(.leading, 4)
-                        .allowsHitTesting(false)
+                optionWrap(options: viewModel.vibeOptions) { option in
+                    viewModel.applyVibeOption(option)
                 }
-                TextEditor(text: $viewModel.data.soulCoreTruths)
-                    .frame(minHeight: 120)
-                    .scrollContentBackground(.hidden)
             }
-            .listRowSeparator(.hidden)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                inputFillColor,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(inputBorderColor, lineWidth: 1)
-            )
-            .listRowBackground(Color.clear)
-
-            optionWrap(options: viewModel.truthOptions) { option in
-                viewModel.toggleTruthOption(option)
-            } isActive: { option in
-                viewModel.containsTruthOption(option)
-            }
-            .padding(.vertical, 4)
-            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 0))
-            .listRowBackground(pageBackgroundColor)
-        } header: {
-            Text(L10n.tr("agent.creation.truths.header"))
         }
-    }
 
-    // MARK: - Actions
+        CustomSection(title: L10n.tr("agent.creation.truths.header")) {
+            VStack(alignment: .leading, spacing: 14) {
+                PlaceholderTextEditor(
+                    placeholder: L10n.tr("agent.creation.truths.placeholder"),
+                    text: $viewModel.data.soulCoreTruths,
+                    minHeight: 120
+                )
+                .padding(.horizontal, 20)
 
-    private func performPrimaryAction() {
-        Task {
-            switch viewModel.creationMode {
-            case .singleAgent:
-                await createAgent()
-            case .defaultTeam:
-                await createDefaultTeam()
+                optionWrap(options: viewModel.truthOptions) { option in
+                    viewModel.toggleTruthOption(option)
+                } isActive: { option in
+                    viewModel.containsTruthOption(option)
+                }
             }
         }
     }
 
-    private func createAgent() async {
-        do {
-            try await viewModel.createAgent(containerStore: containerStore)
-            onComplete()
-        } catch {
-            viewModel.errorText = error.localizedDescription
+    // MARK: - Team Identity
+
+    private var teamIdentitySection: some View {
+        CustomSection(footer: {
+            Text(L10n.tr("agent.creation.team.identity.footer"))
+                .padding(.horizontal, 20)
+        }) {
+            VStack(spacing: 16) {
+                labeledField(L10n.tr("agent.creation.team.name.header")) {
+                    nameEmojiRow(
+                        name: $viewModel.data.teamName,
+                        namePlaceholder: L10n.tr("agent.creation.team.name.placeholder"),
+                        emoji: viewModel.data.teamEmoji,
+                        onPick: {
+                            emojiPickerTarget = .team
+                            isEmojiPickerPresented = true
+                        },
+                        onShuffle: {
+                            viewModel.randomizeTeamEmoji(avoiding: usedTeamEmojis)
+                        }
+                    )
+                }
+
+                labeledField(L10n.tr("agent.creation.team.description.header")) {
+                    PlaceholderTextEditor(
+                        placeholder: L10n.tr("agent.creation.team.description.placeholder"),
+                        text: $viewModel.data.teamDescription,
+                        minHeight: 90
+                    )
+                }
+            }
+            .padding(.horizontal, 20)
         }
     }
 
-    private func createDefaultTeam() async {
-        do {
-            try await viewModel.createDefaultTeam(containerStore: containerStore)
-            onComplete()
-        } catch {
-            viewModel.errorText = error.localizedDescription
+    // MARK: - Team Selection (summary + grid merged)
+
+    private var teamSelectionSection: some View {
+        CustomSection(title: L10n.tr("agent.creation.team.selection.header"), footer: {
+            Text(L10n.tr("agent.creation.team.selection.footer"))
+                .padding(.horizontal, 20)
+        }) {
+            VStack(spacing: 16) {
+                teamPresetGrid
+            }
+            .padding(.horizontal, 20)
         }
     }
 
-    private func stepIntroCard(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    // MARK: - Notice & Error
+
+    @ViewBuilder
+    private var noticeSection: some View {
+        if let emojiNoticeText = viewModel.emojiNoticeText {
+            Text(emojiNoticeText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+        }
+
+        if let errorText = viewModel.errorText {
+            Text(errorText)
+                .font(.callout)
+                .foregroundStyle(.red)
+                .padding(.horizontal, 20)
+        }
+    }
+
+    // MARK: - Create Button
+
+    private var createButtonSection: some View {
+        Button(action: performPrimaryAction) {
+            if viewModel.isCreating {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(.white)
+                    Text(L10n.tr("agent.creation.creating"))
+                }
+            } else {
+                Text(primaryActionTitle)
+            }
+        }
+        .disabled(!canPerformPrimaryAction || viewModel.isCreating)
+        .font(.headline)
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Reusable Components
+
+    private struct CustomSection<Content: View, Footer: View>: View {
+        let title: String?
+        let footer: Footer?
+        @ViewBuilder let content: () -> Content
+
+        init(title: String? = nil, @ViewBuilder footer: () -> Footer, @ViewBuilder content: @escaping () -> Content) {
+            self.title = title
+            self.footer = footer()
+            self.content = content
+        }
+
+        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) where Footer == EmptyView {
+            self.title = title
+            self.footer = nil
+            self.content = content
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 14) {
+                if let title {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 20)
+                }
+
+                content()
+
+                if let footer {
+                    footer
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+
+    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
             Text(title)
-                .font(.title2.weight(.bold))
+                .font(.headline)
                 .foregroundStyle(.primary)
-
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            content()
         }
     }
 
-    private var modeSummaryCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: viewModel.creationMode.systemImage)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 36, height: 36)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    private func nameEmojiRow(
+        name: Binding<String>,
+        namePlaceholder: String,
+        emoji: String,
+        onPick: @escaping () -> Void,
+        onShuffle: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            TextField(namePlaceholder, text: name)
+                .textInputAutocapitalization(.words)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.creationMode.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(viewModel.creationMode.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Divider()
+                .padding(.vertical, 8)
 
-            Spacer(minLength: 0)
+            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onShuffle)
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var teamSelectionSummaryCard: some View {
-        let selectedPresets = viewModel.selectedDefaultTeamPresets
-        let selectedTitles = selectedPresets.map(\.title).joined(separator: " · ")
-        let isEmpty = selectedPresets.isEmpty
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: isEmpty ? "circle.dashed" : "checkmark.circle.fill")
-                    .foregroundStyle(isEmpty ? Color.secondary : Color.accentColor)
-                Text(selectedTeamSummaryText)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-
-            Text(isEmpty ? L10n.tr("agent.creation.team.selectedEmpty") : selectedTitles)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var selectedTeamSummaryText: String {
-        String(format: L10n.tr("agent.creation.team.selectedCount"), viewModel.selectedDefaultTeamPresets.count)
+        .styledField()
     }
 
     private var emojiPickerGrid: some View {
-        // Keep a simple local picker to avoid adding new dependencies.
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 12)], spacing: 12) {
-                ForEach(viewModel.emojiCandidates, id: \.self) { emoji in
-                    Button {
-                        viewModel.setAgentEmoji(emoji)
-                        isEmojiPickerPresented = false
-                    } label: {
-                        Text(emoji)
-                            .font(.title2)
-                            .frame(width: 44, height: 44)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(L10n.tr("agent.creation.emojiPicker.choose", emoji))
-                }
+        EmojiPickerGrid(emojis: viewModel.emojiCandidates) { emoji in
+            switch emojiPickerTarget {
+            case .agent:
+                viewModel.setAgentEmoji(emoji)
+            case .team:
+                viewModel.setTeamEmoji(emoji)
             }
-            .padding()
+            isEmojiPickerPresented = false
         }
     }
+
+    // MARK: - Presets
 
     private var presetPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -507,7 +489,7 @@ struct AgentCreationView: View {
                 }
             }
             .padding(.vertical, 1)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 20)
         }
     }
 
@@ -539,39 +521,6 @@ struct AgentCreationView: View {
                 .stroke(borderColor, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var teamPresetPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(viewModel.defaultTeamPresets, id: \.id) { preset in
-                    let isSelected = viewModel.containsDefaultTeamPreset(preset)
-
-                    Button {
-                        viewModel.toggleDefaultTeamPreset(preset)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                            Text(displayEmoji(for: preset))
-                            Text(preset.title)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.primary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(
-                            isSelected ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground),
-                            in: Capsule()
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 1)
-            .padding(.horizontal, 2)
-        }
     }
 
     private var teamPresetGrid: some View {
@@ -630,6 +579,8 @@ struct AgentCreationView: View {
         return normalized.isEmpty ? "🤖" : normalized
     }
 
+    // MARK: - Option Chips
+
     private func optionWrap(
         options: [String],
         onTap: @escaping (String) -> Void,
@@ -644,7 +595,7 @@ struct AgentCreationView: View {
                 }
             }
             .padding(.vertical, 1)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 20)
         }
     }
 
@@ -663,6 +614,55 @@ struct AgentCreationView: View {
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Actions
+
+    private var primaryActionTitle: String {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            L10n.tr("agent.creation.create")
+        case .defaultTeam:
+            L10n.tr(targetTeamID == nil ? "agent.creation.team.create" : "agent.creation.team.createAndAdd")
+        }
+    }
+
+    private var canPerformPrimaryAction: Bool {
+        switch viewModel.creationMode {
+        case .singleAgent:
+            viewModel.canComplete
+        case .defaultTeam:
+            viewModel.canCreateTeam
+        }
+    }
+
+    private func performPrimaryAction() {
+        Task {
+            switch viewModel.creationMode {
+            case .singleAgent:
+                await createAgent()
+            case .defaultTeam:
+                await createDefaultTeam()
+            }
+        }
+    }
+
+    private func createAgent() async {
+        do {
+            try await viewModel.createAgent(containerStore: containerStore)
+            onComplete()
+        } catch {
+            viewModel.errorText = error.localizedDescription
+        }
+    }
+
+    private func createDefaultTeam() async {
+        do {
+            try await viewModel.createTeam(containerStore: containerStore)
+            onComplete()
+        } catch {
+            viewModel.errorText = error.localizedDescription
+        }
     }
 }
 

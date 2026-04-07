@@ -7,6 +7,7 @@ import Observation
 final class AppContainerStore {
     private(set) var container: AppContainer
     private(set) var agentState: AgentStateSnapshot
+    private(set) var teamState: TeamStateSnapshot
     private(set) var preferredLanguageCode: String?
     private(set) var resolvedLanguageCode: String
     private(set) var usageSnapshot: UsageSnapshot = .init()
@@ -20,6 +21,10 @@ final class AppContainerStore {
 
     var agents: [AgentProfile] {
         agentState.agents
+    }
+
+    var teams: [TeamProfile] {
+        teamState.teams
     }
 
     var hasAgent: Bool {
@@ -39,6 +44,7 @@ final class AppContainerStore {
         self.defaults = defaults
         self.fileManager = fileManager
         agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
+        teamState = TeamStore.load(defaults: defaults)
         // Migration: clear stale explicit "en" override left from early development.
         // English is the fallback — storing it explicitly blocks system language negotiation.
         AppLanguagePreference.clearStaleEnglishOverride()
@@ -192,6 +198,71 @@ final class AppContainerStore {
     }
 
     @discardableResult
+    func createTeam(
+        name: String,
+        emoji: String = "👥",
+        description: String? = nil,
+        agentIDs: [UUID] = [],
+        leadAgentID: UUID? = nil,
+        defaultTopology: TeamTopologyKind = .automatic
+    ) -> TeamProfile? {
+        let team = TeamStore.createTeam(
+            name: name,
+            emoji: emoji,
+            description: description,
+            agentPoolIDs: agentIDs,
+            leadAgentID: leadAgentID,
+            defaultTopology: defaultTopology,
+            defaults: defaults
+        )
+        if team != nil {
+            reloadTeamState()
+        }
+        return team
+    }
+
+    @discardableResult
+    func updateTeam(_ teamID: UUID, name: String, emoji: String, description: String?) -> TeamProfile? {
+        let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, defaults: defaults)
+        if team != nil {
+            reloadTeamState()
+        }
+        return team
+    }
+
+    @discardableResult
+    func addAgents(_ agentIDs: [UUID], toTeam teamID: UUID) -> TeamProfile? {
+        let team = TeamStore.addAgents(agentIDs, to: teamID, defaults: defaults)
+        if team != nil {
+            reloadTeamState()
+        }
+        return team
+    }
+
+    @discardableResult
+    func removeAgent(_ agentID: UUID, fromTeam teamID: UUID) -> TeamProfile? {
+        let team = TeamStore.removeAgent(agentID, from: teamID, defaults: defaults)
+        if team != nil {
+            reloadTeamState()
+        }
+        return team
+    }
+
+    @discardableResult
+    func setLeadAgent(_ agentID: UUID?, forTeam teamID: UUID) -> TeamProfile? {
+        let team = TeamStore.setLeadAgent(agentID, for: teamID, defaults: defaults)
+        if team != nil {
+            reloadTeamState()
+        }
+        return team
+    }
+
+    func deleteTeam(_ teamID: UUID) {
+        TeamStore.deleteTeam(teamID, defaults: defaults)
+        reloadTeamState()
+    }
+
+    @discardableResult
     func setActiveAgent(_ agentID: UUID) -> Bool {
         let changed = AgentStore.setActiveAgent(agentID, defaults: defaults)
         if changed {
@@ -224,7 +295,7 @@ final class AppContainerStore {
         let changed = AgentStore.deleteAgent(agentID, defaults: defaults, fileManager: fileManager)
         if changed {
             TeamStore.removeAgentReferences(agentID, defaults: defaults)
-            TeamSwarmCoordinator.shared.reload()
+            reloadTeamState()
             rebuildContainer(with: container.config)
         }
         return changed
@@ -268,6 +339,11 @@ final class AppContainerStore {
         agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
         let resolvedConfig = Self.applyAgent(to: baseConfig, state: agentState)
         container = AppContainer.make(config: resolvedConfig)
+    }
+
+    private func reloadTeamState() {
+        teamState = TeamStore.load(defaults: defaults)
+        TeamSwarmCoordinator.shared.reload()
     }
 
     private static func applyAgent(to baseConfig: AppConfig, state: AgentStateSnapshot) -> AppConfig {

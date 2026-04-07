@@ -19,24 +19,6 @@ final class AgentCreationViewModel {
                 L10n.tr("agent.creation.mode.team.title")
             }
         }
-
-        var subtitle: String {
-            switch self {
-            case .singleAgent:
-                L10n.tr("agent.creation.mode.single.subtitle")
-            case .defaultTeam:
-                L10n.tr("agent.creation.mode.team.subtitle")
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .singleAgent:
-                "sparkles"
-            case .defaultTeam:
-                "person.3.fill"
-            }
-        }
     }
 
     // MARK: - State
@@ -48,22 +30,14 @@ final class AgentCreationViewModel {
     var errorText: String?
     var emojiNoticeText: String?
     var selectedPresetID: String?
-    var selectedDefaultTeamPresetIDs = Set(AgentPresetCatalog.defaultTeamPresetIDs)
+    var selectedDefaultTeamPresetIDs: Set<String> = []
     private(set) var hasAppliedInitialDefaults = false
     private let defaults: UserDefaults
+    private let targetTeamID: UUID?
     let presets: [AgentPreset]
 
     /// Shared emoji source for picker and random fill.
-    let emojiCandidates = [
-        "🤖", "🦊", "🐼", "🦉", "🐙", "🐬", "🦄", "🐝", "🐧", "🦁",
-        "🐯", "🐸", "🐵", "🦋", "🐲", "🦖", "🦕", "🐢", "🐳", "🐺",
-        "😄", "😎", "🙂", "🤩", "🥳", "🧠", "💡", "✨", "🔥", "⚡️",
-        "🌈", "☀️", "🌙", "⭐️", "🌊", "🍀", "🍎", "🍉", "🍵", "☕️",
-        "🎯", "🎨", "🎧", "🎬", "🎮", "🧩", "🛠️", "📚", "📝", "📎",
-        "🧭", "🛰️", "🔭", "🧪", "🔬", "📡", "🖥️", "💻", "⌨️", "🖱️",
-        "📱", "🕹️", "🛸", "🚀", "🗺️", "🏔️", "🌋", "🌲", "🌸", "🌻",
-        "🦀", "🐋", "🐅", "🦓", "🦒", "🦥", "🦦", "🦔", "🐿️", "🦜",
-    ]
+    let emojiCandidates = EmojiPickerCatalog.candidates
 
     let vibeOptions = [
         L10n.tr("agent.creation.vibe.warm"),
@@ -88,10 +62,12 @@ final class AgentCreationViewModel {
     init(
         initialMode: CreationMode = .singleAgent,
         defaults: UserDefaults = .standard,
+        targetTeamID: UUID? = nil,
         presets: [AgentPreset] = AgentPresetCatalog.load()
     ) {
         creationMode = initialMode
         self.defaults = defaults
+        self.targetTeamID = targetTeamID
         self.presets = presets
         isUserInfoExpanded = true
         if let savedUserInfo = AgentUserInfoDefaults.load(defaults: defaults),
@@ -100,6 +76,9 @@ final class AgentCreationViewModel {
             data.userCallName = savedUserInfo.callName
             data.userContext = savedUserInfo.context
             isUserInfoExpanded = false
+        }
+        if initialMode == .defaultTeam {
+            data.teamName = defaultTeamName()
         }
     }
 
@@ -116,7 +95,7 @@ final class AgentCreationViewModel {
                 !data.agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                 !data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .defaultTeam:
-            canCreateDefaultTeam
+            canCreateTeam
         }
     }
 
@@ -128,8 +107,8 @@ final class AgentCreationViewModel {
         defaultTeamPresets.filter { selectedDefaultTeamPresetIDs.contains($0.id) }
     }
 
-    var canCreateDefaultTeam: Bool {
-        canProceedFromUserInfo && !selectedDefaultTeamPresets.isEmpty
+    var canCreateTeam: Bool {
+        canProceedFromUserInfo && !data.teamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Initial Setup
@@ -140,10 +119,21 @@ final class AgentCreationViewModel {
         applyAgentDefaults(avoiding: usedEmojis)
     }
 
+    func applyTeamDefaultsIfNeeded(avoiding usedEmojis: Set<String>) {
+        guard !hasAppliedInitialDefaults else { return }
+        hasAppliedInitialDefaults = true
+        applyTeamDefaults(avoiding: usedEmojis)
+    }
+
     // MARK: - Emoji
 
     func setAgentEmoji(_ emoji: String) {
         data.agentEmoji = emoji
+        emojiNoticeText = nil
+    }
+
+    func setTeamEmoji(_ emoji: String) {
+        data.teamEmoji = emoji
         emojiNoticeText = nil
     }
 
@@ -154,6 +144,8 @@ final class AgentCreationViewModel {
 
         if mode == .singleAgent {
             applyAgentDefaults(avoiding: usedEmojis)
+        } else {
+            applyTeamDefaults(avoiding: usedEmojis)
         }
     }
 
@@ -222,6 +214,25 @@ final class AgentCreationViewModel {
         emojiNoticeText = L10n.tr("agent.creation.emojiNotice.none")
     }
 
+    func randomizeTeamEmoji(avoiding usedEmojis: Set<String>) {
+        let normalizedUsed = Set(usedEmojis.map(Self.normalizedEmoji).filter { !$0.isEmpty })
+        let available = emojiCandidates.filter { !normalizedUsed.contains($0) }
+
+        if let selected = available.randomElement() {
+            data.teamEmoji = selected
+            emojiNoticeText = nil
+            return
+        }
+
+        if let fallback = emojiCandidates.randomElement() {
+            data.teamEmoji = fallback
+            emojiNoticeText = L10n.tr("agent.creation.emojiNotice.usedAll")
+            return
+        }
+
+        emojiNoticeText = L10n.tr("agent.creation.emojiNotice.none")
+    }
+
     // MARK: - Creation
 
     func createAgent(containerStore: AppContainerStore) async throws {
@@ -256,6 +267,10 @@ final class AgentCreationViewModel {
             vibe: data.agentVibe
         )
 
+        if let targetTeamID {
+            _ = containerStore.addAgents([profile.id], toTeam: targetTeamID)
+        }
+
         AgentUserInfoDefaults.save(
             callName: data.userCallName,
             context: data.userContext,
@@ -263,29 +278,40 @@ final class AgentCreationViewModel {
         )
     }
 
-    func createDefaultTeam(containerStore: AppContainerStore) async throws {
+    func createTeam(containerStore: AppContainerStore) async throws {
         errorText = nil
         emojiNoticeText = nil
         isCreating = true
         defer { isCreating = false }
 
         let presets = selectedDefaultTeamPresets
-        guard !presets.isEmpty else { return }
+        let createdProfiles: [AgentProfile]
+        if presets.isEmpty {
+            createdProfiles = []
+        } else {
+            createdProfiles = try containerStore.createAgents(
+                from: presets,
+                callName: data.userCallName,
+                context: data.userContext
+            )
+        }
 
-        let createdProfiles = try containerStore.createAgents(
-            from: presets,
-            callName: data.userCallName,
-            context: data.userContext
-        )
-
-        _ = TeamStore.createTeam(
-            name: L10n.tr("agent.creation.mode.team.title"),
-            description: presets.map(\.title).joined(separator: " · "),
-            agentPoolIDs: createdProfiles.map(\.id),
+        let fallbackDescription = presets.isEmpty ? nil : presets.map(\.title).joined(separator: " · ")
+        let teamDescription = normalizedText(data.teamDescription) ?? fallbackDescription
+        guard containerStore.createTeam(
+            name: data.teamName,
+            emoji: data.teamEmoji,
+            description: teamDescription,
+            agentIDs: createdProfiles.map(\.id),
             leadAgentID: createdProfiles.first?.id,
             defaultTopology: .automatic
-        )
-        TeamSwarmCoordinator.shared.reload()
+        ) != nil else {
+            throw NSError(
+                domain: "AgentCreationViewModel",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: L10n.tr("team.management.create.failed")]
+            )
+        }
 
         AgentUserInfoDefaults.save(
             callName: data.userCallName,
@@ -295,7 +321,7 @@ final class AgentCreationViewModel {
     }
 
     private static func normalizedEmoji(_ raw: String) -> String {
-        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        EmojiPickerCatalog.normalized(raw)
     }
 
     private var truthLines: [String] {
@@ -318,6 +344,17 @@ final class AgentCreationViewModel {
         }
     }
 
+    private func applyTeamDefaults(avoiding usedEmojis: Set<String>) {
+        if data.teamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            data.teamName = defaultTeamName()
+        }
+
+        let trimmedEmoji = data.teamEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedEmoji.isEmpty || trimmedEmoji == "👥" {
+            randomizeTeamEmoji(avoiding: usedEmojis)
+        }
+    }
+
     private func defaultAgentName() -> String {
         let callName = data.userCallName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !callName.isEmpty {
@@ -325,5 +362,18 @@ final class AgentCreationViewModel {
             return L10n.tr("agent.creation.defaultNameWithOwner", callName)
         }
         return L10n.tr("agent.creation.defaultName")
+    }
+
+    private func defaultTeamName() -> String {
+        let callName = data.userCallName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !callName.isEmpty {
+            return L10n.tr("agent.creation.team.defaultNameWithOwner", callName)
+        }
+        return L10n.tr("agent.creation.team.defaultName")
+    }
+
+    private func normalizedText(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

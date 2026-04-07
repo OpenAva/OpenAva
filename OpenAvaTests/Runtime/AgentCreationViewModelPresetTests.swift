@@ -59,7 +59,7 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         let viewModel = AgentCreationViewModel(defaults: defaults, presets: AgentPresetCatalog.builtInPresets())
 
         XCTAssertEqual(viewModel.defaultTeamPresets.map(\.id), AgentPresetCatalog.defaultTeamPresetIDs)
-        XCTAssertTrue(viewModel.canCreateDefaultTeam == false)
+        XCTAssertFalse(viewModel.canCreateTeam)
     }
 
     func testToggleDefaultTeamPresetUpdatesSelectedTeam() throws {
@@ -71,16 +71,16 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         let viewModel = AgentCreationViewModel(defaults: defaults, presets: presets)
         let marketing = try XCTUnwrap(presets.first(where: { $0.id == "marketing" }))
 
-        XCTAssertTrue(viewModel.containsDefaultTeamPreset(marketing))
-
-        viewModel.toggleDefaultTeamPreset(marketing)
         XCTAssertFalse(viewModel.containsDefaultTeamPreset(marketing))
 
         viewModel.toggleDefaultTeamPreset(marketing)
         XCTAssertTrue(viewModel.containsDefaultTeamPreset(marketing))
+
+        viewModel.toggleDefaultTeamPreset(marketing)
+        XCTAssertFalse(viewModel.containsDefaultTeamPreset(marketing))
     }
 
-    func testCanCreateDefaultTeamDependsOnSelectionAndUserInfo() throws {
+    func testCanCreateTeamDependsOnTeamNameAndUserInfo() throws {
         let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -88,18 +88,28 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         let presets = AgentPresetCatalog.builtInPresets()
         let viewModel = AgentCreationViewModel(defaults: defaults, presets: presets)
 
-        XCTAssertFalse(viewModel.canCreateDefaultTeam)
+        XCTAssertFalse(viewModel.canCreateTeam)
 
         viewModel.data.userCallName = "Yuan"
-        XCTAssertTrue(viewModel.canCreateDefaultTeam)
+        XCTAssertFalse(viewModel.canCreateTeam)
 
-        for preset in presets {
-            if viewModel.containsDefaultTeamPreset(preset) {
-                viewModel.toggleDefaultTeamPreset(preset)
-            }
-        }
+        viewModel.data.teamName = "OpenAva Team"
+        XCTAssertTrue(viewModel.canCreateTeam)
 
-        XCTAssertTrue(viewModel.selectedDefaultTeamPresets.isEmpty)
-        XCTAssertFalse(viewModel.canCreateDefaultTeam)
+        let firstPreset = try XCTUnwrap(presets.first)
+        viewModel.toggleDefaultTeamPreset(firstPreset)
+        XCTAssertEqual(viewModel.selectedDefaultTeamPresets.map(\.id), [firstPreset.id])
+
+        viewModel.data.teamName = "   "
+        XCTAssertFalse(viewModel.canCreateTeam)
+    }
+
+    func testTeamModeInitializesDefaultTeamName() throws {
+        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let viewModel = AgentCreationViewModel(initialMode: .defaultTeam, defaults: defaults, presets: [])
+        XCTAssertFalse(viewModel.data.teamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 }
