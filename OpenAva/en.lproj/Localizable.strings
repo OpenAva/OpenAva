@@ -319,7 +319,7 @@
 "settings.llmList.delete.title" = "Delete Model?";
 "settings.llmList.delete.message" = "Are you sure you want to delete \"%@\"? This action cannot be undone.";
 "settings.llmList.empty.title" = "No Models Configured";
-"settings.llmList.empty.message" = "Tap the + button to add your first LLM model.";
+"settings.llmList.empty.message" = "Tap the + button in the top-right to add.";
 
 "settings.context.applyTemplate" = "Apply Template";
 "settings.context.applyTemplate.confirmTitle" = "Apply Template?";
@@ -365,7 +365,7 @@
 "settings.cron.schedule.everyInterval" = "Every %@";
 "settings.cron.schedule.at" = "At %@";
 "settings.cron.empty.title" = "No Cron Jobs";
-"settings.cron.empty.message" = "Tap + to create a local scheduled reminder.";
+"settings.cron.empty.message" = "Tap the + button in the top-right to create.";
 
 "settings.skills.addSkill" = "Add Skill";
 "settings.skills.workspace.header" = "Workspace Skills";
@@ -374,7 +374,7 @@
 "settings.skills.builtin.header" = "Built-in Skills";
 "settings.skills.builtin.footer" = "Built-in skills are read-only. Create a workspace skill with the same name to override it.";
 "settings.skills.emptyWorkspace.title" = "No Workspace Skills";
-"settings.skills.emptyWorkspace.message" = "No skills yet. Tap + in the top-right to create one.";
+"settings.skills.emptyWorkspace.message" = "Tap the + button in the top-right to create.";
 "settings.skills.emptyBuiltin.title" = "No Built-in Skills";
 "settings.skills.emptyBuiltin.message" = "No built-in skill package was found.";
 "settings.skills.delete.confirmTitle" = "Delete Skill?";

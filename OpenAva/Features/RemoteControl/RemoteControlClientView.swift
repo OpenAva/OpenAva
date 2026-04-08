@@ -351,101 +351,196 @@ struct RemoteControlClientView: View {
 
     var body: some View {
         Form {
-            Section(L10n.tr("settings.remoteControl.discovery.title")) {
-                Picker(L10n.tr("settings.remoteControl.discovery.device"), selection: $viewModel.selectedServiceID) {
-                    ForEach(viewModel.services, id: \.id) { service in
-                        Text(service.name).tag(Optional(service.id))
-                    }
-                }
-                Button(L10n.tr("settings.remoteControl.discovery.connect")) {
-                    Task { await viewModel.connectAndPair() }
-                }
-                .disabled(viewModel.selectedServiceID == nil)
-                if let discoveryStatusText = viewModel.discoveryStatusText {
-                    Text(discoveryStatusText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
-                    Text(discoveryDiagnosticsText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section(L10n.tr("settings.remoteControl.pairing.title")) {
-                TextField(L10n.tr("settings.remoteControl.pairing.code"), text: $viewModel.pairCode)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button(L10n.tr("settings.remoteControl.pairing.approve")) {
-                    Task { await viewModel.approvePairing() }
-                }
-                .disabled(viewModel.pairCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-
-            Section(L10n.tr("settings.remoteControl.agents.title")) {
-                ForEach(viewModel.agents, id: \.id) { agent in
-                    Button {
-                        Task { await viewModel.selectAgent(agent) }
-                    } label: {
-                        HStack {
-                            Text("\(agent.emoji) \(agent.name)")
-                            Spacer()
-                            if agent.isActive {
-                                Image(systemName: "checkmark.circle.fill")
+            cardSection {
+                settingsCard(
+                    title: L10n.tr("settings.remoteControl.discovery.title"),
+                    tint: .blue
+                ) {
+                    cardField(L10n.tr("settings.remoteControl.discovery.device")) {
+                        Picker("", selection: $viewModel.selectedServiceID) {
+                            ForEach(viewModel.services, id: \.id) { service in
+                                Text(service.name).tag(Optional(service.id))
                             }
                         }
+                        .pickerStyle(.menu)
+                    }
+
+                    Button(L10n.tr("settings.remoteControl.discovery.connect")) {
+                        Task { await viewModel.connectAndPair() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.selectedServiceID == nil)
+
+                    if let discoveryStatusText = viewModel.discoveryStatusText {
+                        Text(discoveryStatusText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
+                        Text(discoveryDiagnosticsText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                Button(L10n.tr("settings.remoteControl.refresh")) {
-                    Task {
-                        await viewModel.refreshAgents()
-                        await viewModel.refreshSessions()
-                    }
-                }
-                .disabled(!viewModel.isConnected)
             }
 
-            Section(L10n.tr("settings.remoteControl.sessions.title")) {
-                Button(L10n.tr("settings.remoteControl.sessions.new")) {
-                    Task { await viewModel.createSession() }
+            cardSection {
+                settingsCard(
+                    title: L10n.tr("settings.remoteControl.pairing.title"),
+                    tint: .indigo
+                ) {
+                    cardField(L10n.tr("settings.remoteControl.pairing.code")) {
+                        TextField(L10n.tr("settings.remoteControl.pairing.code"), text: $viewModel.pairCode)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .remoteCardInputStyle()
+                    }
+
+                    Button(L10n.tr("settings.remoteControl.pairing.approve")) {
+                        Task { await viewModel.approvePairing() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.pairCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .disabled(!viewModel.isConnected)
-                ForEach(viewModel.sessions, id: \.key) { session in
-                    Button {
-                        Task { await viewModel.selectSession(session) }
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(session.displayName)
-                                Text(session.key)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+            }
+
+            cardSection {
+                settingsCard(
+                    title: L10n.tr("settings.remoteControl.agents.title"),
+                    tint: .green
+                ) {
+                    if viewModel.agents.isEmpty {
+                        Text(L10n.tr("settings.remoteControl.refresh"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(viewModel.agents, id: \.id) { agent in
+                            Button {
+                                Task { await viewModel.selectAgent(agent) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text("\(agent.emoji) \(agent.name)")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    if agent.isActive {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(agent.isActive ? Color.green.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
+                                )
                             }
-                            Spacer()
-                            if session.isActive {
-                                Image(systemName: "checkmark.circle.fill")
-                            }
+                            .buttonStyle(.plain)
                         }
                     }
+
+                    Button(L10n.tr("settings.remoteControl.refresh")) {
+                        Task {
+                            await viewModel.refreshAgents()
+                            await viewModel.refreshSessions()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!viewModel.isConnected)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
-            Section(L10n.tr("settings.remoteControl.message.title")) {
-                TextField(L10n.tr("settings.remoteControl.message.placeholder"), text: $viewModel.messageText, axis: .vertical)
-                Button(L10n.tr("settings.remoteControl.message.send")) {
-                    Task { await viewModel.sendMessage() }
+            cardSection {
+                settingsCard(
+                    title: L10n.tr("settings.remoteControl.sessions.title"),
+                    tint: .orange
+                ) {
+                    Button(L10n.tr("settings.remoteControl.sessions.new")) {
+                        Task { await viewModel.createSession() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!viewModel.isConnected)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    ForEach(viewModel.sessions, id: \.key) { session in
+                        Button {
+                            Task { await viewModel.selectSession(session) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(session.displayName)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Text(session.key)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                if session.isActive {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(session.isActive ? Color.orange.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .disabled(!viewModel.isConnected || viewModel.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            cardSection {
+                settingsCard(
+                    title: L10n.tr("settings.remoteControl.message.title"),
+                    tint: .purple
+                ) {
+                    cardField(L10n.tr("settings.remoteControl.message.placeholder")) {
+                        TextField(L10n.tr("settings.remoteControl.message.placeholder"), text: $viewModel.messageText, axis: .vertical)
+                            .lineLimit(3 ... 6)
+                            .remoteCardInputStyle()
+                    }
+
+                    Button(L10n.tr("settings.remoteControl.message.send")) {
+                        Task { await viewModel.sendMessage() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!viewModel.isConnected || viewModel.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
 
             if let statusText = viewModel.statusText {
-                Section(L10n.tr("settings.remoteControl.status.title")) {
-                    Text(statusText)
+                cardSection {
+                    settingsCard(
+                        title: L10n.tr("settings.remoteControl.status.title"),
+                        tint: .red
+                    ) {
+                        Text(statusText)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             viewModel.startBrowsing(forceRefresh: true)
         }
@@ -455,5 +550,82 @@ struct RemoteControlClientView: View {
         .onDisappear {
             viewModel.stopBrowsing(disconnect: true)
         }
+    }
+
+    private func cardSection<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Section {
+            content()
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func settingsCard<Content: View>(
+        title: String,
+        tint: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(0.16))
+                        .frame(width: 22, height: 22)
+
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 8, height: 8)
+                }
+
+                Text(title)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+                    .tracking(0.3)
+            }
+
+            content()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(uiColor: .systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.8)
+        )
+        .shadow(color: .black.opacity(0.035), radius: 10, y: 4)
+    }
+
+    private func cardField<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+
+            content()
+        }
+    }
+}
+
+private extension View {
+    func remoteCardInputStyle() -> some View {
+        padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.8)
+            )
     }
 }

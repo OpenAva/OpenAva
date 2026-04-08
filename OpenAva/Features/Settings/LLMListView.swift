@@ -42,9 +42,9 @@ struct LLMListView: View {
 
                         modelDetail(for: editorMode)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.white)
+                            .background(Color(uiColor: .systemBackground))
                     }
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemGroupedBackground))
                 } else {
                     modelList
                 }
@@ -77,7 +77,7 @@ struct LLMListView: View {
             .onAppear {
                 refreshModels()
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemGroupedBackground))
         #else
             modelList
                 .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
@@ -149,7 +149,7 @@ struct LLMListView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -158,7 +158,7 @@ struct LLMListView: View {
                 Text(configuredFooterText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -181,7 +181,7 @@ struct LLMListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(Color(uiColor: .systemGroupedBackground))
         .confirmationDialog(
             L10n.tr("settings.usage.reset.confirmTitle"),
             isPresented: $showResetUsageConfirmation,
@@ -200,7 +200,7 @@ struct LLMListView: View {
     private var modelRows: some View {
         if models.isEmpty {
             EmptyModelsView()
-                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         } else {
@@ -209,7 +209,7 @@ struct LLMListView: View {
                     model: model,
                     isSelected: model.id == selectedModelID
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .contentShape(Rectangle())
@@ -301,31 +301,81 @@ struct LLMListView: View {
     private var usageSummarySection: some View {
         let snapshot = containerStore.usageSnapshot
         if !snapshot.byModel.isEmpty {
-            Section {
-                HStack {
-                    Text(L10n.tr("settings.usage.totalTokens"))
-                    Spacer()
-                    Text(formatUsageTokens(snapshot.totalTokens))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                if snapshot.totalCostUSD > 0 {
+            #if targetEnvironment(macCatalyst)
+                Text(L10n.tr("settings.usage.navigationTitle"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                VStack(spacing: 12) {
                     HStack {
-                        Text(L10n.tr("settings.usage.totalCost"))
+                        Text(L10n.tr("settings.usage.totalTokens"))
                         Spacer()
-                        Text(formatUsageCost(snapshot.totalCostUSD))
+                        Text(formatUsageTokens(snapshot.totalTokens))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    if snapshot.totalCostUSD > 0 {
+                        Divider()
+                        HStack {
+                            Text(L10n.tr("settings.usage.totalCost"))
+                            Spacer()
+                            Text(formatUsageCost(snapshot.totalCostUSD))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        showResetUsageConfirmation = true
+                    } label: {
+                        Text(L10n.tr("settings.usage.reset"))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                Button(role: .destructive) {
-                    showResetUsageConfirmation = true
-                } label: {
-                    Text(L10n.tr("settings.usage.reset"))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
+                )
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 20, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            #else
+                Section {
+                    HStack {
+                        Text(L10n.tr("settings.usage.totalTokens"))
+                        Spacer()
+                        Text(formatUsageTokens(snapshot.totalTokens))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    if snapshot.totalCostUSD > 0 {
+                        HStack {
+                            Text(L10n.tr("settings.usage.totalCost"))
+                            Spacer()
+                            Text(formatUsageCost(snapshot.totalCostUSD))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                    Button(role: .destructive) {
+                        showResetUsageConfirmation = true
+                    } label: {
+                        Text(L10n.tr("settings.usage.reset"))
+                    }
+                } header: {
+                    Text(L10n.tr("settings.usage.navigationTitle"))
                 }
-            } header: {
-                Text(L10n.tr("settings.usage.navigationTitle"))
-            }
+            #endif
         }
     }
 
@@ -452,8 +502,8 @@ private struct ModelRow: View {
                 .foregroundStyle(model.isConfigured ? .green : .orange)
                 .font(.caption)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground))

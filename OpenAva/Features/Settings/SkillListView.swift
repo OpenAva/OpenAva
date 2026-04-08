@@ -23,9 +23,9 @@ struct SkillListView: View {
 
                             skillDetail(for: presentation)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.white)
+                                .background(Color(uiColor: .systemBackground))
                         }
-                        .background(Color.white)
+                        .background(Color(uiColor: .systemGroupedBackground))
                     } else {
                         skillList
                     }
@@ -41,7 +41,7 @@ struct SkillListView: View {
                         }
                     }
                 }
-                .background(Color.white)
+                .background(Color(uiColor: .systemGroupedBackground))
             #else
                 skillList
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
@@ -135,7 +135,7 @@ struct SkillListView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -145,7 +145,7 @@ struct SkillListView: View {
                     Text(workspaceFooterText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 12, trailing: 12))
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
@@ -154,7 +154,7 @@ struct SkillListView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -163,7 +163,7 @@ struct SkillListView: View {
                 Text(L10n.tr("settings.skills.builtin.footer"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 10, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             #else
@@ -192,7 +192,7 @@ struct SkillListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     @ViewBuilder
@@ -200,14 +200,15 @@ struct SkillListView: View {
         if isLoading, workspaceSkills.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity)
-                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         } else if workspaceSkills.isEmpty {
             EmptySkillsView(
+                title: L10n.tr("settings.skills.emptyWorkspace.title"),
                 message: L10n.tr("settings.skills.emptyWorkspace.message")
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         } else {
@@ -219,7 +220,7 @@ struct SkillListView: View {
                         presentEditEditor(for: skill)
                     }
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .swipeActions(edge: .trailing) {
@@ -249,10 +250,13 @@ struct SkillListView: View {
     @ViewBuilder
     private var builtInSkillRows: some View {
         if builtInSkills.isEmpty {
-            EmptySkillsView(message: L10n.tr("settings.skills.emptyBuiltin.message"))
-                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+            EmptySkillsView(
+                title: L10n.tr("settings.skills.emptyBuiltin.title"),
+                message: L10n.tr("settings.skills.emptyBuiltin.message")
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         } else {
             ForEach(builtInSkills) { skill in
                 SkillRow(
@@ -262,7 +266,7 @@ struct SkillListView: View {
                         presentReadOnlyDetail(for: skill)
                     }
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .contextMenu {
@@ -875,10 +879,8 @@ private struct SkillEditorSheet: View {
                 }
             }
         }
-        #if targetEnvironment(macCatalyst)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
-        #endif
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(mode.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1216,7 +1218,7 @@ private struct SkillRow: View {
     var onOpen: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             tappableContent
 
             HStack(spacing: 10) {
@@ -1230,8 +1232,8 @@ private struct SkillRow: View {
                     .labelsHidden()
             }
         }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
@@ -1244,7 +1246,7 @@ private struct SkillRow: View {
     }
 
     private var tappableContent: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             skillIcon
             skillSummary
             Spacer(minLength: 8)
@@ -1338,21 +1340,25 @@ private struct SkillRow: View {
 }
 
 private struct EmptySkillsView: View {
+    let title: String
     let message: String
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Image(systemName: "sparkles.rectangle.stack")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
 
             Text(message)
-                .font(.subheadline)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding()
     }
 }
 

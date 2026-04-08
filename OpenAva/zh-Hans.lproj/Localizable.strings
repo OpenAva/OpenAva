@@ -319,7 +319,7 @@
 "settings.llmList.delete.title" = "删除模型？";
 "settings.llmList.delete.message" = "确认删除 \"%@\" 吗？此操作不可撤销。";
 "settings.llmList.empty.title" = "暂无已配置模型";
-"settings.llmList.empty.message" = "点击 + 按钮添加你的第一个 LLM 模型。";
+"settings.llmList.empty.message" = "点击右上角 + 按钮添加。";
 
 "settings.context.applyTemplate" = "应用模板";
 "settings.context.applyTemplate.confirmTitle" = "应用模板？";
@@ -365,7 +365,7 @@
 "settings.cron.schedule.everyInterval" = "每隔 %@";
 "settings.cron.schedule.at" = "于 %@";
 "settings.cron.empty.title" = "暂无 Cron 任务";
-"settings.cron.empty.message" = "点击 + 创建本地定时提醒。";
+"settings.cron.empty.message" = "点击右上角 + 按钮创建。";
 
 "settings.skills.addSkill" = "添加技能";
 "settings.skills.workspace.header" = "工作区技能";
@@ -374,7 +374,7 @@
 "settings.skills.builtin.header" = "内置技能";
 "settings.skills.builtin.footer" = "内置技能为只读。创建同名工作区技能可覆盖。";
 "settings.skills.emptyWorkspace.title" = "暂无工作区技能";
-"settings.skills.emptyWorkspace.message" = "暂无技能，点击右上角 + 新建。";
+"settings.skills.emptyWorkspace.message" = "点击右上角 + 按钮创建。";
 "settings.skills.emptyBuiltin.title" = "暂无内置技能";
 "settings.skills.emptyBuiltin.message" = "未找到内置技能包。";
 "settings.skills.delete.confirmTitle" = "删除技能？";

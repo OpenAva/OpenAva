@@ -295,10 +295,8 @@ struct LLMEditView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        #if targetEnvironment(macCatalyst)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
-        #endif
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

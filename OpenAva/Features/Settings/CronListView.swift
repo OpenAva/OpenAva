@@ -33,9 +33,9 @@ struct CronListView: View {
 
                             cronDetail
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.white)
+                                .background(Color(uiColor: .systemBackground))
                         }
-                        .background(Color.white)
+                        .background(Color(uiColor: .systemGroupedBackground))
                     } else {
                         cronList
                     }
@@ -51,7 +51,7 @@ struct CronListView: View {
                         }
                     }
                 }
-                .background(Color.white)
+                .background(Color(uiColor: .systemGroupedBackground))
             #else
                 cronList
                     .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
@@ -128,7 +128,7 @@ struct CronListView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
@@ -137,7 +137,7 @@ struct CronListView: View {
                 Text(scheduledFooterText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 10, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             #else
@@ -156,7 +156,7 @@ struct CronListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     @ViewBuilder
@@ -167,18 +167,18 @@ struct CronListView: View {
                 ProgressView()
                 Spacer()
             }
-            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         } else if jobs.isEmpty {
             EmptyCronJobsView()
-                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         } else {
             ForEach(jobs, id: \.id) { job in
                 CronJobRow(job: job, agentName: resolvedAgentName(for: job))
-                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .swipeActions(edge: .trailing) {
@@ -487,10 +487,8 @@ private struct CronAddJobSheet: View {
                 }
             }
         }
-        #if targetEnvironment(macCatalyst)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
-        #endif
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(L10n.tr("settings.cron.newJob.title"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -659,8 +657,8 @@ private struct CronJobRow: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
