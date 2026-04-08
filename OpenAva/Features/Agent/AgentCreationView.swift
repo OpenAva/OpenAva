@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 // MARK: - Reusable Input Components
@@ -8,12 +9,12 @@ private struct StyledFieldModifier: ViewModifier {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                Color(uiColor: .systemGray6),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                Color(uiColor: ChatUIDesign.Color.warmCream),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(uiColor: .systemGray4).opacity(0.45), lineWidth: 1)
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
     }
 }
@@ -45,12 +46,12 @@ private struct PlaceholderTextEditor: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            Color(uiColor: .systemGray6),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            Color(uiColor: ChatUIDesign.Color.warmCream),
+            in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(uiColor: .systemGray4).opacity(0.45), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
     }
 }
@@ -92,26 +93,27 @@ struct AgentCreationView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            formContent
-                .navigationTitle(L10n.tr("agent.creation.nav.title"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(L10n.tr("common.cancel")) {
-                            dismiss()
-                        }
+        formContent
+            .navigationTitle(L10n.tr("agent.creation.nav.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+        #if !targetEnvironment(macCatalyst)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("common.cancel")) {
+                        dismiss()
                     }
                 }
-                .onAppear {
-                    switch viewModel.creationMode {
-                    case .singleAgent:
-                        viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
-                    case .defaultTeam:
-                        viewModel.applyTeamDefaultsIfNeeded(avoiding: usedTeamEmojis)
-                    }
+            }
+        #endif
+            .onAppear {
+                switch viewModel.creationMode {
+                case .singleAgent:
+                    viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
+                case .defaultTeam:
+                    viewModel.applyTeamDefaultsIfNeeded(avoiding: usedTeamEmojis)
                 }
-        }
+            }
     }
 
     // MARK: - Form
@@ -144,7 +146,7 @@ struct AgentCreationView: View {
             .padding(.vertical, 24)
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         #if !targetEnvironment(macCatalyst)
             .scrollDismissesKeyboard(.interactively)
         #endif
@@ -371,23 +373,26 @@ struct AgentCreationView: View {
 
     private var createButtonSection: some View {
         Button(action: performPrimaryAction) {
-            if viewModel.isCreating {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .tint(.white)
-                    Text(L10n.tr("agent.creation.creating"))
+            Group {
+                if viewModel.isCreating {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .tint(.white)
+                        Text(L10n.tr("agent.creation.creating"))
+                    }
+                } else {
+                    Text(primaryActionTitle)
                 }
-            } else {
-                Text(primaryActionTitle)
             }
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: .tertiarySystemFill))
+            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
+        .buttonStyle(.plain)
         .disabled(!canPerformPrimaryAction || viewModel.isCreating)
-        .font(.headline)
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 20)
     }
 
@@ -494,7 +499,7 @@ struct AgentCreationView: View {
     }
 
     private func presetCard(preset: AgentPreset, isSelected: Bool) -> some View {
-        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemBackground)
+        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: ChatUIDesign.Color.warmCream)
         let borderColor = isSelected ? Color.accentColor.opacity(0.8) : Color.secondary.opacity(0.2)
 
         return VStack(alignment: .leading, spacing: 6) {
@@ -539,7 +544,7 @@ struct AgentCreationView: View {
     }
 
     private func teamPresetCard(preset: AgentPreset, isSelected: Bool) -> some View {
-        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemBackground)
+        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: ChatUIDesign.Color.warmCream)
         let borderColor = isSelected ? Color.accentColor.opacity(0.72) : Color.secondary.opacity(0.18)
 
         return VStack(alignment: .leading, spacing: 10) {

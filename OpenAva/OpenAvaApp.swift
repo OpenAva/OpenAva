@@ -5,12 +5,12 @@
 //  Created by yuanyan on 4/3/26.
 //
 
+import ChatUI
 import SwiftUI
 import UIKit
 import UserNotifications
 
 enum CatalystGlobalCommand: String {
-    case newConversation
     case openModelSettings
     case focusInput
 }
@@ -58,10 +58,13 @@ struct OpenAvaApp: App {
         }
 
         #if targetEnvironment(macCatalyst)
-            WindowGroup(L10n.tr("window.settings.title"), id: AppWindowID.settings) {
-                SettingsWindowRootView()
+            WindowGroup(L10n.tr("window.settings.title"), id: AppWindowID.settings, for: String.self) { $sectionID in
+                SettingsWindowRootView(sectionID: $sectionID)
                     .environment(\.appContainerStore, containerStore)
                     .environment(\.appWindowCoordinator, windowCoordinator)
+            }
+            defaultValue: {
+                SettingsWindowSection.llm.rawValue
             }
             .handlesExternalEvents(matching: [AppWindowID.settings])
 
@@ -70,6 +73,13 @@ struct OpenAvaApp: App {
                     .id(windowCoordinator.agentCreationRequestID)
                     .environment(\.appContainerStore, containerStore)
                     .environment(\.appWindowCoordinator, windowCoordinator)
+                    .onAppear {
+                        if let windowScene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.title == L10n.tr("window.agentCreation.title") }) {
+                            let activity = NSUserActivity(activityType: "openava.window.\(AppWindowID.agentCreation)")
+                            activity.targetContentIdentifier = AppWindowID.agentCreation
+                            windowScene.session.stateRestorationActivity = activity
+                        }
+                    }
             }
             .handlesExternalEvents(matching: [AppWindowID.agentCreation])
         #endif
@@ -101,6 +111,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         #if targetEnvironment(macCatalyst)
             CatalystWindowCoordinator.shared.install()
             RemoteControlService.shared.startIfNeeded()
+            configureCatalystBarButtonAppearance()
         #endif
 
         return true
@@ -139,6 +150,23 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 }
 
 #if targetEnvironment(macCatalyst)
+    /// Remove the rounded-rect background that Mac Catalyst forces on toolbar buttons.
+    private func configureCatalystBarButtonAppearance() {
+        let plain = UIBarButtonItemAppearance(style: .plain)
+        plain.normal.backgroundImage = UIImage()
+        plain.highlighted.backgroundImage = UIImage()
+        plain.focused.backgroundImage = UIImage()
+
+        let navBarAppearance = UINavigationBarAppearance()
+        navBarAppearance.configureWithDefaultBackground()
+        navBarAppearance.buttonAppearance = plain
+        navBarAppearance.doneButtonAppearance = plain
+
+        UINavigationBar.appearance().standardAppearance = navBarAppearance
+        UINavigationBar.appearance().compactAppearance = navBarAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navBarAppearance
+    }
+
     private final class CatalystWindowCoordinator {
         static let shared = CatalystWindowCoordinator()
 
@@ -175,9 +203,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
             if let titlebar = scene.titlebar {
                 titlebar.titleVisibility = .hidden
+                titlebar.separatorStyle = .none
             }
             scene.sizeRestrictions?.minimumSize = CGSize(width: 600, height: 440)
             scene.sizeRestrictions?.maximumSize = CGSize(width: 4096, height: 4096)
+
+            for window in scene.windows {
+                window.backgroundColor = ChatUIDesign.Color.warmCream
+            }
         }
     }
 
@@ -187,22 +220,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
             guard builder.system == .main else { return }
 
             builder.remove(menu: .newScene)
-
-            builder.insertChild(
-                UIMenu(
-                    title: "",
-                    options: .displayInline,
-                    children: [
-                        UIKeyCommand(
-                            title: L10n.tr("chat.command.newConversation"),
-                            action: #selector(handleNewConversationFromMenu(_:)),
-                            input: "n",
-                            modifierFlags: .command
-                        ),
-                    ]
-                ),
-                atStartOfMenu: .file
-            )
 
             builder.insertSibling(
                 UIMenu(
@@ -237,10 +254,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
             )
         }
 
-        @objc private func handleNewConversationFromMenu(_: Any?) {
-            CatalystGlobalCommandCenter.post(.newConversation)
-        }
-
         @objc private func handleOpenModelSettingsFromMenu(_: Any?) {
             CatalystGlobalCommandCenter.post(.openModelSettings)
         }
@@ -269,6 +282,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
 private struct AppRootView: View {
     var body: some View {
-        ChatRootView()
+        ZStack {
+            Color(uiColor: ChatUIDesign.Color.warmCream)
+                .ignoresSafeArea()
+            ChatRootView()
+        }
     }
 }

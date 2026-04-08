@@ -8,8 +8,6 @@ struct AgentProfile: Equatable, Identifiable {
     var localRuntimePath: String
     /// Per-agent selected LLM model identifier.
     var selectedModelID: UUID?
-    /// Per-agent selected chat session key.
-    var selectedSessionKey: String?
     var createdAtMs: Int64
     /// Whether to automatically compact context when nearing the context window limit.
     var autoCompactEnabled: Bool
@@ -29,7 +27,6 @@ struct AgentProfile: Equatable, Identifiable {
         workspacePath: String,
         localRuntimePath: String,
         selectedModelID: UUID? = nil,
-        selectedSessionKey: String? = nil,
         createdAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
         autoCompactEnabled: Bool = true
     ) {
@@ -39,7 +36,6 @@ struct AgentProfile: Equatable, Identifiable {
         self.workspacePath = workspacePath
         self.localRuntimePath = localRuntimePath
         self.selectedModelID = selectedModelID
-        self.selectedSessionKey = selectedSessionKey
         self.createdAtMs = createdAtMs
         self.autoCompactEnabled = autoCompactEnabled
     }
@@ -48,7 +44,7 @@ struct AgentProfile: Equatable, Identifiable {
 extension AgentProfile: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, name, emoji, workspacePath, localRuntimePath
-        case selectedModelID, selectedSessionKey, createdAtMs
+        case selectedModelID, createdAtMs
         case autoCompactEnabled
     }
 
@@ -60,7 +56,6 @@ extension AgentProfile: Codable {
         workspacePath = try c.decode(String.self, forKey: .workspacePath)
         localRuntimePath = try c.decode(String.self, forKey: .localRuntimePath)
         selectedModelID = try c.decodeIfPresent(UUID.self, forKey: .selectedModelID)
-        selectedSessionKey = try c.decodeIfPresent(String.self, forKey: .selectedSessionKey)
         createdAtMs = try c.decode(Int64.self, forKey: .createdAtMs)
         autoCompactEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCompactEnabled) ?? true
     }
@@ -102,25 +97,27 @@ enum AgentStore {
             return AgentStateSnapshot(agents: [], activeAgentID: nil)
         }
 
-        // Keep paths canonical so each agent always maps to
-        // Documents/<agent-name> for workspace and
-        // Documents/<agent-name>/.runtime for runtime state.
         var agents = decoded.agents
         var didNormalizePaths = false
-        var usedWorkspacePaths: Set<String> = []
-        for index in agents.indices {
-            let normalized = normalizedStoragePaths(
-                for: agents[index],
-                usedWorkspacePaths: &usedWorkspacePaths,
-                fileManager: fileManager
-            )
-            if normalized.workspacePath != agents[index].workspacePath ||
-                normalized.localRuntimePath != agents[index].localRuntimePath
-            {
-                didNormalizePaths = true
+        #if !targetEnvironment(macCatalyst)
+            // Keep iOS paths canonical so each agent always maps to
+            // Documents/<agent-name> for workspace and
+            // Documents/<agent-name>/.runtime for runtime state.
+            var usedWorkspacePaths: Set<String> = []
+            for index in agents.indices {
+                let normalized = normalizedStoragePaths(
+                    for: agents[index],
+                    usedWorkspacePaths: &usedWorkspacePaths,
+                    fileManager: fileManager
+                )
+                if normalized.workspacePath != agents[index].workspacePath ||
+                    normalized.localRuntimePath != agents[index].localRuntimePath
+                {
+                    didNormalizePaths = true
+                }
+                agents[index] = normalized
             }
-            agents[index] = normalized
-        }
+        #endif
 
         var activeAgentID = decoded.activeAgentID
         if let selectedActiveAgentID = activeAgentID,
@@ -138,9 +135,6 @@ enum AgentStore {
                 defaults: defaults
             )
         }
-
-        // Remove legacy Documents/OpenAva container after migration if it is empty.
-        cleanupLegacyWorkspaceRootIfEmpty(fileManager: fileManager)
 
         return AgentStateSnapshot(
             agents: agents,
@@ -332,22 +326,6 @@ enum AgentStore {
         return true
     }
 
-    @discardableResult
-    static func setSelectedSession(
-        _ selectedSessionKey: String?,
-        for agentID: UUID,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        var state = load(defaults: defaults)
-        guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
-            return false
-        }
-
-        state.agents[index].selectedSessionKey = nonEmpty(selectedSessionKey)
-        persist(state: state, defaults: defaults)
-        return true
-    }
-
     /// Repair per-agent selections after a model is deleted.
     static func repairSelectedModel(afterDeleting deletedModelID: UUID, replacement: UUID?, defaults: UserDefaults = .standard) {
         var state = load(defaults: defaults)
@@ -382,31 +360,13 @@ enum AgentStore {
                 userInfo: [NSLocalizedDescriptionKey: "Documents directory unavailable"]
             )
         }
-        let rootURL = documentsURL
+        #if targetEnvironment(macCatalyst)
+            let rootURL = documentsURL.appendingPathComponent("OpenAva", isDirectory: true)
+        #else
+            let rootURL = documentsURL
+        #endif
         try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return rootURL
-    }
-
-    private static func cleanupLegacyWorkspaceRootIfEmpty(fileManager: FileManager) {
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return
-        }
-
-        let legacyRootURL = documentsURL.appendingPathComponent("OpenAva", isDirectory: true)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: legacyRootURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return
-        }
-
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: legacyRootURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ), contents.isEmpty else {
-            return
-        }
-
-        try? fileManager.removeItem(at: legacyRootURL)
     }
 
     private static func nextWorkspaceDirectory(

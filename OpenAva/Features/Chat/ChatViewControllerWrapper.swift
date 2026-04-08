@@ -67,7 +67,7 @@ private final class ContextUsagePanelOverlayController: UIViewController {
         view.addSubview(panelShadowView)
 
         panelContentView.backgroundColor = .clear
-        panelContentView.layer.cornerRadius = 24
+        panelContentView.layer.cornerRadius = ChatUIDesign.Radius.card
         panelContentView.layer.cornerCurve = .continuous
         panelContentView.clipsToBounds = true
         panelContentView.translatesAutoresizingMaskIntoConstraints = false
@@ -178,17 +178,11 @@ private final class ContextUsagePanelOverlayController: UIViewController {
         private func handleGlobalCommand(_ notification: Notification) {
             guard let command = CatalystGlobalCommandCenter.resolve(notification) else { return }
             switch command {
-            case .newConversation:
-                handleNewConversationShortcut()
             case .openModelSettings:
                 handleOpenModelSettingsShortcut()
             case .focusInput:
                 handleFocusInputShortcut()
             }
-        }
-
-        @objc private func handleNewConversationShortcut() {
-            chatInputDidTriggerCommand(chatInputView, command: "/new")
         }
 
         @objc private func handleOpenModelSettingsShortcut() {
@@ -213,8 +207,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case openContext
         case openCron
         case openSkills
-        case openTeams
-        case openTeam(UUID)
         case openRemoteControl
         case runHeartbeatNow
     }
@@ -225,7 +217,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let chatClient: (any ChatClient)?
     let toolProvider: ToolProvider?
     let systemPrompt: String?
-    let sessions: [ChatSession]
     let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeAgentID: UUID?
@@ -233,18 +224,19 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let activeAgentEmoji: String
     let selectedModelName: String
     let selectedProviderName: String
-    let defaultSessionKey: String
-    let currentSessionKey: String?
     /// Non-nil when an App Intent wants to auto-send a message through the real agentic loop.
     /// `pendingAutoSendID` is a unique token so the coordinator never submits the same request twice.
     let pendingAutoSendID: String?
     let pendingAutoSendMessage: String?
     let onMenuAction: ((MenuAction) -> Void)?
-    let onSessionSwitch: ((String) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
+    let onCreateLocalTeam: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
     let onRenameCurrentAgent: ((String) -> Bool)?
+    let onAddAgentToTeam: ((UUID) -> Void)?
+    let onCreateAgentForTeam: ((UUID) -> Void)?
+    let onDeleteTeam: ((UUID) -> Void)?
     let modelConfig: AppConfig.LLMModel?
     let autoCompactEnabled: Bool
     let onToggleAutoCompact: (() -> Void)?
@@ -252,7 +244,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onMenuAction: onMenuAction,
-            sessions: sessions,
             teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
@@ -260,23 +251,20 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             activeAgentEmoji: activeAgentEmoji,
             selectedModelName: selectedModelName,
             selectedProviderName: selectedProviderName,
-            defaultSessionKey: defaultSessionKey,
-            currentSessionKey: currentSessionKey,
             autoCompactEnabled: autoCompactEnabled,
-            onSessionSwitch: onSessionSwitch,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
+            onCreateLocalTeam: onCreateLocalTeam,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
+            onAddAgentToTeam: onAddAgentToTeam,
+            onCreateAgentForTeam: onCreateAgentForTeam,
+            onDeleteTeam: onDeleteTeam,
             onToggleAutoCompact: onToggleAutoCompact
         )
     }
 
     func makeUIViewController(context: Context) -> ChatViewController {
-        let makeNewSessionID: @MainActor () -> String = {
-            "chat-\(UUID().uuidString)"
-        }
-
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
         if let runtimeRootURL, activeAgentID != nil {
@@ -321,10 +309,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         let inputConfiguration = ChatInputConfiguration(
             quickSettingItems: buildQuickSettingItems()
         )
-        let viewConfiguration = ChatViewController.Configuration(
-            input: inputConfiguration,
-            newSessionIDProvider: makeNewSessionID
-        )
+        let viewConfiguration = ChatViewController.Configuration(input: inputConfiguration)
         let chatViewController: ChatViewController
 
         #if targetEnvironment(macCatalyst)
@@ -370,7 +355,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     private func buildQuickSettingItems() -> [QuickSettingItem] {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
-            .command(id: "new-conversation", title: L10n.tr("chat.command.newConversation"), icon: "plus", command: "/new"),
             .command(id: "context-usage", title: L10n.tr("chat.contextUsage.badgePlaceholder"), icon: "gauge", command: QuickCommand.context),
             .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "heartbeat", command: "/heartbeat"),
         ]
@@ -412,7 +396,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: ChatViewController, context: Context) {
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
-        context.coordinator.sessions = sessions
         context.coordinator.teams = teams
         context.coordinator.agents = agents
         context.coordinator.activeAgentID = activeAgentID
@@ -420,8 +403,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.activeAgentEmoji = activeAgentEmoji
         context.coordinator.selectedModelName = selectedModelName
         context.coordinator.selectedProviderName = selectedProviderName
-        context.coordinator.defaultSessionKey = defaultSessionKey
-        context.coordinator.currentSessionKey = currentSessionKey
 
         // Auto-send on behalf of the intent if this is a new request.
         if let id = pendingAutoSendID,
@@ -434,11 +415,14 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             uiViewController.chatInputDidSubmit(uiViewController.chatInputView, object: content) { _ in }
         }
 
-        context.coordinator.onSessionSwitch = onSessionSwitch
         context.coordinator.onAgentSwitch = onAgentSwitch
         context.coordinator.onCreateLocalAgent = onCreateLocalAgent
+        context.coordinator.onCreateLocalTeam = onCreateLocalTeam
         context.coordinator.onDeleteCurrentAgent = onDeleteCurrentAgent
         context.coordinator.onRenameCurrentAgent = onRenameCurrentAgent
+        context.coordinator.onAddAgentToTeam = onAddAgentToTeam
+        context.coordinator.onCreateAgentForTeam = onCreateAgentForTeam
+        context.coordinator.onDeleteTeam = onDeleteTeam
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
         context.coordinator.refreshLeadingMenu()
@@ -467,7 +451,6 @@ extension ChatViewControllerWrapper {
         /// Tracks the last auto-sent request ID to prevent re-submission on re-render.
         var processedAutoSendID: String?
         var onMenuAction: ((MenuAction) -> Void)?
-        var sessions: [ChatSession]
         var teams: [TeamProfile]
         var agents: [AgentProfile]
         var activeAgentID: UUID?
@@ -475,13 +458,14 @@ extension ChatViewControllerWrapper {
         var activeAgentEmoji: String
         var selectedModelName: String
         var selectedProviderName: String
-        var defaultSessionKey: String
-        var currentSessionKey: String?
-        var onSessionSwitch: ((String) -> Void)?
         var onAgentSwitch: ((UUID) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
+        var onCreateLocalTeam: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
         var onRenameCurrentAgent: ((String) -> Bool)?
+        var onAddAgentToTeam: ((UUID) -> Void)?
+        var onCreateAgentForTeam: ((UUID) -> Void)?
+        var onDeleteTeam: ((UUID) -> Void)?
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
         weak var leadingMenuButton: UIButton?
@@ -489,7 +473,6 @@ extension ChatViewControllerWrapper {
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
-            sessions: [ChatSession],
             teams: [TeamProfile],
             agents: [AgentProfile],
             activeAgentID: UUID?,
@@ -497,18 +480,18 @@ extension ChatViewControllerWrapper {
             activeAgentEmoji: String,
             selectedModelName: String,
             selectedProviderName: String,
-            defaultSessionKey: String,
-            currentSessionKey: String?,
             autoCompactEnabled: Bool,
-            onSessionSwitch: ((String) -> Void)?,
             onAgentSwitch: ((UUID) -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
+            onCreateLocalTeam: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
             onRenameCurrentAgent: ((String) -> Bool)?,
+            onAddAgentToTeam: ((UUID) -> Void)?,
+            onCreateAgentForTeam: ((UUID) -> Void)?,
+            onDeleteTeam: ((UUID) -> Void)?,
             onToggleAutoCompact: (() -> Void)?
         ) {
             self.onMenuAction = onMenuAction
-            self.sessions = sessions
             self.teams = teams
             self.agents = agents
             self.activeAgentID = activeAgentID
@@ -516,14 +499,15 @@ extension ChatViewControllerWrapper {
             self.activeAgentEmoji = activeAgentEmoji
             self.selectedModelName = selectedModelName
             self.selectedProviderName = selectedProviderName
-            self.defaultSessionKey = defaultSessionKey
-            self.currentSessionKey = currentSessionKey
             self.autoCompactEnabled = autoCompactEnabled
-            self.onSessionSwitch = onSessionSwitch
             self.onAgentSwitch = onAgentSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
+            self.onCreateLocalTeam = onCreateLocalTeam
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
             self.onRenameCurrentAgent = onRenameCurrentAgent
+            self.onAddAgentToTeam = onAddAgentToTeam
+            self.onCreateAgentForTeam = onCreateAgentForTeam
+            self.onDeleteTeam = onDeleteTeam
             self.onToggleAutoCompact = onToggleAutoCompact
             super.init()
             swarmObserver = NotificationCenter.default.addObserver(
@@ -549,7 +533,7 @@ extension ChatViewControllerWrapper {
             let renameTitle = L10n.tr("chat.menu.renameAgent")
             let deleteTitle = L10n.tr("chat.menu.deleteAgent")
 
-            // Keep stable order: chat configuration first, then agent management.
+            // Keep stable order: chat configuration first, then chat controls and agent management.
             let modelAction = UIAction(
                 title: L10n.tr("settings.llm.navigationTitle"),
                 image: UIImage(systemName: "cpu")
@@ -625,13 +609,12 @@ extension ChatViewControllerWrapper {
                     skillsAction,
                     contextAction,
                     cronAction,
-                    remoteControlAction,
                 ]
             )
             let agentManagementMenu = UIMenu(
                 title: "",
                 options: .displayInline,
-                children: [backgroundAction, autoCompactAction, renameAction, deleteAction]
+                children: [backgroundAction, autoCompactAction, remoteControlAction, renameAction, deleteAction]
             )
 
             return UIMenu(children: [
@@ -814,31 +797,17 @@ extension ChatViewControllerWrapper {
             controller.present(overlayController, animated: true)
         }
 
-        func chatViewControllerRequestNewSessionID(_ controller: ChatViewController, from _: String) -> String? {
-            _ = controller
-            let newID = "chat-\(UUID().uuidString)"
-            onSessionSwitch?(newID)
-            return newID
-        }
-
         private func buildAgentMenu() -> UIMenu {
             let groupedAgentIDs = Set(teams.flatMap(\.agentPoolIDs))
             let teamMenus = teams
                 .sorted(by: compareTeams)
                 .map(buildTeamSubmenu)
 
-            let ungroupedAgents = agents.filter { !groupedAgentIDs.contains($0.id) }
-            let ungroupedMenu: UIMenu? = if ungroupedAgents.isEmpty {
-                nil
-            } else {
-                UIMenu(
-                    title: L10n.tr("chat.menu.ungroupedAgents"),
-                    image: UIImage(systemName: activeAgentIsUngrouped ? "person.crop.circle.badge.questionmark.fill" : "person.crop.circle.badge.questionmark"),
-                    children: ungroupedAgents.map(makeAgentAction)
-                )
-            }
+            let ungroupedActions = agents
+                .filter { !groupedAgentIDs.contains($0.id) }
+                .map(makeAgentAction)
 
-            let fallbackMenu: UIMenu? = if teamMenus.isEmpty, ungroupedMenu == nil {
+            let fallbackMenu: UIMenu? = if teamMenus.isEmpty, ungroupedActions.isEmpty {
                 UIMenu(
                     title: "",
                     options: .displayInline,
@@ -854,16 +823,16 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onCreateLocalAgent?()
             }
-            let manageTeamsAction = UIAction(
-                title: L10n.tr("chat.menu.manageTeams"),
-                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.cog"))
+            let newTeamAction = UIAction(
+                title: L10n.tr("chat.menu.newTeam"),
+                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "users"))
             ) { [weak self] _ in
-                self?.onMenuAction?(.openTeams)
+                self?.onCreateLocalTeam?()
             }
 
-            let contentChildren = teamMenus + [ungroupedMenu, fallbackMenu].compactMap { $0 }
+            let contentChildren = teamMenus + ungroupedActions + [fallbackMenu].compactMap { $0 }
             let contentSection = UIMenu(title: "", options: .displayInline, children: contentChildren)
-            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction, manageTeamsAction])
+            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction, newTeamAction])
             return UIMenu(title: "", children: [contentSection, entrySection])
         }
 
@@ -891,7 +860,35 @@ extension ChatViewControllerWrapper {
                 ) { _ in }
                 bottomChildren.append(UIMenu(title: "", options: .displayInline, children: [taskLabel]))
             }
-            bottomChildren.append(UIMenu(title: "", options: .displayInline, children: [manageTeamAction(for: team)]))
+
+            let addExistingAction = UIAction(
+                title: L10n.tr("team.management.action.manageAgents"),
+                image: UIImage(systemName: "person.2.badge.gearshape")
+            ) { [weak self] _ in
+                self?.onAddAgentToTeam?(team.id)
+            }
+
+            let createAndAddAction = UIAction(
+                title: L10n.tr("team.management.action.createAndAdd"),
+                image: UIImage(systemName: "plus.circle")
+            ) { [weak self] _ in
+                self?.onCreateAgentForTeam?(team.id)
+            }
+
+            let deleteTeamAction = UIAction(
+                title: L10n.tr("chat.menu.deleteTeamNamed", team.name),
+                image: UIImage(systemName: "trash"),
+                attributes: [.destructive]
+            ) { [weak self] _ in
+                self?.onDeleteTeam?(team.id)
+            }
+
+            let managementSection = UIMenu(title: "", options: .displayInline, children: [
+                addExistingAction,
+                createAndAddAction,
+                deleteTeamAction,
+            ])
+            bottomChildren.append(managementSection)
 
             return UIMenu(
                 title: teamMenuTitle(for: team, snapshot: snapshot),
@@ -960,18 +957,6 @@ extension ChatViewControllerWrapper {
                 return lhs.createdAt < rhs.createdAt
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-
-        private var activeAgentIsUngrouped: Bool {
-            guard let activeAgentID else { return false }
-            return !teams.contains { $0.agentPoolIDs.contains(activeAgentID) }
-        }
-
-        private func manageTeamAction(for team: TeamProfile) -> UIAction {
-            let title = String(format: L10n.tr("chat.menu.team.manage"), team.name)
-            return UIAction(title: title, image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.cog"))) { [weak self] _ in
-                self?.onMenuAction?(.openTeam(team.id))
-            }
         }
 
         private func standardizedMenuIcon(
@@ -1051,7 +1036,7 @@ extension ChatViewControllerWrapper {
                     context.cgContext.setFillColor(UIColor.systemGreen.cgColor)
                     context.cgContext.fillEllipse(in: dotRect)
 
-                    context.cgContext.setStrokeColor(UIColor.systemBackground.cgColor)
+                    context.cgContext.setStrokeColor(ChatUIDesign.Color.warmCream.cgColor)
                     context.cgContext.setLineWidth(1)
                     context.cgContext.strokeEllipse(in: dotRect.insetBy(dx: 0.5, dy: 0.5))
                 }

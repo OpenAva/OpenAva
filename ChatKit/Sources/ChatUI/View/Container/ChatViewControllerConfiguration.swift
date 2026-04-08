@@ -11,16 +11,13 @@ public extension ChatViewController {
     struct Configuration {
         public var input: ChatInputConfiguration
         public var messageTheme: MarkdownTheme
-        public var newSessionIDProvider: @MainActor () -> String
 
         public init(
             input: ChatInputConfiguration = .default,
-            messageTheme: MarkdownTheme = .default,
-            newSessionIDProvider: @escaping @MainActor () -> String = { UUID().uuidString }
+            messageTheme: MarkdownTheme = .default
         ) {
             self.input = input
             self.messageTheme = messageTheme
-            self.newSessionIDProvider = newSessionIDProvider
         }
     }
 }

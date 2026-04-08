@@ -13,9 +13,6 @@ public enum LocalControlEvent: String, Codable, Sendable {
 public enum LocalControlCommand: String, Codable, Sendable {
     case listAgents = "remote.agent.list"
     case selectAgent = "remote.agent.select"
-    case listSessions = "remote.session.list"
-    case createSession = "remote.session.create"
-    case selectSession = "remote.session.select"
     case sendMessage = "remote.message.send"
 }
 
@@ -106,20 +103,6 @@ public struct LocalControlAgentSummary: Codable, Sendable, Equatable {
     }
 }
 
-public struct LocalControlSessionSummary: Codable, Sendable, Equatable {
-    public var key: String
-    public var displayName: String
-    public var updatedAtMs: Int64
-    public var isActive: Bool
-
-    public init(key: String, displayName: String, updatedAtMs: Int64, isActive: Bool) {
-        self.key = key
-        self.displayName = displayName
-        self.updatedAtMs = updatedAtMs
-        self.isActive = isActive
-    }
-}
-
 public struct LocalControlListAgentsPayload: Codable, Sendable, Equatable {
     public var agents: [LocalControlAgentSummary]
     public var activeAgentID: String?
@@ -146,73 +129,19 @@ public struct LocalControlSelectAgentPayload: Codable, Sendable, Equatable {
     }
 }
 
-public struct LocalControlListSessionsParams: Codable, Sendable, Equatable {
-    public var agentID: String?
-
-    public init(agentID: String? = nil) {
-        self.agentID = agentID
-    }
-}
-
-public struct LocalControlListSessionsPayload: Codable, Sendable, Equatable {
-    public var sessions: [LocalControlSessionSummary]
-    public var activeSessionKey: String?
-
-    public init(sessions: [LocalControlSessionSummary], activeSessionKey: String?) {
-        self.sessions = sessions
-        self.activeSessionKey = activeSessionKey
-    }
-}
-
-public struct LocalControlCreateSessionParams: Codable, Sendable, Equatable {
-    public var preferredKey: String?
-
-    public init(preferredKey: String? = nil) {
-        self.preferredKey = preferredKey
-    }
-}
-
-public struct LocalControlCreateSessionPayload: Codable, Sendable, Equatable {
-    public var session: LocalControlSessionSummary
-
-    public init(session: LocalControlSessionSummary) {
-        self.session = session
-    }
-}
-
-public struct LocalControlSelectSessionParams: Codable, Sendable, Equatable {
-    public var sessionKey: String
-
-    public init(sessionKey: String) {
-        self.sessionKey = sessionKey
-    }
-}
-
-public struct LocalControlSelectSessionPayload: Codable, Sendable, Equatable {
-    public var activeSessionKey: String
-
-    public init(activeSessionKey: String) {
-        self.activeSessionKey = activeSessionKey
-    }
-}
-
 public struct LocalControlSendMessageParams: Codable, Sendable, Equatable {
     public var message: String
-    public var sessionKey: String?
 
-    public init(message: String, sessionKey: String? = nil) {
+    public init(message: String) {
         self.message = message
-        self.sessionKey = sessionKey
     }
 }
 
 public struct LocalControlSendMessagePayload: Codable, Sendable, Equatable {
     public var enqueued: Bool
-    public var sessionKey: String
 
-    public init(enqueued: Bool, sessionKey: String) {
+    public init(enqueued: Bool) {
         self.enqueued = enqueued
-        self.sessionKey = sessionKey
     }
 }
 

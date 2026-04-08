@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 struct RemoteControlSettingsView: View {
@@ -7,55 +8,15 @@ struct RemoteControlSettingsView: View {
 
     var body: some View {
         #if targetEnvironment(macCatalyst)
-            Form {
-                cardSection {
-                    settingsCard(
-                        title: L10n.tr("settings.remoteControl.host.title"),
-                        tint: .blue
-                    ) {
-                        if let advertiseStatusText = statusStore.advertiseStatusText {
-                            Text(advertiseStatusText)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let advertiseRegistrationText = statusStore.advertiseRegistrationText {
-                            Text(advertiseRegistrationText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let port = statusStore.advertisedPort {
-                            infoRow(
-                                title: L10n.tr("settings.remoteControl.status.hostPort"),
-                                value: String(port)
-                            )
-                        }
-
-                        if let pairCode = statusStore.currentPairCode {
-                            infoRow(
-                                title: L10n.tr("settings.remoteControl.status.hostCode"),
-                                value: pairCode,
-                                emphasis: true
-                            )
-                        } else {
-                            statusPill(
-                                title: L10n.tr("settings.remoteControl.host.waiting"),
-                                tint: .orange
-                            )
-                        }
-
-                        if let peerName = statusStore.currentPairPeerName {
-                            infoRow(
-                                title: L10n.tr("settings.remoteControl.status.hostPeer"),
-                                value: peerName
-                            )
-                        }
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    hostCard
                 }
+                .padding(24)
+                .frame(maxWidth: 640)
             }
-            .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
             .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
             .navigationBarTitleDisplayMode(.inline)
         #else
@@ -64,82 +25,77 @@ struct RemoteControlSettingsView: View {
     }
 
     #if targetEnvironment(macCatalyst)
-        private func cardSection<Content: View>(
-            @ViewBuilder content: () -> Content
-        ) -> some View {
-            Section {
-                content()
-            }
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-        }
-
-        private func settingsCard<Content: View>(
-            title: String,
-            tint: Color,
-            @ViewBuilder content: () -> Content
-        ) -> some View {
+        private var hostCard: some View {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     ZStack {
                         Circle()
-                            .fill(tint.opacity(0.16))
-                            .frame(width: 22, height: 22)
+                            .fill(Color.blue.opacity(0.16))
+                            .frame(width: 18, height: 18)
 
                         Circle()
-                            .fill(tint)
+                            .fill(Color.blue)
                             .frame(width: 8, height: 8)
                     }
 
-                    Text(title)
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-                        .tracking(0.3)
+                    Text(L10n.tr("settings.remoteControl.host.title"))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                 }
 
-                content()
+                VStack(alignment: .leading, spacing: 12) {
+                    if let advertiseStatusText = statusStore.advertiseStatusText {
+                        Text(advertiseStatusText)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let advertiseRegistrationText = statusStore.advertiseRegistrationText {
+                        Text(advertiseRegistrationText)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let port = statusStore.advertisedPort {
+                        Text("\(L10n.tr("settings.remoteControl.status.hostPort")): \(port)")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    }
+
+                    if let pairCode = statusStore.currentPairCode {
+                        HStack(spacing: 8) {
+                            Text(L10n.tr("settings.remoteControl.status.hostCode"))
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            Text(pairCode)
+                                .font(.system(size: 14, design: .monospaced).weight(.medium))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        }
+                    } else {
+                        statusPill(
+                            title: L10n.tr("settings.remoteControl.host.waiting"),
+                            tint: Color(uiColor: ChatUIDesign.Color.brandOrange)
+                        )
+                    }
+
+                    if let peerName = statusStore.currentPairPeerName {
+                        Text("\(L10n.tr("settings.remoteControl.status.hostPeer")): \(peerName)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    }
+                }
             }
             .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(uiColor: .systemBackground))
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.8)
-            )
-            .shadow(color: .black.opacity(0.035), radius: 10, y: 4)
-        }
-
-        private func infoRow(
-            title: String,
-            value: String,
-            emphasis: Bool = false
-        ) -> some View {
-            HStack(alignment: .center, spacing: 12) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 12)
-
-                Text(value)
-                    .font(emphasis ? .system(.body, design: .monospaced).weight(.semibold) : .subheadline)
-                    .foregroundStyle(emphasis ? .primary : .secondary)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.trailing)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
         }
 
@@ -147,17 +103,17 @@ struct RemoteControlSettingsView: View {
             title: String,
             tint: Color
         ) -> some View {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Circle()
                     .fill(tint)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 6, height: 6)
 
                 Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
                 Capsule()
                     .fill(tint.opacity(0.12))

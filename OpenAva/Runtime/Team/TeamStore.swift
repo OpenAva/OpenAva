@@ -76,6 +76,19 @@ enum TeamStore {
     }
 
     @discardableResult
+    static func updateTeamProfile(
+        _ profile: TeamProfile,
+        defaults: UserDefaults = .standard
+    ) -> TeamProfile? {
+        return mutateTeam(profile.id, defaults: defaults) { team in
+            team.name = profile.name
+            team.emoji = profile.emoji
+            team.description = profile.description
+            team.agentPoolIDs = profile.agentPoolIDs
+        }
+    }
+
+    @discardableResult
     static func updateTeam(
         _ teamID: UUID,
         name: String,

@@ -1,3 +1,4 @@
+import ChatUI
 import Network
 import Observation
 import OpenClawKit
@@ -13,7 +14,6 @@ final class RemoteControlClientViewModel {
     var pairCode = ""
     var statusText: String?
     var agents: [LocalControlAgentSummary] = []
-    var sessions: [LocalControlSessionSummary] = []
     var messageText = ""
     var isConnected = false
 
@@ -49,6 +49,9 @@ final class RemoteControlClientViewModel {
                     self?.handleDisconnect(reason: reason)
                 }
             }
+        }
+        Task { [weak self] in
+            await self?.restoreLastPairedStatusIfNeeded()
         }
     }
 
@@ -116,10 +119,9 @@ final class RemoteControlClientViewModel {
 
     func approvePairing() async {
         do {
-            _ = try await client.approvePairing(code: pairCode)
-            statusText = L10n.tr("settings.remoteControl.paired")
+            let approved = try await client.approvePairing(code: pairCode)
+            statusText = L10n.tr("settings.remoteControl.pairedWith", approved.host.displayName)
             await refreshAgents()
-            await refreshSessions()
         } catch {
             applyErrorState(error)
         }
@@ -147,46 +149,6 @@ final class RemoteControlClientViewModel {
             )
             _ = try await client.invoke(request)
             await refreshAgents()
-            await refreshSessions()
-        } catch {
-            applyErrorState(error)
-        }
-    }
-
-    func refreshSessions() async {
-        guard isConnected else { return }
-        do {
-            let request = BridgeInvokeRequest(id: UUID().uuidString, command: LocalControlCommand.listSessions.rawValue, paramsJSON: nil)
-            let response = try await client.invoke(request)
-            let payload: LocalControlListSessionsPayload = try decodePayload(from: response)
-            sessions = payload.sessions
-        } catch {
-            applyErrorState(error)
-        }
-    }
-
-    func createSession() async {
-        guard isConnected else { return }
-        do {
-            let request = BridgeInvokeRequest(id: UUID().uuidString, command: LocalControlCommand.createSession.rawValue, paramsJSON: nil)
-            _ = try await client.invoke(request)
-            await refreshSessions()
-        } catch {
-            applyErrorState(error)
-        }
-    }
-
-    func selectSession(_ session: LocalControlSessionSummary) async {
-        guard isConnected else { return }
-        do {
-            let params = LocalControlSelectSessionParams(sessionKey: session.key)
-            let request = try BridgeInvokeRequest(
-                id: UUID().uuidString,
-                command: LocalControlCommand.selectSession.rawValue,
-                paramsJSON: encodeJSON(params)
-            )
-            _ = try await client.invoke(request)
-            await refreshSessions()
         } catch {
             applyErrorState(error)
         }
@@ -196,8 +158,7 @@ final class RemoteControlClientViewModel {
         let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isConnected, !trimmed.isEmpty else { return }
         do {
-            let activeSession = sessions.first(where: { $0.isActive })?.key
-            let params = LocalControlSendMessageParams(message: trimmed, sessionKey: activeSession)
+            let params = LocalControlSendMessageParams(message: trimmed)
             let request = try BridgeInvokeRequest(
                 id: UUID().uuidString,
                 command: LocalControlCommand.sendMessage.rawValue,
@@ -241,6 +202,13 @@ final class RemoteControlClientViewModel {
         return formatter.string(from: date)
     }
 
+    private func restoreLastPairedStatusIfNeeded() async {
+        guard !isConnected, statusText == nil else { return }
+        let peers = await LocalControlPairingStore.shared.allPeers()
+        guard let peer = peers.max(by: { $0.pairedAtMs < $1.pairedAtMs }) else { return }
+        statusText = L10n.tr("settings.remoteControl.pairedWith", peer.displayName)
+    }
+
     private func applyErrorState(_ error: Error) {
         if isConnectionError(error) {
             handleDisconnect(reason: error.localizedDescription)
@@ -262,7 +230,6 @@ final class RemoteControlClientViewModel {
     private func resetConnectionState() {
         isConnected = false
         agents = []
-        sessions = []
         refreshDiscoveryStatus()
     }
 
@@ -350,8 +317,8 @@ struct RemoteControlClientView: View {
     @State private var viewModel = RemoteControlClientViewModel()
 
     var body: some View {
-        Form {
-            cardSection {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
                 settingsCard(
                     title: L10n.tr("settings.remoteControl.discovery.title"),
                     tint: .blue
@@ -368,24 +335,22 @@ struct RemoteControlClientView: View {
                     Button(L10n.tr("settings.remoteControl.discovery.connect")) {
                         Task { await viewModel.connectAndPair() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemotePrimaryButtonStyle())
                     .disabled(viewModel.selectedServiceID == nil)
 
                     if let discoveryStatusText = viewModel.discoveryStatusText {
                         Text(discoveryStatusText)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     }
 
                     if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
                         Text(discoveryDiagnosticsText)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     }
                 }
-            }
 
-            cardSection {
                 settingsCard(
                     title: L10n.tr("settings.remoteControl.pairing.title"),
                     tint: .indigo
@@ -400,12 +365,10 @@ struct RemoteControlClientView: View {
                     Button(L10n.tr("settings.remoteControl.pairing.approve")) {
                         Task { await viewModel.approvePairing() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemotePrimaryButtonStyle())
                     .disabled(viewModel.pairCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            }
 
-            cardSection {
                 settingsCard(
                     title: L10n.tr("settings.remoteControl.agents.title"),
                     tint: .green
@@ -413,98 +376,24 @@ struct RemoteControlClientView: View {
                     if viewModel.agents.isEmpty {
                         Text(L10n.tr("settings.remoteControl.refresh"))
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(viewModel.agents, id: \.id) { agent in
-                            Button {
-                                Task { await viewModel.selectAgent(agent) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Text("\(agent.emoji) \(agent.name)")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.primary)
-
-                                    Spacer()
-
-                                    if agent.isActive {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(agent.isActive ? Color.green.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            agentButton(agent)
                         }
                     }
 
                     Button(L10n.tr("settings.remoteControl.refresh")) {
                         Task {
                             await viewModel.refreshAgents()
-                            await viewModel.refreshSessions()
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(RemoteSecondaryButtonStyle())
                     .disabled(!viewModel.isConnected)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
 
-            cardSection {
-                settingsCard(
-                    title: L10n.tr("settings.remoteControl.sessions.title"),
-                    tint: .orange
-                ) {
-                    Button(L10n.tr("settings.remoteControl.sessions.new")) {
-                        Task { await viewModel.createSession() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!viewModel.isConnected)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    ForEach(viewModel.sessions, id: \.key) { session in
-                        Button {
-                            Task { await viewModel.selectSession(session) }
-                        } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(session.displayName)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.primary)
-
-                                    Text(session.key)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-
-                                Spacer()
-
-                                if session.isActive {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(session.isActive ? Color.orange.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            cardSection {
                 settingsCard(
                     title: L10n.tr("settings.remoteControl.message.title"),
                     tint: .purple
@@ -518,29 +407,28 @@ struct RemoteControlClientView: View {
                     Button(L10n.tr("settings.remoteControl.message.send")) {
                         Task { await viewModel.sendMessage() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemotePrimaryButtonStyle())
                     .disabled(!viewModel.isConnected || viewModel.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            }
 
-            if let statusText = viewModel.statusText {
-                cardSection {
+                if let statusText = viewModel.statusText {
                     settingsCard(
                         title: L10n.tr("settings.remoteControl.status.title"),
                         tint: .red
                     ) {
                         Text(statusText)
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
+            .padding(24)
+            .frame(maxWidth: 640)
         }
-        .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
-        .navigationBarTitleDisplayMode(.inline)
         .task {
             viewModel.startBrowsing(forceRefresh: true)
         }
@@ -552,28 +440,17 @@ struct RemoteControlClientView: View {
         }
     }
 
-    private func cardSection<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Section {
-            content()
-        }
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
     private func settingsCard<Content: View>(
         title: String,
         tint: Color,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ZStack {
                     Circle()
                         .fill(tint.opacity(0.16))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 18, height: 18)
 
                     Circle()
                         .fill(tint)
@@ -581,24 +458,22 @@ struct RemoteControlClientView: View {
                 }
 
                 Text(title)
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                    .tracking(0.3)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
             }
 
             content()
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(uiColor: .systemBackground))
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.035), radius: 10, y: 4)
     }
 
     private func cardField<Content: View>(
@@ -607,11 +482,74 @@ struct RemoteControlClientView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             content()
         }
+    }
+
+    private func agentButton(_ agent: LocalControlAgentSummary) -> some View {
+        let backgroundColor = agent.isActive
+            ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.12)
+            : Color(uiColor: ChatUIDesign.Color.warmCream)
+
+        return Button {
+            Task { await viewModel.selectAgent(agent) }
+        } label: {
+            HStack(spacing: 12) {
+                Text(verbatim: agent.emoji + " " + agent.name)
+                    .font(.subheadline.weight(.regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                Spacer()
+
+                if agent.isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .fill(backgroundColor)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct RemotePrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+    }
+}
+
+struct RemoteSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.offBlack), lineWidth: 1)
+            )
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }
 
@@ -620,12 +558,12 @@ private extension View {
         padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
     }
 }

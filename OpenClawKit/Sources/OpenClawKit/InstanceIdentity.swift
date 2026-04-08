@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(UIKit)
+#if canImport(UIKit) && !targetEnvironment(macCatalyst)
     import UIKit
 #endif
 
@@ -12,7 +12,7 @@ public enum InstanceIdentity {
         UserDefaults(suiteName: suiteName) ?? .standard
     }
 
-    #if canImport(UIKit)
+    #if canImport(UIKit) && !targetEnvironment(macCatalyst)
         private static func readMainActor<T: Sendable>(_ body: @MainActor () -> T) -> T {
             if Thread.isMainThread {
                 return MainActor.assumeIsolated { body() }
@@ -38,15 +38,17 @@ public enum InstanceIdentity {
     }()
 
     public static let displayName: String = {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !targetEnvironment(macCatalyst)
             let name = Self.readMainActor {
                 UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return name.isEmpty ? "openava" : name
         #else
-            if let name = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !name.isEmpty
-            {
+            let name = ProcessInfo.processInfo.hostName
+                .split(separator: ".", maxSplits: 1, omittingEmptySubsequences: true)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !name.isEmpty {
                 return name
             }
             return "openava"
@@ -54,7 +56,7 @@ public enum InstanceIdentity {
     }()
 
     public static let modelIdentifier: String? = {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !targetEnvironment(macCatalyst)
             var systemInfo = utsname()
             uname(&systemInfo)
             let machine = withUnsafeBytes(of: &systemInfo.machine) { ptr in
@@ -77,7 +79,7 @@ public enum InstanceIdentity {
     }()
 
     public static let deviceFamily: String = {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !targetEnvironment(macCatalyst)
             return Self.readMainActor {
                 switch UIDevice.current.userInterfaceIdiom {
                 case .pad: return "iPad"
@@ -92,7 +94,7 @@ public enum InstanceIdentity {
 
     public static let platformString: String = {
         let v = ProcessInfo.processInfo.operatingSystemVersion
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !targetEnvironment(macCatalyst)
             let name = Self.readMainActor {
                 switch UIDevice.current.userInterfaceIdiom {
                 case .pad: return "iPadOS"

@@ -1,4 +1,5 @@
 import Combine
+import Foundation
 import SwiftUI
 
 enum AppWindowID {
@@ -11,8 +12,6 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
     case skills
     case context
     case cron
-    case teams
-    case remoteControl
 
     var id: String {
         rawValue
@@ -28,48 +27,48 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
             L10n.tr("settings.context.navigationTitle")
         case .cron:
             L10n.tr("settings.cron.navigationTitle")
-        case .teams:
-            L10n.tr("team.management.navigationTitle")
-        case .remoteControl:
-            L10n.tr("settings.remoteControl.navigationTitle")
         }
     }
 }
 
 final class AppWindowCoordinator: ObservableObject {
-    @Published private(set) var settingsSelection: SettingsWindowSection = .llm
-    @Published private(set) var settingsRequestID: Int = 0
     @Published private(set) var agentCreationRequestID: Int = 0
-    @Published private(set) var selectedTeamID: UUID?
-
-    func openSettings(_ section: SettingsWindowSection, teamID: UUID? = nil) {
-        settingsSelection = section
-        selectedTeamID = teamID
-        settingsRequestID &+= 1
-    }
+    @Published private(set) var teamCreationRequestID: Int = 0
+    @Published private(set) var agentCreationMode: AgentCreationViewModel.CreationMode = .singleAgent
 
     func openAgentCreation() {
+        agentCreationMode = .singleAgent
+        agentCreationRequestID &+= 1
+    }
+
+    func openTeamCreation() {
+        agentCreationMode = .defaultTeam
         agentCreationRequestID &+= 1
     }
 }
 
 struct SettingsWindowRootView: View {
-    @Environment(\.appWindowCoordinator) private var windowCoordinator
-    @State private var selection: SettingsWindowSection = .llm
+    @Binding private var sectionID: String
+
+    init(sectionID: Binding<String>) {
+        _sectionID = sectionID
+    }
 
     var body: some View {
         NavigationStack {
-            detailView(for: selection)
+            detailView(for: section)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color.white)
         }
         .background(Color.white)
-        .onAppear {
-            selection = windowCoordinator.settingsSelection
+    }
+
+    private var section: SettingsWindowSection {
+        guard let section = SettingsWindowSection(rawValue: sectionID)
+        else {
+            return .llm
         }
-        .onChange(of: windowCoordinator.settingsRequestID) { _, _ in
-            selection = windowCoordinator.settingsSelection
-        }
+        return section
     }
 
     @ViewBuilder
@@ -83,21 +82,20 @@ struct SettingsWindowRootView: View {
             ContextSettingsView()
         case .cron:
             CronListView()
-        case .teams:
-            TeamManagementView()
-        case .remoteControl:
-            RemoteControlSettingsView()
         }
     }
 }
 
 struct AgentCreationWindowRootView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appWindowCoordinator) private var windowCoordinator
 
     var body: some View {
-        AgentCreationView(onComplete: {
-            dismiss()
-        })
+        NavigationStack {
+            AgentCreationView(initialMode: windowCoordinator.agentCreationMode, onComplete: {
+                dismiss()
+            })
+        }
         .background(Color.white)
     }
 }

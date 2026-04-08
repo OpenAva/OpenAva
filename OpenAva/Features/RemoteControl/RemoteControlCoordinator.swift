@@ -5,53 +5,12 @@ import OpenClawKit
 final class RemoteControlCoordinator {
     static let shared = RemoteControlCoordinator()
 
-    struct State: Equatable {
-        var activeAgentID: UUID?
-        var activeSessionKey: String?
-        var defaultSessionKey: String
-        var sessionSummaries: [ChatSession]
-        var runtimeRootURL: URL?
-    }
-
-    private var state = State(
-        activeAgentID: nil,
-        activeSessionKey: nil,
-        defaultSessionKey: "main",
-        sessionSummaries: [],
-        runtimeRootURL: nil
-    )
-
     private weak var containerStore: AppContainerStore?
-    private var setSessionKey: ((String) -> Void)?
 
     private init() {}
 
-    func bind(containerStore: AppContainerStore, setSessionKey: @escaping (String) -> Void) {
+    func bind(containerStore: AppContainerStore) {
         self.containerStore = containerStore
-        self.setSessionKey = setSessionKey
-        refresh(
-            activeAgentID: containerStore.activeAgent?.id,
-            activeSessionKey: containerStore.activeAgent?.selectedSessionKey,
-            defaultSessionKey: containerStore.container.defaultSessionKey,
-            sessions: [],
-            runtimeRootURL: containerStore.activeAgent?.runtimeURL
-        )
-    }
-
-    func refresh(
-        activeAgentID: UUID?,
-        activeSessionKey: String?,
-        defaultSessionKey: String,
-        sessions: [ChatSession],
-        runtimeRootURL: URL?
-    ) {
-        state = State(
-            activeAgentID: activeAgentID,
-            activeSessionKey: normalizedSessionKey(activeSessionKey, fallback: defaultSessionKey),
-            defaultSessionKey: normalizedSessionKey(defaultSessionKey, fallback: "main"),
-            sessionSummaries: sessions,
-            runtimeRootURL: runtimeRootURL
-        )
     }
 
     func listAgents() -> LocalControlListAgentsPayload {
@@ -79,50 +38,18 @@ final class RemoteControlCoordinator {
         return .init(activeAgentID: rawID)
     }
 
-    func listSessions(agentID _: String?) -> LocalControlListSessionsPayload {
-        let activeKey = currentSessionKey
-        let summaries = state.sessionSummaries.map { session in
-            LocalControlSessionSummary(
-                key: session.key,
-                displayName: session.displayName,
-                updatedAtMs: session.updatedAt,
-                isActive: session.key == activeKey
-            )
-        }
-        return .init(sessions: summaries, activeSessionKey: activeKey)
-    }
-
-    func createSession(preferredKey: String?) -> LocalControlCreateSessionPayload {
-        let candidate = normalizedSessionKey(preferredKey, fallback: "chat-\(UUID().uuidString)")
-        setSessionKey?(candidate)
-        let summary = LocalControlSessionSummary(
-            key: candidate,
-            displayName: candidate,
-            updatedAtMs: Int64(Date().timeIntervalSince1970 * 1000),
-            isActive: true
-        )
-        return .init(session: summary)
-    }
-
-    func selectSession(key: String) -> LocalControlSelectSessionPayload {
-        let normalized = normalizedSessionKey(key, fallback: state.defaultSessionKey)
-        setSessionKey?(normalized)
-        return .init(activeSessionKey: normalized)
-    }
-
-    func sendMessage(_ message: String, sessionKey: String?) async -> LocalControlSendMessagePayload {
-        let normalizedSession = normalizedSessionKey(sessionKey, fallback: currentSessionKey)
-        setSessionKey?(normalizedSession)
-        await SkillLaunchService.enqueueAutoSend(message: message, sessionID: normalizedSession)
-        return .init(enqueued: true, sessionKey: normalizedSession)
+    func sendMessage(_ message: String) async -> LocalControlSendMessagePayload {
+        await SkillLaunchService.enqueueAutoSend(message: message, sessionID: currentSessionID)
+        return .init(enqueued: true)
     }
 
     func pairCodeDidUpdate(_ code: String, peerName: String) {
         RemoteControlStatusStore.shared.updatePairingCode(code, peerName: peerName)
     }
 
-    private var currentSessionKey: String {
-        normalizedSessionKey(state.activeSessionKey, fallback: state.defaultSessionKey)
+    private var currentSessionID: String {
+        let defaultSessionKey = containerStore?.container.defaultSessionKey
+        return normalizedSessionKey(defaultSessionKey, fallback: "main")
     }
 
     private func normalizedSessionKey(_ key: String?, fallback: String) -> String {

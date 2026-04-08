@@ -18,11 +18,19 @@ final class AgentStoreTests: XCTestCase {
         let snapshot = AgentStore.load(defaults: defaults)
         XCTAssertEqual(snapshot.agents.count, 1)
         XCTAssertEqual(snapshot.activeAgent?.id, profile.id)
+        #if targetEnvironment(macCatalyst)
+            let expectedWorkspaceRoot = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+                .appendingPathComponent("OpenAva", isDirectory: true)
+        #else
+            let expectedWorkspaceRoot = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+        #endif
+        XCTAssertEqual(profile.workspaceURL.path, expectedWorkspaceRoot.appendingPathComponent(profile.name, isDirectory: true).path)
+        XCTAssertEqual(profile.runtimeURL.path, profile.workspaceURL.appendingPathComponent(".runtime", isDirectory: true).path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: profile.workspaceURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: profile.runtimeURL.path))
     }
 
-    func testSetSelectedModelAndSessionPersistsForAgent() throws {
+    func testSetSelectedModelPersistsForAgent() throws {
         let suiteName = "AgentStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -36,7 +44,6 @@ final class AgentStoreTests: XCTestCase {
 
         let modelID = UUID()
         XCTAssertTrue(AgentStore.setSelectedModel(modelID, for: profile.id, defaults: defaults))
-        XCTAssertTrue(AgentStore.setSelectedSession("session-1", for: profile.id, defaults: defaults))
 
         let snapshot = AgentStore.load(defaults: defaults)
         guard let active = snapshot.activeAgent else {
@@ -45,7 +52,6 @@ final class AgentStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(active.selectedModelID, modelID)
-        XCTAssertEqual(active.selectedSessionKey, "session-1")
     }
 
     func testDeleteAgentRemovesProfileAndDirectory() throws {
@@ -146,7 +152,7 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.workspaceURL.appendingPathComponent("marker.txt").path))
     }
 
-    func testLoadNormalizesWorkspaceAndRuntimePathsToAgentDirectory() throws {
+    func testLoadUsesPlatformSpecificWorkspacePathBehavior() throws {
         let suiteName = "AgentStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -167,7 +173,6 @@ final class AgentStoreTests: XCTestCase {
                 "workspacePath": "/private/var/mobile/Containers/Data/Application/OLD/workspace",
                 "localRuntimePath": "/private/var/mobile/Containers/Data/Application/OLD/runtime",
                 "selectedModelID": NSNull(),
-                "selectedSessionKey": NSNull(),
                 "createdAtMs": profile.createdAtMs,
             ]],
             "activeAgentID": profile.id.uuidString,
@@ -182,11 +187,18 @@ final class AgentStoreTests: XCTestCase {
             return
         }
 
-        let expectedWorkspaceRoot = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
-        let expectedWorkspaceURL = expectedWorkspaceRoot.appendingPathComponent(profile.name, isDirectory: true)
-        XCTAssertEqual(loaded.workspaceURL.path, expectedWorkspaceURL.path)
-        XCTAssertEqual(loaded.runtimeURL.path, expectedWorkspaceURL.appendingPathComponent(".runtime", isDirectory: true).path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.workspaceURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.runtimeURL.path))
+        #if targetEnvironment(macCatalyst)
+            XCTAssertEqual(loaded.workspaceURL.path, "/private/var/mobile/Containers/Data/Application/OLD/workspace")
+            XCTAssertEqual(loaded.runtimeURL.path, "/private/var/mobile/Containers/Data/Application/OLD/runtime")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: loaded.workspaceURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: loaded.runtimeURL.path))
+        #else
+            let expectedWorkspaceRoot = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+            let expectedWorkspaceURL = expectedWorkspaceRoot.appendingPathComponent(profile.name, isDirectory: true)
+            XCTAssertEqual(loaded.workspaceURL.path, expectedWorkspaceURL.path)
+            XCTAssertEqual(loaded.runtimeURL.path, expectedWorkspaceURL.appendingPathComponent(".runtime", isDirectory: true).path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.workspaceURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.runtimeURL.path))
+        #endif
     }
 }

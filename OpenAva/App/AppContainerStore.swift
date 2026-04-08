@@ -220,6 +220,15 @@ final class AppContainerStore {
     }
 
     @discardableResult
+    func updateTeam(_ team: TeamProfile) -> TeamProfile? {
+        let updated = TeamStore.updateTeamProfile(team, defaults: defaults)
+        if updated != nil {
+            reloadTeamState()
+        }
+        return updated
+    }
+
+    @discardableResult
     func updateTeam(_ teamID: UUID, name: String, emoji: String, description: String?) -> TeamProfile? {
         let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, defaults: defaults)
         if team != nil {
@@ -256,15 +265,6 @@ final class AppContainerStore {
         let changed = AgentStore.setActiveAgent(agentID, defaults: defaults)
         if changed {
             rebuildContainer(with: container.config)
-        }
-        return changed
-    }
-
-    @discardableResult
-    func setSelectedSessionKey(_ sessionKey: String?, for agentID: UUID) -> Bool {
-        let changed = AgentStore.setSelectedSession(sessionKey, for: agentID, defaults: defaults)
-        if changed {
-            agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
         }
         return changed
     }

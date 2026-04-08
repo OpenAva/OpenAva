@@ -10,34 +10,38 @@ import ChatUI
 import Foundation
 import OpenClawKit
 import SwiftUI
+#if targetEnvironment(macCatalyst)
+    import UIKit
+#endif
 
 struct ChatRootView: View {
     @Environment(\.appContainerStore) private var containerStore
     @Environment(\.appWindowCoordinator) private var windowCoordinator
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     // Keep destination navigation state at root so config-driven ChatScreen
     // recreation does not pop pushed pages unexpectedly.
     @State private var destinationPath = NavigationPath()
     @State private var showsAgentOnboarding = false
+    @State private var autoCompactEnabled: Bool = true
     @State private var showsLocalAgentCreation = false
+    @State private var showsRemoteControl = false
+    @State private var agentCreationMode: AgentCreationViewModel.CreationMode = .singleAgent
     @State private var didEvaluateOnboarding = false
-    @State private var currentSessionKey: String?
-    @State private var sessions: [ChatSession] = []
-    @State private var sessionsByAgentKey: [String: [ChatSession]] = [:]
-    @State private var currentSessionKeyByAgentKey: [String: String] = [:]
-    @State private var autoCompactEnabled = true
     /// Pending message from an App Intent, consumed once by ChatViewControllerWrapper.
     @State private var pendingAutoSendID: String? = nil
     @State private var pendingAutoSendMessage: String? = nil
+    @State private var targetTeamID: UUID?
+    @State private var teamToManageAgents: TeamProfile?
+    @State private var showsDeleteTeamAlert = false
+    @State private var teamToDelete: UUID?
 
     private enum MenuDestination: Hashable {
         case llm
         case context
         case cron
         case skills
-        case teams
-        case team(UUID)
         case remoteControl
     }
 
@@ -54,20 +58,51 @@ struct ChatRootView: View {
             })
         }
         .fullScreenCover(isPresented: $showsLocalAgentCreation) {
-            AgentCreationView(onComplete: {
-                showsLocalAgentCreation = false
-                currentSessionKey = resolvedDefaultSessionKey
-                refreshSessions()
-            })
+            NavigationStack {
+                AgentCreationView(initialMode: agentCreationMode, targetTeamID: targetTeamID, onComplete: {
+                    showsLocalAgentCreation = false
+                    targetTeamID = nil
+                })
+            }
+        }
+        .sheet(isPresented: $showsRemoteControl) {
+            NavigationStack {
+                RemoteControlSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(L10n.tr("common.done")) {
+                                showsRemoteControl = false
+                            }
+                        }
+                    }
+            }
+            .presentationDetents([.large])
+            #if os(macOS) || targetEnvironment(macCatalyst)
+                .frame(minWidth: 540, minHeight: 600)
+            #endif
+        }
+        .sheet(item: $teamToManageAgents) { team in
+            ManageTeamAgentsSheet(team: team)
+        }
+        .alert(isPresented: $showsDeleteTeamAlert) {
+            Alert(
+                title: Text(L10n.tr("team.management.delete.confirm.title")),
+                message: Text(L10n.tr("team.management.delete.confirm.message")),
+                primaryButton: .destructive(Text(L10n.tr("common.delete"))) {
+                    if let id = teamToDelete {
+                        containerStore.deleteTeam(id)
+                    }
+                    teamToDelete = nil
+                },
+                secondaryButton: .cancel(Text(L10n.tr("common.cancel"))) {
+                    teamToDelete = nil
+                }
+            )
         }
         .onAppear {
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
-            RemoteControlCoordinator.shared.bind(containerStore: containerStore) { sessionKey in
-                handleSessionSwitch(sessionKey)
-            }
+            RemoteControlCoordinator.shared.bind(containerStore: containerStore)
             presentOnboardingIfNeeded()
-            restoreAgentScopedState(for: containerStore.activeAgent?.id)
-            refreshSessions()
             drainPendingAutoSend(for: containerStore.activeAgent?.id)
             updateHeartbeatService()
         }
@@ -81,25 +116,12 @@ struct ChatRootView: View {
             // Re-read from persistent queue so filtering always follows current agent.
             drainPendingAutoSend(for: containerStore.activeAgent?.id)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
-            refreshSessions()
-            if let currentSessionKey,
-               !sessions.contains(where: { $0.key == currentSessionKey })
-            {
-                self.currentSessionKey = resolvedDefaultSessionKey
-            }
-        }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
-                sessions = []
-                currentSessionKey = resolvedDefaultSessionKey
                 showsAgentOnboarding = true
                 HeartbeatService.shared.stop()
                 return
             }
-            // Keep history panel in sync with the selected agent immediately.
-            restoreAgentScopedState(for: newAgentID)
-            refreshSessions(for: newAgentID)
             drainPendingAutoSend(for: newAgentID)
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             updateHeartbeatService()
@@ -117,15 +139,13 @@ struct ChatRootView: View {
     }
 
     private var chatScreenView: some View {
-        ChatScreen(
+        let sessionKey = primarySessionKey
+        return ChatScreen(
             container: containerStore.container,
             scopedSessionID: scopedSessionID(
-                for: currentSessionKey ?? resolvedDefaultSessionKey,
+                for: sessionKey,
                 agentID: containerStore.activeAgent?.id
             ),
-            currentSessionKey: currentSessionKey ?? resolvedDefaultSessionKey,
-            defaultSessionKey: resolvedDefaultSessionKey,
-            sessions: sessions,
             teams: containerStore.teams,
             agents: containerStore.agents,
             activeAgentID: containerStore.activeAgent?.id,
@@ -136,18 +156,22 @@ struct ChatRootView: View {
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
             onMenuAction: handleMenuAction,
-            onSessionSwitch: handleSessionSwitch,
             onAgentSwitch: handleAgentSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
+            onCreateLocalTeam: openLocalTeamCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
             onRenameCurrentAgent: handleRenameCurrentAgent,
+            onAddAgentToTeam: handleAddAgentToTeam,
+            onCreateAgentForTeam: handleCreateAgentForTeam,
+            onDeleteTeam: handleDeleteTeamRequest,
             autoCompactEnabled: autoCompactEnabled,
             onToggleAutoCompact: toggleAutoCompact
         )
-        .id(containerAgent + "|" + (currentSessionKey ?? ""))
+        .id(containerAgent)
         // Keep the host NavigationStack bar hidden to avoid duplicating
         // ChatViewController's own header on both iOS and macCatalyst.
         .toolbar(.hidden, for: .navigationBar)
+        .ignoresSafeArea()
     }
 
     /// Recreate the chat screen when runtime config changes.
@@ -179,12 +203,8 @@ struct ChatRootView: View {
         return trimmed.isEmpty ? "main" : trimmed
     }
 
-    private var currentInvocationSessionID: String {
-        let sessionID = scopedSessionID(
-            for: currentSessionKey ?? resolvedDefaultSessionKey,
-            agentID: containerStore.activeAgent?.id
-        )
-        return "\(containerStore.activeAgent?.id.uuidString ?? "global")::\(sessionID)"
+    private var primarySessionKey: String {
+        resolvedDefaultSessionKey
     }
 
     private func presentOnboardingIfNeeded() {
@@ -199,7 +219,7 @@ struct ChatRootView: View {
     /// Reads one pending auto-send request for the currently active agent.
     private func drainPendingAutoSend(for activeAgentID: UUID?) {
         let activeSessionID = scopedSessionID(
-            for: currentSessionKey ?? resolvedDefaultSessionKey,
+            for: primarySessionKey,
             agentID: activeAgentID
         )
         guard let request = SkillLaunchService.dequeuePendingAutoSend(
@@ -214,78 +234,15 @@ struct ChatRootView: View {
         pendingAutoSendMessage = message
     }
 
-    private func refreshSessions() {
-        refreshSessions(for: containerStore.activeAgent?.id)
-    }
-
-    private func refreshSessions(for agentID: UUID?) {
-        let expectedAgentID = agentID
-        let agentKey = agentScopeKey(agentID)
-        guard let activeAgent = containerStore.activeAgent,
-              activeAgent.id == expectedAgentID
-        else {
-            sessions = []
-            sessionsByAgentKey[agentKey] = []
-            currentSessionKey = resolvedDefaultSessionKey
-            currentSessionKeyByAgentKey[agentKey] = resolvedDefaultSessionKey
-            return
-        }
-        let runtimeRootURL = activeAgent.runtimeURL
-        // Read local sessions from TranscriptStorageProvider synchronously.
-        let provider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
-        let loadedSessions = provider.listSessions().filter { !HeartbeatSupport.isHiddenSessionID($0.key) }
-        guard containerStore.activeAgent?.id == expectedAgentID else { return }
-
-        sessions = loadedSessions
-        sessionsByAgentKey[agentKey] = loadedSessions
-
-        let preferredSession = preferredSessionKey(for: activeAgent, scopeKey: agentKey)
-        let resolvedSessionKey: String
-        if let preferredSession {
-            resolvedSessionKey = preferredSession
-        } else {
-            resolvedSessionKey = resolvedDefaultSessionKey
-        }
-
-        currentSessionKey = resolvedSessionKey
-        currentSessionKeyByAgentKey[agentKey] = resolvedSessionKey
-        persistSelectedSessionKey(resolvedSessionKey, for: activeAgent.id)
-        RemoteControlCoordinator.shared.refresh(
-            activeAgentID: activeAgent.id,
-            activeSessionKey: resolvedSessionKey,
-            defaultSessionKey: resolvedDefaultSessionKey,
-            sessions: loadedSessions,
-            runtimeRootURL: runtimeRootURL
-        )
-    }
-
-    private func handleSessionSwitch(_ sessionKey: String) {
-        currentSessionKey = sessionKey
-        currentSessionKeyByAgentKey[currentAgentScopeKey] = sessionKey
-        persistSelectedSessionKey(sessionKey, for: containerStore.activeAgent?.id)
-        RemoteControlCoordinator.shared.refresh(
-            activeAgentID: containerStore.activeAgent?.id,
-            activeSessionKey: sessionKey,
-            defaultSessionKey: resolvedDefaultSessionKey,
-            sessions: sessions,
-            runtimeRootURL: containerStore.activeAgent?.runtimeURL
-        )
-    }
-
     private func handleAgentSwitch(_ agentID: UUID) {
-        saveAgentScopedState(for: containerStore.activeAgent?.id)
         // Clear all sessions to prevent cross-agent session ID conflicts.
         // Transcripts are isolated by runtimeRootURL, so this is safe.
         ConversationSessionManager.shared.removeAllSessions()
         guard containerStore.setActiveAgent(agentID) else { return }
-        // onChange(of: activeAgentID) will restore and refresh the scoped history.
     }
 
     private func handleDeleteCurrentAgent() {
         guard let currentAgentID = containerStore.activeAgent?.id else { return }
-        let deletedScopeKey = agentScopeKey(currentAgentID)
-        sessionsByAgentKey.removeValue(forKey: deletedScopeKey)
-        currentSessionKeyByAgentKey.removeValue(forKey: deletedScopeKey)
 
         // Remove cached storage provider for the deleted agent's runtime root.
         if let runtimeRootURL = containerStore.activeAgent?.runtimeURL {
@@ -297,14 +254,12 @@ struct ChatRootView: View {
 
         guard containerStore.deleteAgent(currentAgentID) else { return }
         if !containerStore.hasAgent {
-            sessions = []
-            currentSessionKey = resolvedDefaultSessionKey
             showsAgentOnboarding = true
         }
     }
 
     private func handleRenameCurrentAgent(_ name: String) -> Bool {
-        guard let activeAgentID = containerStore.activeAgent?.id else { return false }
+        guard containerStore.activeAgent != nil else { return false }
         let oldRuntimeURL = containerStore.activeAgent?.runtimeURL
         guard containerStore.renameActiveAgent(to: name) else { return false }
 
@@ -312,16 +267,22 @@ struct ChatRootView: View {
         if let oldRuntimeURL {
             TranscriptStorageProvider.removeProvider(runtimeRootURL: oldRuntimeURL)
         }
-        refreshSessions(for: activeAgentID)
         return true
     }
 
-    private var currentAgentScopeKey: String {
-        agentScopeKey(containerStore.activeAgent?.id)
+    private func handleAddAgentToTeam(_ teamID: UUID) {
+        teamToManageAgents = containerStore.teams.first(where: { $0.id == teamID })
     }
 
-    private func agentScopeKey(_ agentID: UUID?) -> String {
-        agentID?.uuidString ?? "__no_active_agent__"
+    private func handleCreateAgentForTeam(_ teamID: UUID) {
+        targetTeamID = teamID
+        agentCreationMode = .singleAgent
+        showsLocalAgentCreation = true
+    }
+
+    private func handleDeleteTeamRequest(_ teamID: UUID) {
+        teamToDelete = teamID
+        showsDeleteTeamAlert = true
     }
 
     private func scopedSessionID(for sessionKey: String, agentID _: UUID?) -> String {
@@ -358,46 +319,22 @@ struct ChatRootView: View {
         )
     }
 
-    private func saveAgentScopedState(for agentID: UUID?) {
-        let key = agentScopeKey(agentID)
-        sessionsByAgentKey[key] = sessions
-        if let currentSessionKey {
-            currentSessionKeyByAgentKey[key] = currentSessionKey
-        }
-        persistSelectedSessionKey(currentSessionKey, for: agentID)
-    }
-
-    private func restoreAgentScopedState(for agentID: UUID?) {
-        let key = agentScopeKey(agentID)
-        sessions = sessionsByAgentKey[key] ?? []
-        currentSessionKey = preferredSessionKey(for: containerStore.activeAgent, scopeKey: key)
-            ?? resolvedDefaultSessionKey
-    }
-
-    private func preferredSessionKey(for agent: AgentProfile?, scopeKey: String) -> String? {
-        if let sessionKey = currentSessionKeyByAgentKey[scopeKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !sessionKey.isEmpty
-        {
-            return sessionKey
-        }
-        if let sessionKey = agent?.selectedSessionKey?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !sessionKey.isEmpty
-        {
-            return sessionKey
-        }
-        return nil
-    }
-
-    private func persistSelectedSessionKey(_ sessionKey: String?, for agentID: UUID?) {
-        guard let agentID else { return }
-        _ = containerStore.setSelectedSessionKey(sessionKey, for: agentID)
-    }
-
     private func openLocalAgentCreation() {
         #if targetEnvironment(macCatalyst)
             windowCoordinator.openAgentCreation()
-            openWindow(id: AppWindowID.agentCreation)
+            activateOrOpenWindow(id: AppWindowID.agentCreation)
         #else
+            agentCreationMode = .singleAgent
+            showsLocalAgentCreation = true
+        #endif
+    }
+
+    private func openLocalTeamCreation() {
+        #if targetEnvironment(macCatalyst)
+            windowCoordinator.openTeamCreation()
+            activateOrOpenWindow(id: AppWindowID.agentCreation)
+        #else
+            agentCreationMode = .defaultTeam
             showsLocalAgentCreation = true
         #endif
     }
@@ -409,26 +346,26 @@ struct ChatRootView: View {
         }
 
         #if targetEnvironment(macCatalyst)
-            let payload: (section: SettingsWindowSection, teamID: UUID?) = switch action {
+            let section: SettingsWindowSection? = switch action {
             case .openLLM:
-                (.llm, nil)
+                .llm
             case .openContext:
-                (.context, nil)
+                .context
             case .openCron:
-                (.cron, nil)
+                .cron
             case .openSkills:
-                (.skills, nil)
-            case .openTeams:
-                (.teams, nil)
-            case let .openTeam(teamID):
-                (.teams, teamID)
+                .skills
             case .openRemoteControl:
-                (.remoteControl, nil)
+                nil
             case .runHeartbeatNow:
-                (.llm, nil)
+                nil
             }
-            windowCoordinator.openSettings(payload.section, teamID: payload.teamID)
-            openWindow(id: AppWindowID.settings)
+
+            if case .openRemoteControl = action {
+                showsRemoteControl = true
+            } else if let section {
+                openWindow(id: AppWindowID.settings, value: section.rawValue)
+            }
         #else
             switch action {
             case .openLLM:
@@ -439,10 +376,6 @@ struct ChatRootView: View {
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
                 destinationPath.append(MenuDestination.skills)
-            case .openTeams:
-                destinationPath.append(MenuDestination.teams)
-            case let .openTeam(teamID):
-                destinationPath.append(MenuDestination.team(teamID))
             case .openRemoteControl:
                 destinationPath.append(MenuDestination.remoteControl)
             case .runHeartbeatNow:
@@ -450,6 +383,34 @@ struct ChatRootView: View {
             }
         #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+        private func activateOrOpenWindow(id: String) {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let existing = scenes.first(where: { scene in
+                scene.session.stateRestorationActivity?.targetContentIdentifier == id
+            })
+
+            if let existing = existing {
+                UIApplication.shared.requestSceneSessionActivation(existing.session, userActivity: nil, options: nil, errorHandler: nil)
+            } else {
+                let targetTitle: String
+                switch id {
+                case AppWindowID.settings:
+                    targetTitle = L10n.tr("window.settings.title")
+                case AppWindowID.agentCreation:
+                    targetTitle = L10n.tr("window.agentCreation.title")
+                default:
+                    targetTitle = ""
+                }
+                if !targetTitle.isEmpty, let titleMatch = scenes.first(where: { $0.title == targetTitle }) {
+                    UIApplication.shared.requestSceneSessionActivation(titleMatch.session, userActivity: nil, options: nil, errorHandler: nil)
+                } else {
+                    openWindow(id: id)
+                }
+            }
+        }
+    #endif
 
     private func triggerHeartbeatNow() {
         updateHeartbeatService()
@@ -483,12 +444,6 @@ struct ChatRootView: View {
             case .skills:
                 SkillListView()
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
-            case .teams:
-                TeamManagementView()
-                    .navigationTitle(L10n.tr("team.management.navigationTitle"))
-            case let .team(teamID):
-                TeamManagementView(initialTeamID: teamID)
-                    .navigationTitle(L10n.tr("team.management.navigationTitle"))
             case .remoteControl:
                 RemoteControlSettingsView()
                     .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
@@ -521,9 +476,6 @@ struct ChatRootView: View {
 private struct ChatScreen: View {
     private let container: AppContainer
     private let scopedSessionID: String
-    private let currentSessionKey: String
-    private let defaultSessionKey: String
-    private let sessions: [ChatSession]
     private let teams: [TeamProfile]
     private let agents: [AgentProfile]
     private let activeAgentID: UUID?
@@ -534,20 +486,20 @@ private struct ChatScreen: View {
     private let pendingAutoSendID: String?
     private let pendingAutoSendMessage: String?
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
-    private let onSessionSwitch: ((String) -> Void)?
     private let onAgentSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
+    private let onCreateLocalTeam: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
     private let onRenameCurrentAgent: ((String) -> Bool)?
+    private let onAddAgentToTeam: ((UUID) -> Void)?
+    private let onCreateAgentForTeam: ((UUID) -> Void)?
+    private let onDeleteTeam: ((UUID) -> Void)?
     private let autoCompactEnabled: Bool
     private let onToggleAutoCompact: (() -> Void)?
 
     init(
         container: AppContainer,
         scopedSessionID: String,
-        currentSessionKey: String,
-        defaultSessionKey: String,
-        sessions: [ChatSession],
         teams: [TeamProfile],
         agents: [AgentProfile],
         activeAgentID: UUID?,
@@ -558,19 +510,19 @@ private struct ChatScreen: View {
         pendingAutoSendID: String? = nil,
         pendingAutoSendMessage: String? = nil,
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
-        onSessionSwitch: ((String) -> Void)? = nil,
         onAgentSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
+        onCreateLocalTeam: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
         onRenameCurrentAgent: ((String) -> Bool)? = nil,
+        onAddAgentToTeam: ((UUID) -> Void)? = nil,
+        onCreateAgentForTeam: ((UUID) -> Void)? = nil,
+        onDeleteTeam: ((UUID) -> Void)? = nil,
         autoCompactEnabled: Bool = true,
         onToggleAutoCompact: (() -> Void)? = nil
     ) {
         self.container = container
         self.scopedSessionID = scopedSessionID
-        self.currentSessionKey = currentSessionKey
-        self.defaultSessionKey = defaultSessionKey
-        self.sessions = sessions
         self.teams = teams
         self.agents = agents
         self.activeAgentID = activeAgentID
@@ -581,11 +533,14 @@ private struct ChatScreen: View {
         self.pendingAutoSendID = pendingAutoSendID
         self.pendingAutoSendMessage = pendingAutoSendMessage
         self.onMenuAction = onMenuAction
-        self.onSessionSwitch = onSessionSwitch
         self.onAgentSwitch = onAgentSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
+        self.onCreateLocalTeam = onCreateLocalTeam
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
         self.onRenameCurrentAgent = onRenameCurrentAgent
+        self.onAddAgentToTeam = onAddAgentToTeam
+        self.onCreateAgentForTeam = onCreateAgentForTeam
+        self.onDeleteTeam = onDeleteTeam
         self.autoCompactEnabled = autoCompactEnabled
         self.onToggleAutoCompact = onToggleAutoCompact
     }
@@ -602,7 +557,6 @@ private struct ChatScreen: View {
                 invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
-            sessions: sessions,
             teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
@@ -610,16 +564,17 @@ private struct ChatScreen: View {
             activeAgentEmoji: activeAgentEmoji,
             selectedModelName: selectedModelName,
             selectedProviderName: selectedProviderName,
-            defaultSessionKey: defaultSessionKey,
-            currentSessionKey: currentSessionKey,
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
             onMenuAction: onMenuAction,
-            onSessionSwitch: onSessionSwitch,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
+            onCreateLocalTeam: onCreateLocalTeam,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
+            onAddAgentToTeam: onAddAgentToTeam,
+            onCreateAgentForTeam: onCreateAgentForTeam,
+            onDeleteTeam: onDeleteTeam,
             modelConfig: container.config.selectedLLMModel,
             autoCompactEnabled: autoCompactEnabled,
             onToggleAutoCompact: onToggleAutoCompact

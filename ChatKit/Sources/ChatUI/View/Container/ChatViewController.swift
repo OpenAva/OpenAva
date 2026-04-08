@@ -151,7 +151,7 @@ open class ChatViewController: UIViewController {
         super.viewDidLoad()
         view.layoutIfNeeded()
 
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = ChatUIDesign.Color.warmCream
         topBarBackgroundView.backgroundColor = .clear
 
         configureTopBarViews()
@@ -553,12 +553,12 @@ open class ChatViewController: UIViewController {
         // Configure avatar button for custom interactions (e.g., session switching)
         avatarButton.menu = nil
         avatarButton.showsMenuAsPrimaryAction = false
-        let hamburgerImage = UIImage(systemName: "line.3.horizontal")
+        let leadingImage = UIImage.chatInputIcon(named: "users") ?? UIImage(systemName: "person.2")
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         #if targetEnvironment(macCatalyst)
-            applyCatalystMenuButtonStyle(avatarButton, image: hamburgerImage, symbolConfiguration: symbolConfig)
+            applyCatalystMenuButtonStyle(avatarButton, image: leadingImage, symbolConfiguration: symbolConfig)
         #else
-            avatarButton.setImage(hamburgerImage, for: .normal)
+            avatarButton.setImage(leadingImage, for: .normal)
             avatarButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
         #endif
         avatarButton.imageView?.contentMode = .scaleAspectFit
@@ -676,13 +676,6 @@ public extension ChatViewController {
             return
         }
         switch normalized {
-        case "/new":
-            guard let session = currentSession else { return }
-            Task { @MainActor in
-                let newSessionID = menuDelegate?.chatViewControllerRequestNewSessionID(self, from: sessionID)
-                    ?? configuration.newSessionIDProvider()
-                switchSession(to: newSessionID)
-            }
         default:
             let alert = UIAlertController(
                 title: String.localized("Unsupported command"),
