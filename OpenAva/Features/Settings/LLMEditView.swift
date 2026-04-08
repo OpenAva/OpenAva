@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 /// Edit view for adding or modifying a LLM configuration
@@ -175,6 +176,7 @@ struct LLMEditView: View {
                 Text(L10n.tr("settings.llmEdit.basicSettings"))
                     .textCase(.none)
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             Section {
                 DisclosureGroup(L10n.tr("settings.llm.advanced.title")) {
@@ -249,6 +251,7 @@ struct LLMEditView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             Section {
                 Button {
@@ -260,10 +263,15 @@ struct LLMEditView: View {
                         }
                         Text(viewModel.isTestingConnection ? L10n.tr("settings.llmEdit.testing") : L10n.tr("settings.llm.testConnection"))
                             .frame(maxWidth: .infinity)
+                            .font(.system(size: 16, weight: .regular))
                     }
                     .padding(.vertical, 8)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                    .frame(maxWidth: .infinity)
+                    .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(viewModel.isTestingConnection || !viewModel.canTestConnection)
 
                 if let isSuccess = viewModel.isConnectionTestSuccessful,
@@ -285,6 +293,7 @@ struct LLMEditView: View {
                     Text(errorText)
                 }
                 .foregroundStyle(.red)
+                .listRowBackground(Color.clear)
             }
 
             if let message = viewModel.saveValidationMessage,
@@ -293,37 +302,41 @@ struct LLMEditView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.tr("common.cancel")) {
-                    if viewModel.hasChanges {
-                        isShowingDiscardAlert = true
-                    } else {
-                        cancelEditing()
+        #if targetEnvironment(macCatalyst)
+            .formStyle(.grouped)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("common.cancel")) {
+                        if viewModel.hasChanges {
+                            isShowingDiscardAlert = true
+                        } else {
+                            cancelEditing()
+                        }
                     }
                 }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.tr("common.save")) {
-                    saveModel()
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.tr("common.save")) {
+                        saveModel()
+                    }
+                    .disabled(!viewModel.isValid)
                 }
-                .disabled(!viewModel.isValid)
             }
-        }
-        .alert(L10n.tr("settings.llmEdit.discard.title"), isPresented: $isShowingDiscardAlert) {
-            Button(L10n.tr("common.cancel"), role: .cancel) {}
-            Button(L10n.tr("common.discard"), role: .destructive) {
-                cancelEditing()
+            .alert(L10n.tr("settings.llmEdit.discard.title"), isPresented: $isShowingDiscardAlert) {
+                Button(L10n.tr("common.cancel"), role: .cancel) {}
+                Button(L10n.tr("common.discard"), role: .destructive) {
+                    cancelEditing()
+                }
+            } message: {
+                Text(L10n.tr("settings.llmEdit.discard.message"))
             }
-        } message: {
-            Text(L10n.tr("settings.llmEdit.discard.message"))
-        }
     }
 
     private func cancelEditing() {
@@ -344,8 +357,12 @@ private extension View {
         padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                Color(uiColor: .secondarySystemBackground),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                Color(uiColor: ChatUIDesign.Color.pureWhite),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
     }
 }

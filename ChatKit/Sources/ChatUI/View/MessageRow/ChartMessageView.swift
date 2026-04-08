@@ -119,12 +119,14 @@ final class ChartMessageView: MessageListRowView {
 
     private func configureSubviews() {
         contentView.addSubview(cardView)
-        cardView.layer.cornerRadius = 12
+        cardView.layer.cornerRadius = ChatUIDesign.Radius.card
         cardView.layer.cornerCurve = .continuous
         cardView.layer.borderWidth = 1
+        cardView.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         cardView.clipsToBounds = true
 
-        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        titleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        titleLabel.textColor = ChatUIDesign.Color.offBlack
         titleLabel.numberOfLines = 1
         cardView.addSubview(titleLabel)
 

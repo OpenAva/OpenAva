@@ -71,7 +71,7 @@ final class ToolHintView: MessageListRowView {
         backgroundGradientLayer.endPoint = .init(x: 0.4, y: 1)
 
         contentView.backgroundColor = .clear
-        contentView.layer.cornerRadius = 12
+        contentView.layer.cornerRadius = ChatUIDesign.Radius.card
         contentView.layer.cornerCurve = .continuous
         contentView.layer.insertSublayer(backgroundGradientLayer, at: 0)
         contentView.addSubview(decoratedView)

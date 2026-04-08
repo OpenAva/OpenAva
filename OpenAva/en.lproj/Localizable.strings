@@ -1,11 +1,12 @@
-"agent.onboarding.title" = "Welcome to OpenAva";
-"agent.onboarding.subtitle" = "Your personal intelligent assistant.\nSecure, fast, and on-device.";
+"agent.onboarding.title" = "Personal AI agent workspace";
+"agent.onboarding.subtitle" = "Run a single agent or an agent team on your Apple device.";
+"agent.onboarding.sectionTitle" = "Get started";
 "agent.onboarding.createLocal.title" = "Create Local Agent";
 "agent.onboarding.createLocal.subtitle" = "Run AI agent securely on your device";
 "agent.onboarding.createSingle.title" = "Create One Agent";
-"agent.onboarding.createSingle.subtitle" = "Create a focused agent for a specific role or task.";
+"agent.onboarding.createSingle.subtitle" = "For writing, research, coding, and other focused tasks.";
 "agent.onboarding.createTeam.title" = "Create Agent Team";
-"agent.onboarding.createTeam.subtitle" = "Create a ready-to-collaborate default team in one go.";
+"agent.onboarding.createTeam.subtitle" = "For complex tasks that need role-based collaboration.";
 
 "agent.creation.nav.title" = "New Agent";
 "agent.creation.about.title" = "Personal Info";
@@ -70,7 +71,7 @@
 "team.management.missing.description" = "This team may have been deleted.";
 "team.management.create.footer" = "You can create the team first and add members afterwards.";
 "team.management.create.failed" = "Failed to create the team.";
-"team.management.addExisting.empty" = "All current agents are already in this team.";
+"team.management.addExisting.empty" = "No agents available to add.";
 "team.management.delete.confirm.title" = "Delete Team";
 "team.management.delete.confirm.message" = "This removes the team container and its collaboration state.";
 "agent.creation.preset.marketing.title" = "Growth Marketer";
@@ -166,11 +167,10 @@
 "settings.remoteControl.pairChallengeReceived" = "Enter the code shown on the Mac before %@.";
 "settings.remoteControl.pairing.timeout" = "Timed out waiting for the Mac pairing challenge.";
 "settings.remoteControl.paired" = "Pairing completed.";
+"settings.remoteControl.pairedWith" = "Paired with %@.";
 "settings.remoteControl.agents.title" = "Agents";
-"settings.remoteControl.sessions.title" = "Sessions";
-"settings.remoteControl.sessions.new" = "New Session";
 "settings.remoteControl.message.title" = "Message";
-"settings.remoteControl.message.placeholder" = "Send a message to the selected Mac session";
+"settings.remoteControl.message.placeholder" = "Send a message to the selected Mac agent";
 "settings.remoteControl.message.send" = "Send";
 "settings.remoteControl.messageSent" = "Message queued on the Mac.";
 "settings.remoteControl.refresh" = "Refresh";
@@ -211,7 +211,6 @@
 "notification.taskFailed" = "stopped";
 "chat.activeAgent.fallbackName" = "Assistant";
 "chat.selectedModel.notSelected" = "Not Selected";
-"chat.command.newConversation" = "New";
 "chat.command.runHeartbeatNow" = "Run Heartbeat";
 "chat.command.focusInput" = "Focus Input";
 "chat.command.compact" = "Compact";
@@ -261,7 +260,6 @@
 "chat.menu.noAgentsAvailable" = "No agents available";
 "chat.menu.newLocalAgent" = "New Agent";
 "chat.menu.manageTeams" = "Manage Teams";
-"chat.menu.ungroupedAgents" = "Ungrouped Agents";
 "chat.menu.team.manage" = "Manage %@";
 "chat.menu.team.title" = "Team";
 "chat.menu.team.summary" = "%1$lld agents · %2$lld running · %3$lld pending · %4$lld tasks";
@@ -356,7 +354,8 @@
 "settings.cron.schedule.section" = "Schedule";
 "settings.cron.schedule.mode" = "Mode";
 "settings.cron.schedule.runAt" = "Run At";
-"settings.cron.schedule.everyMinutes" = "Every %d minute%@";
+"settings.cron.schedule.everyPrefix" = "Every";
+"settings.cron.schedule.minutesSuffix" = "minute%@";
 "settings.cron.newJob.title" = "New Cron Job";
 "settings.cron.nextRun" = "Next: %@";
 "settings.cron.kind.notify" = "Reminder";
@@ -473,3 +472,8 @@
 "settings.context.emptyPlaceholder" = "No content. Tap to edit or apply a template.";
 "settings.context.reset.confirmTitle" = "Confirm Reset?";
 "settings.context.reset.message" = "This will clear the content of %@. This action cannot be undone.";
+"chat.menu.newTeam" = "New Team";
+
+"chat.menu.deleteTeamNamed" = "Delete Team \"%@\"";
+
+"team.management.action.manageAgents" = "Manage Agents";

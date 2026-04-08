@@ -1,3 +1,4 @@
+import ChatUI
 import OpenClawKit
 import SwiftUI
 import UserNotifications
@@ -33,9 +34,9 @@ struct CronListView: View {
 
                             cronDetail
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color(uiColor: .systemBackground))
+                                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                         }
-                        .background(Color(uiColor: .systemGroupedBackground))
+                        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                     } else {
                         cronList
                     }
@@ -51,7 +52,7 @@ struct CronListView: View {
                         }
                     }
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
             #else
                 cronList
                     .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
@@ -63,7 +64,6 @@ struct CronListView: View {
                             } label: {
                                 Label(L10n.tr("settings.cron.addJob"), systemImage: "plus")
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                     .sheet(isPresented: $isShowingAddSheet) {
@@ -156,7 +156,7 @@ struct CronListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
     }
 
     @ViewBuilder
@@ -460,12 +460,14 @@ private struct CronAddJobSheet: View {
                     .settingsInputFieldStyle()
                 }
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             Section(L10n.tr("settings.cron.message.section")) {
                 TextField(messagePlaceholder, text: $message, axis: .vertical)
                     .lineLimit(2 ... 4)
                     .settingsInputFieldStyle()
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             Section(L10n.tr("settings.cron.schedule.section")) {
                 Picker(L10n.tr("settings.cron.schedule.mode"), selection: $mode) {
@@ -477,43 +479,82 @@ private struct CronAddJobSheet: View {
 
                 if mode == .at {
                     DatePicker(L10n.tr("settings.cron.schedule.runAt"), selection: $atDate, in: Date().addingTimeInterval(60)..., displayedComponents: [.date, .hourAndMinute])
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .frame(minHeight: 36)
                         .settingsInputFieldStyle()
                 } else {
-                    Stepper(value: $everyMinutes, in: 1 ... 1440) {
-                        Text(L10n.tr("settings.cron.schedule.everyMinutes", everyMinutes, everyMinutes == 1 ? "" : "s"))
+                    HStack {
+                        Text(L10n.tr("settings.cron.schedule.everyPrefix"))
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                        TextField("", value: $everyMinutes, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.center)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        #if targetEnvironment(macCatalyst)
+                            .frame(width: 60)
+                        #else
+                            .frame(width: 50)
+                        #endif
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                    .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                            )
+
+                        Text(L10n.tr("settings.cron.schedule.minutesSuffix", everyMinutes == 1 ? "" : "s"))
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                        Spacer()
+
+                        Stepper("", value: $everyMinutes, in: 1 ... 1440)
+                            .labelsHidden()
                     }
                     .accessibilityIdentifier("cron_every_minutes")
+                    .frame(minHeight: 36)
                     .settingsInputFieldStyle()
                 }
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(L10n.tr("settings.cron.newJob.title"))
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            ensureSelectedAgent()
-        }
-        .onChange(of: jobKind) { _, newKind in
-            if newKind == .heartbeat {
+        #if targetEnvironment(macCatalyst)
+            .formStyle(.grouped)
+        #endif
+            .onAppear {
                 ensureSelectedAgent()
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.tr("common.cancel")) {
-                    cancelSheet()
+            .onChange(of: jobKind) { _, newKind in
+                if newKind == .heartbeat {
+                    ensureSelectedAgent()
                 }
             }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("common.cancel")) {
+                        cancelSheet()
+                    }
+                }
 
-            ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.tr("common.add")) {
-                    onCreate(makeDraft())
-                    cancelSheet()
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.tr("common.add")) {
+                        onCreate(makeDraft())
+                        cancelSheet()
+                    }
+                    .disabled(!canCreateJob)
                 }
-                .disabled(!canCreateJob)
             }
-        }
     }
 
     private func cancelSheet() {
@@ -594,8 +635,12 @@ private extension View {
         padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                Color(uiColor: .secondarySystemBackground),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                Color(uiColor: ChatUIDesign.Color.pureWhite),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
     }
 }
@@ -660,12 +705,12 @@ private struct CronJobRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
     }
 
@@ -724,18 +769,27 @@ private struct EmptyCronJobsView: View {
         VStack(spacing: 12) {
             Image(systemName: "clock.badge")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
 
             Text(L10n.tr("settings.cron.empty.title"))
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             Text(L10n.tr("settings.cron.empty.message"))
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 120)
         .padding()
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
     }
 }
 

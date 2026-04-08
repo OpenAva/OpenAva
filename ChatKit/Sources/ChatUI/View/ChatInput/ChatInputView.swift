@@ -40,7 +40,6 @@ open class ChatInputView: EditorSectionView {
     let controlPanel = ControlPanel()
 
     let backgroundBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
-    let backgroundDividerView = SeparatorView()
     let shadowContainer = UIView()
     let dropContainer = DropView()
     let dropColorView = UIView()
@@ -60,7 +59,7 @@ open class ChatInputView: EditorSectionView {
         controlPanel,
     ]
 
-    let spacing: CGFloat = 10
+    let spacing: CGFloat = 16
     var keyboardAdditionalHeight: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }
@@ -96,10 +95,10 @@ open class ChatInputView: EditorSectionView {
 
         backgroundBlurView.isUserInteractionEnabled = false
         addSubview(backgroundBlurView)
-        addSubview(backgroundDividerView)
-
-        shadowContainer.layer.cornerRadius = 16
+        shadowContainer.layer.cornerRadius = ChatUIDesign.Radius.card
         shadowContainer.layer.cornerCurve = .continuous
+        shadowContainer.layer.borderWidth = 1
+        shadowContainer.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         shadowContainer.clipsToBounds = false
         addSubview(shadowContainer)
 
@@ -115,9 +114,9 @@ open class ChatInputView: EditorSectionView {
 
             shadowContainer.backgroundColor = .clear
         } else {
-            shadowContainer.backgroundColor = handlerColor
+            shadowContainer.backgroundColor = ChatUIDesign.Color.warmCream
             shadowContainer.layer.shadowColor = UIColor.black.cgColor
-            shadowContainer.layer.shadowOpacity = 0.08
+            shadowContainer.layer.shadowOpacity = 0.0 // no visible shadow by default
             shadowContainer.layer.shadowRadius = 8
             shadowContainer.layer.shadowOffset = .zero
         }
@@ -164,7 +163,6 @@ open class ChatInputView: EditorSectionView {
         super.layoutSubviews()
 
         backgroundBlurView.frame = bounds
-        backgroundDividerView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         var y: CGFloat = spacing
         var finalHeight: CGFloat = 0
         for subview in sectionSubviews {

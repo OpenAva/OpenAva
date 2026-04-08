@@ -18,7 +18,7 @@ class BlockButton: UIButton {
 
     var actionBlock: () -> Void = {}
 
-    let font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+    let font = UIFont.systemFont(ofSize: 14, weight: .regular) // Saans / standard UI body light
     let spacing: CGFloat = 8
     let inset: CGFloat = 8
     let iconSize: CGFloat = 16
@@ -87,16 +87,16 @@ class BlockButton: UIButton {
 
     func applyDefaultAppearance() {
         borderView.backgroundColor = .clear
-        borderView.layer.borderColor = UIColor.label.withAlphaComponent(0.1).cgColor
+        borderView.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         borderView.layer.borderWidth = 1
-        borderView.layer.cornerRadius = 8
+        borderView.layer.cornerRadius = ChatUIDesign.Radius.button
         borderView.layer.cornerCurve = .continuous
 
-        iconView.tintColor = .label
+        iconView.tintColor = ChatUIDesign.Color.offBlack
         iconView.contentMode = .scaleAspectFit
 
         textLabel.font = font
-        textLabel.textColor = .label
+        textLabel.textColor = ChatUIDesign.Color.offBlack
         textLabel.numberOfLines = 1
         textLabel.textAlignment = .center
 

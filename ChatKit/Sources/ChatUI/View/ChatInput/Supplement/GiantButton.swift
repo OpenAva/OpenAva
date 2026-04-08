@@ -16,7 +16,7 @@ final class GiantButton: UIView {
         super.init(frame: .zero)
 
         backgroundView.backgroundColor = .label.withAlphaComponent(0.05)
-        backgroundView.layer.cornerRadius = 16
+        backgroundView.layer.cornerRadius = ChatUIDesign.Radius.card
         backgroundView.layer.cornerCurve = .continuous
         addSubview(backgroundView)
 

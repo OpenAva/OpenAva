@@ -32,7 +32,7 @@ extension AttachmentsBar {
         override init(frame: CGRect) {
             super.init(frame: frame)
             contentContainer.clipsToBounds = true
-            contentContainer.layer.cornerRadius = 10
+            contentContainer.layer.cornerRadius = ChatUIDesign.Radius.card
             contentContainer.layer.cornerCurve = .continuous
             contentContainer.backgroundColor = .gray.withAlphaComponent(0.1)
             contentView.addSubview(contentContainer)
@@ -100,7 +100,7 @@ extension AttachmentsBar {
         override init(frame: CGRect) {
             super.init(frame: frame)
             contentContainer.clipsToBounds = true
-            contentContainer.layer.cornerRadius = 10
+            contentContainer.layer.cornerRadius = ChatUIDesign.Radius.card
             contentContainer.layer.cornerCurve = .continuous
             contentContainer.backgroundColor = .gray.withAlphaComponent(0.1)
             contentView.addSubview(contentContainer)

@@ -7,6 +7,6 @@ import UIKit
 
 extension UIColor {
     static var accent: UIColor {
-        .tintColor
+        ChatUIDesign.Color.brandOrange
     }
 }

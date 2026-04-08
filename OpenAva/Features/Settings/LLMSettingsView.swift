@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 struct LLMSettingsView: View {
@@ -195,16 +196,20 @@ struct LLMSettingsView: View {
                                     .tint(.white)
                             } else {
                                 Image(systemName: "network")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: 13, weight: .regular))
                             }
 
                             Text(L10n.tr("settings.llm.testConnection"))
-                                .font(.subheadline.weight(.semibold))
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
                                 .frame(maxWidth: .infinity)
                         }
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+                        .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
                     .disabled(viewModel.isTestingConnection)
 
                     if let message = viewModel.connectionTestMessage,
@@ -232,7 +237,7 @@ struct LLMSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
         .navigationBarTitleDisplayMode(.inline)
         // Auto-save when any configuration field changes
@@ -252,9 +257,6 @@ struct LLMSettingsView: View {
                 } label: {
                     Label(L10n.tr("common.reset"), systemImage: "arrow.counterclockwise")
                 }
-                #if !targetEnvironment(macCatalyst)
-                .buttonStyle(.bordered)
-                #endif
             }
         }
     }
@@ -296,15 +298,15 @@ struct LLMSettingsView: View {
 
                 Text(title)
                     .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
+                    .fontWeight(.regular)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .tracking(0.3)
             }
 
             if let description, !description.isEmpty {
                 Text(description)
                     .font(.subheadline)
-                    .foregroundStyle(Color(uiColor: .secondaryLabel))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -313,14 +315,13 @@ struct LLMSettingsView: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(uiColor: .systemBackground))
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.035), radius: 10, y: 4)
     }
 
     private func cardField<Content: View>(
@@ -329,8 +330,8 @@ struct LLMSettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .font(.subheadline.weight(.regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             content()
         }
@@ -342,12 +343,8 @@ private extension View {
         padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
             )
     }
 }

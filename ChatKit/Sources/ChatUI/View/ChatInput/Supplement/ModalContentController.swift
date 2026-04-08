@@ -50,7 +50,7 @@ class ModalContentController: UIViewController {
         dimmingView.addGestureRecognizer(tap)
 
         contentView.backgroundColor = .clear
-        contentView.layer.cornerRadius = 16
+        contentView.layer.cornerRadius = ChatUIDesign.Radius.card
         contentView.layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
         contentView.translatesAutoresizingMaskIntoConstraints = false
@@ -58,7 +58,7 @@ class ModalContentController: UIViewController {
 
         contentBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         contentBackgroundView.isUserInteractionEnabled = false
-        contentBackgroundView.layer.cornerRadius = 16
+        contentBackgroundView.layer.cornerRadius = ChatUIDesign.Radius.card
         contentBackgroundView.layer.cornerCurve = .continuous
         contentBackgroundView.clipsToBounds = true
         contentView.addSubview(contentBackgroundView)

@@ -18,7 +18,7 @@ final class DeleteButton: UIView {
         background.backgroundColor = .gray.withAlphaComponent(0.75)
 
         addSubview(imageView)
-        imageView.tintColor = .systemBackground
+        imageView.tintColor = ChatUIDesign.Color.warmCream
         imageView.contentMode = .scaleAspectFit
         let configuration = UIImage.SymbolConfiguration(weight: .heavy)
         imageView.image = UIImage(systemName: "xmark", withConfiguration: configuration)

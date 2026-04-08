@@ -48,7 +48,7 @@ final class UserMessageView: MessageListRowView {
         contentView.layer.insertSublayer(backgroundGradientLayer, at: 0)
 
         contentView.backgroundColor = .clear
-        contentView.layer.cornerRadius = 12
+        contentView.layer.cornerRadius = ChatUIDesign.Radius.card
         contentView.layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
 

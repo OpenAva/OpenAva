@@ -71,20 +71,20 @@ final class ChatAgentModelTitleView: UIView {
         stackView.distribution = .fill
         stackView.spacing = Layout.verticalSpacing
 
-        agentLabel.font = .preferredFont(forTextStyle: .callout).bold
+        agentLabel.font = ChatUIDesign.Typography.agentTitle
         agentLabel.lineBreakMode = .byTruncatingTail
         agentLabel.adjustsFontForContentSizeCategory = true
-        agentLabel.textColor = .label
+        agentLabel.textColor = ChatUIDesign.Color.offBlack
         agentLabel.textAlignment = .center
         agentLabel.numberOfLines = 1
         agentLabel.isUserInteractionEnabled = true
         agentLabel.accessibilityTraits = [.button]
         agentLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleAgentTap)))
 
-        modelLabel.font = .preferredFont(forTextStyle: .caption2)
+        modelLabel.font = ChatUIDesign.Typography.agentSubtitle
         modelLabel.lineBreakMode = .byTruncatingTail
         modelLabel.adjustsFontForContentSizeCategory = true
-        modelLabel.textColor = .secondaryLabel
+        modelLabel.textColor = ChatUIDesign.Color.black60
         modelLabel.textAlignment = .center
         modelLabel.numberOfLines = 1
         modelLabel.isUserInteractionEnabled = true

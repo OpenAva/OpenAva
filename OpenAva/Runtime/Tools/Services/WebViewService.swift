@@ -1,3 +1,4 @@
+import ChatUI
 import Foundation
 import UIKit
 import WebKit
@@ -787,7 +788,7 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
     private func setupPanelUI() {
         panelView.backgroundColor = .clear
 
-        viewportClipView.backgroundColor = .systemBackground
+        viewportClipView.backgroundColor = ChatUIDesign.Color.warmCream
         viewportClipView.layer.cornerRadius = Layout.viewportCornerRadius
         viewportClipView.layer.cornerCurve = .continuous
         viewportClipView.layer.borderWidth = 0.5
@@ -820,7 +821,7 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         let closeSymbolConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: closeSymbolConfig), for: .normal)
         closeButton.tintColor = .secondaryLabel
-        closeButton.backgroundColor = .secondarySystemBackground
+        closeButton.backgroundColor = ChatUIDesign.Color.warmCream
         closeButton.layer.cornerRadius = Layout.closeButtonSize / 2
         closeButton.addTarget(self, action: #selector(handleCloseTapped), for: .touchUpInside)
 
@@ -828,7 +829,7 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .onDrag
         webView.scrollView.contentInsetAdjustmentBehavior = .never
-        webView.backgroundColor = .systemBackground
+        webView.backgroundColor = ChatUIDesign.Color.warmCream
         webView.isOpaque = false
 
         view.addSubview(panelView)

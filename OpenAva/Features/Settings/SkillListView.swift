@@ -1,3 +1,4 @@
+import ChatUI
 import Foundation
 import SwiftUI
 
@@ -23,9 +24,9 @@ struct SkillListView: View {
 
                             skillDetail(for: presentation)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color(uiColor: .systemBackground))
+                                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                         }
-                        .background(Color(uiColor: .systemGroupedBackground))
+                        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                     } else {
                         skillList
                     }
@@ -41,7 +42,7 @@ struct SkillListView: View {
                         }
                     }
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
             #else
                 skillList
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
@@ -53,7 +54,6 @@ struct SkillListView: View {
                             } label: {
                                 Label(L10n.tr("settings.skills.addSkill"), systemImage: "plus")
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                     .sheet(item: $editorPresentation) { presentation in
@@ -133,7 +133,7 @@ struct SkillListView: View {
             #if targetEnvironment(macCatalyst)
                 Text(L10n.tr("settings.skills.workspace.header"))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -144,7 +144,7 @@ struct SkillListView: View {
                 if !workspaceSkills.isEmpty {
                     Text(workspaceFooterText)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -152,7 +152,7 @@ struct SkillListView: View {
 
                 Text(L10n.tr("settings.skills.builtin.header"))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -162,7 +162,7 @@ struct SkillListView: View {
 
                 Text(L10n.tr("settings.skills.builtin.footer"))
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -192,7 +192,7 @@ struct SkillListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
     }
 
     @ViewBuilder
@@ -808,7 +808,7 @@ private struct SkillEditorSheet: View {
                     } else {
                         Text(L10n.tr("settings.skills.error.invalidName.format"))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     }
                 } else {
                     LabeledContent(L10n.tr("common.name")) {
@@ -816,6 +816,7 @@ private struct SkillEditorSheet: View {
                     }
                 }
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             if mode.isMetadataEditable {
                 Section {
@@ -836,22 +837,24 @@ private struct SkillEditorSheet: View {
                 } footer: {
                     Text(L10n.tr("settings.skills.editor.metadata.footer"))
                 }
+                .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
             } else {
                 Section {
                     LabeledContent(L10n.tr("common.description")) {
                         Text(description.isEmpty ? L10n.tr("common.unknown") : description)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     }
 
                     LabeledContent(L10n.tr("settings.skills.editor.emoji")) {
                         Text(emoji.isEmpty ? L10n.tr("common.unknown") : emoji)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     }
                 } header: {
                     Text(L10n.tr("settings.skills.editor.section.metadata"))
                 } footer: {
                     Text(L10n.tr("settings.skills.editor.readOnlyFooter"))
                 }
+                .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
             }
 
             Section {
@@ -862,43 +865,53 @@ private struct SkillEditorSheet: View {
                     .autocorrectionDisabled()
                     .disabled(!mode.isContentEditable)
                     .padding(8)
+                    .scrollContentBackground(.hidden)
                     .background(
-                        Color(uiColor: .secondarySystemBackground),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        Color(uiColor: ChatUIDesign.Color.pureWhite),
+                        in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                     )
             } header: {
                 Text(L10n.tr("settings.skills.editor.section.file"))
             } footer: {
                 Text(mode.isContentEditable ? L10n.tr("settings.skills.editor.file.footer") : L10n.tr("settings.skills.editor.readOnlyFileFooter"))
             }
+            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
             if let errorText {
                 Section {
                     Text(errorText)
                         .foregroundStyle(.red)
                 }
+                .listRowBackground(Color.clear)
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(mode.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done")) {
-                    cancelEditing()
-                }
-            }
-
-            if mode.supportsSaving {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(mode.actionTitle) {
-                        commit()
+        #if targetEnvironment(macCatalyst)
+            .formStyle(.grouped)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done")) {
+                        cancelEditing()
                     }
-                    .disabled(!canSave)
+                }
+
+                if mode.supportsSaving {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(mode.actionTitle) {
+                            commit()
+                        }
+                        .disabled(!canSave)
+                    }
                 }
             }
-        }
     }
 
     private var canSave: Bool {
@@ -1206,8 +1219,12 @@ private extension View {
         padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                Color(uiColor: .secondarySystemBackground),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                Color(uiColor: ChatUIDesign.Color.warmCream),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
     }
 }
@@ -1225,22 +1242,25 @@ private struct SkillRow: View {
                 if onOpen != nil {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
 
                 Toggle(L10n.tr("settings.skills.enabled"), isOn: $isEnabled)
                     .labelsHidden()
+                    .tint(Color(uiColor: ChatUIDesign.Color.brandOrange))
+                    .scaleEffect(0.8)
+                    .padding(.trailing, -4)
             }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.2), value: isEnabled)
     }
@@ -1263,7 +1283,7 @@ private struct SkillRow: View {
                 .fill(
                     LinearGradient(
                         colors: skill.isAvailable
-                            ? [Color.accentColor.opacity(0.18), Color.accentColor.opacity(0.07)]
+                            ? [Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.18), Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.07)]
                             : [Color.orange.opacity(0.18), Color.orange.opacity(0.07)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -1274,7 +1294,7 @@ private struct SkillRow: View {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(
                             skill.isAvailable
-                                ? Color.accentColor.opacity(0.15)
+                                ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.15)
                                 : Color.orange.opacity(0.2),
                             lineWidth: 0.5
                         )
@@ -1285,8 +1305,8 @@ private struct SkillRow: View {
                     .font(.system(size: 22))
             } else {
                 Image(systemName: skill.isAvailable ? "hammer.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(skill.isAvailable ? Color.accentColor : .orange)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(skill.isAvailable ? Color(uiColor: ChatUIDesign.Color.brandOrange) : .orange)
             }
         }
     }
@@ -1295,15 +1315,15 @@ private struct SkillRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 7) {
                 Text(skill.displayName)
-                    .font(.system(.body, design: .default, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(.body, design: .default, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
 
                 if !skill.isWorkspace {
                     StatusBadge(
                         title: L10n.tr("settings.skills.readOnly"),
-                        foreground: .secondary,
-                        background: Color.secondary.opacity(0.1)
+                        foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                        background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.1)
                     )
                 }
             }
@@ -1311,7 +1331,7 @@ private struct SkillRow: View {
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .lineLimit(2)
             }
 
@@ -1328,8 +1348,8 @@ private struct SkillRow: View {
                     if !isEnabled {
                         StatusBadge(
                             title: L10n.tr("settings.skills.disabled"),
-                            foreground: .secondary,
-                            background: Color.secondary.opacity(0.1)
+                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.1)
                         )
                     }
                 }
@@ -1347,18 +1367,27 @@ private struct EmptySkillsView: View {
         VStack(spacing: 12) {
             Image(systemName: "sparkles.rectangle.stack")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
 
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             Text(message)
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 120)
         .padding()
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
     }
 }
 
@@ -1369,7 +1398,7 @@ private struct StatusBadge: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 10, weight: .regular))
             .foregroundStyle(foreground)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -1389,25 +1418,25 @@ private struct FeedbackBannerView: View {
                     .frame(width: 30, height: 30)
 
                 Image(systemName: banner.systemImage)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.green)
             }
 
             Text(banner.message)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.07), radius: 14, y: 5)
+        // Removed shadow to conform to OpenAvaDesign
     }
 }
 

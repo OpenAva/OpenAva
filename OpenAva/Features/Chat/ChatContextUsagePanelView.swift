@@ -11,13 +11,12 @@ struct ChatContextUsagePanelView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground)
+            Color(uiColor: ChatUIDesign.Color.warmCream)
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     header
-                    summaryCard
                     overviewCard
                     breakdownCard
 
@@ -36,15 +35,16 @@ struct ChatContextUsagePanelView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.tr("chat.contextUsage.title"))
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 18, weight: .regular))
+                    .tracking(-0.2)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-                Text(L10n.tr("chat.contextUsage.usedRemaining", snapshot.usedPercentage, snapshot.remainingPercentage))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text(formattedModelName)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             }
 
             Spacer(minLength: 8)
@@ -52,102 +52,40 @@ struct ChatContextUsagePanelView: View {
             HStack(spacing: 8) {
                 Button(action: onManualCompact) {
                     Label(L10n.tr("chat.contextUsage.manualCompact"), systemImage: "rectangle.compress.vertical")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(pillBackground)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(pillBorder, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         .frame(width: 28, height: 28)
-                        .background(pillBackground)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(pillBorder, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private var summaryCard: some View {
-        ContextCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .center, spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(accentFill)
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "gauge.with.dots.needle.50percent")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(accentColor)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(formattedModelName)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(L10n.tr("chat.contextUsage.tokens"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Text("\(snapshot.usedPercentage)%")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.primary)
-                }
-
-                progressBar
-
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        MetaPill(icon: "cpu", text: formattedModelName)
-                        MetaPill(
-                            icon: snapshot.autoCompactEnabled ? "rectangle.compress.vertical" : "rectangle.compress.vertical.badge.minus",
-                            text: "\(L10n.tr("chat.contextUsage.autoCompact")) · \(snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))"
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        MetaPill(icon: "cpu", text: formattedModelName)
-                        MetaPill(
-                            icon: snapshot.autoCompactEnabled ? "rectangle.compress.vertical" : "rectangle.compress.vertical.badge.minus",
-                            text: "\(L10n.tr("chat.contextUsage.autoCompact")) · \(snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))"
-                        )
-                    }
-                }
-
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
-                    spacing: 8
-                ) {
-                    MetricTile(title: L10n.tr("chat.contextUsage.tokens"), value: compactFormat(snapshot.estimatedInputTokens))
-                    MetricTile(title: L10n.tr("chat.contextUsage.remaining"), value: compactFormat(snapshot.remainingTokens))
-                    MetricTile(title: L10n.tr("chat.contextUsage.threshold"), value: "80%")
-                    MetricTile(title: L10n.tr("chat.contextUsage.responseHeadroom"), value: compactFormat(snapshot.responseHeadroomTokens))
-                }
-            }
-        }
+        .padding(.bottom, 4)
     }
 
     private var overviewCard: some View {
         ContextCard(title: L10n.tr("chat.contextUsage.overview")) {
             VStack(spacing: 0) {
-                PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextLength))")
+                progressBar
+                    .padding(.bottom, 16)
+
+                PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextLength)) (\(snapshot.usedPercentage)%)")
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.remaining"), value: "\(format(snapshot.remainingTokens)) (\(snapshot.remainingPercentage)%)")
                 PanelDivider()
@@ -156,13 +94,15 @@ struct ChatContextUsagePanelView: View {
                 PanelRow(title: L10n.tr("chat.contextUsage.trimLimit"), value: format(snapshot.trimLimitTokens))
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.responseHeadroom"), value: format(snapshot.responseHeadroomTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.autoCompact"), value: snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))
             }
         }
     }
 
     private var breakdownCard: some View {
         ContextCard(title: L10n.tr("chat.contextUsage.breakdown")) {
-            VStack(spacing: 10) {
+            VStack(spacing: 16) {
                 BreakdownRow(
                     title: L10n.tr("chat.contextUsage.instructions"),
                     subtitle: L10n.tr("chat.contextUsage.requestMessagesCount", snapshot.instructionMessageCount),
@@ -192,10 +132,12 @@ struct ChatContextUsagePanelView: View {
 
     private func lastUsageCard(_ lastUsage: TokenUsage) -> some View {
         ContextCard(title: L10n.tr("chat.contextUsage.lastUsage")) {
-            HStack(spacing: 8) {
-                MetricTile(title: L10n.tr("chat.contextUsage.inputTokens"), value: compactFormat(lastUsage.inputTokens))
-                MetricTile(title: L10n.tr("chat.contextUsage.outputTokens"), value: compactFormat(lastUsage.outputTokens))
-                MetricTile(title: L10n.tr("chat.contextUsage.totalTokens"), value: compactFormat(lastUsage.totalTokens))
+            VStack(spacing: 0) {
+                PanelRow(title: L10n.tr("chat.contextUsage.inputTokens"), value: format(lastUsage.inputTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.outputTokens"), value: format(lastUsage.outputTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.totalTokens"), value: format(lastUsage.totalTokens))
             }
         }
     }
@@ -219,15 +161,15 @@ struct ChatContextUsagePanelView: View {
             let width = max(0, proxy.size.width)
             let fillWidth = width * progressValue
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(trackColor)
-                    .frame(height: 10)
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(progressTint)
-                    .frame(width: fillWidth, height: 10)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                    .frame(height: 8)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(accentColor)
+                    .frame(width: fillWidth, height: 8)
             }
         }
-        .frame(height: 10)
+        .frame(height: 8)
     }
 
     private var formattedModelName: String {
@@ -243,48 +185,10 @@ struct ChatContextUsagePanelView: View {
     }
 
     private var accentColor: Color {
-        switch snapshot.usedPercentage {
-        case 80...:
-            Color.orange
-        case 60...:
-            Color.yellow
-        default:
-            Color.accentColor
+        if snapshot.usedPercentage >= 80 {
+            return Color(uiColor: ChatUIDesign.Color.brandOrange)
         }
-    }
-
-    private var progressTint: LinearGradient {
-        LinearGradient(
-            colors: [accentColor.opacity(0.82), accentColor],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    private var accentFill: Color {
-        accentColor.opacity(0.14)
-    }
-
-    private var trackColor: Color {
-        Color(uiColor: UIColor.label.withAlphaComponent(0.08))
-    }
-
-    private var pillBackground: Color {
-        Color.clear
-    }
-
-    private var pillBorder: Color {
-        Color(uiColor: UIColor.label.withAlphaComponent(0.10))
-    }
-
-    private func compactFormat(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.1fM", Double(value) / 1_000_000)
-        }
-        if value >= 1000 {
-            return String(format: "%.1fK", Double(value) / 1000)
-        }
-        return format(value)
+        return Color(uiColor: ChatUIDesign.Color.offBlack)
     }
 
     private func format(_ value: Int) -> String {
@@ -315,87 +219,24 @@ private struct ContextCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             if let title, !title.isEmpty {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .tracking(0.6)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .textCase(.uppercase)
             }
 
             content
         }
-        .padding(14)
-        .background(cardBackground)
+        .padding(16)
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(cardBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var cardBackground: some ShapeStyle {
-        Color(uiColor: UIColor { trait in
-            if trait.userInterfaceStyle == .dark {
-                return UIColor(red: 0.10, green: 0.11, blue: 0.14, alpha: 0.86)
-            }
-            return UIColor(red: 0.97, green: 0.98, blue: 0.995, alpha: 0.98)
-        })
-    }
-
-    private var cardBorder: Color {
-        Color(uiColor: UIColor.separator).opacity(0.42)
-    }
-}
-
-private struct MetaPill: View {
-    let icon: String
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-        }
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.clear)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(uiColor: UIColor.label.withAlphaComponent(0.10)), lineWidth: 1)
-        )
-    }
-}
-
-private struct MetricTile: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Text(value)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(uiColor: UIColor.label.withAlphaComponent(0.035)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color(uiColor: UIColor.label.withAlphaComponent(0.08)), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
     }
 }
 
@@ -406,12 +247,12 @@ private struct PanelRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.primary)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
             Spacer(minLength: 12)
             Text(value)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
         }
@@ -433,39 +274,39 @@ private struct BreakdownRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     Text(subtitle)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
 
                 Spacer(minLength: 8)
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Self.format(value))
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         .monospacedDigit()
                     Text(Self.percent(value: value, total: total))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
             }
 
             GeometryReader { proxy in
                 let width = max(0, proxy.size.width)
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color(uiColor: UIColor.label.withAlphaComponent(0.08)))
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
                     .overlay(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.88))
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color(uiColor: ChatUIDesign.Color.offBlack).opacity(0.8))
                             .frame(width: width * progressValue)
                     }
             }
-            .frame(height: 8)
+            .frame(height: 6)
         }
     }
 
@@ -484,7 +325,7 @@ private struct BreakdownRow: View {
 private struct PanelDivider: View {
     var body: some View {
         Rectangle()
-            .fill(Color(uiColor: UIColor.label.withAlphaComponent(0.08)))
+            .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
             .frame(height: 1)
     }
 }

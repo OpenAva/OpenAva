@@ -269,7 +269,7 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
         let textView = UITextView()
         textView.font = .monospacedSystemFont(ofSize: UIFont.systemFontSize, weight: .regular)
         textView.textColor = .label
-        textView.backgroundColor = .systemBackground
+        textView.backgroundColor = ChatUIDesign.Color.warmCream
         textView.isEditable = editable
         textView.text = text
         contentVC.view = textView

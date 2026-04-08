@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 /// List view for managing multiple LLM configurations
@@ -42,9 +43,9 @@ struct LLMListView: View {
 
                         modelDetail(for: editorMode)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(uiColor: .systemBackground))
+                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                     }
-                    .background(Color(uiColor: .systemGroupedBackground))
+                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
                 } else {
                     modelList
                 }
@@ -77,7 +78,7 @@ struct LLMListView: View {
             .onAppear {
                 refreshModels()
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         #else
             modelList
                 .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
@@ -89,7 +90,6 @@ struct LLMListView: View {
                         } label: {
                             Label(L10n.tr("settings.llmList.addModel"), systemImage: "plus")
                         }
-                        .buttonStyle(.bordered)
                     }
                 }
                 .sheet(isPresented: $isShowingAddSheet) {
@@ -181,7 +181,7 @@ struct LLMListView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .confirmationDialog(
             L10n.tr("settings.usage.reset.confirmTitle"),
             isPresented: $showResetUsageConfirmation,
@@ -319,7 +319,7 @@ struct LLMListView: View {
                             .monospacedDigit()
                     }
                     if snapshot.totalCostUSD > 0 {
-                        Divider()
+                        Rectangle().fill(Color(red: 235 / 255, green: 235 / 255, blue: 235 / 255)).frame(height: 1)
                         HStack {
                             Text(L10n.tr("settings.usage.totalCost"))
                             Spacer()
@@ -328,7 +328,7 @@ struct LLMListView: View {
                                 .monospacedDigit()
                         }
                     }
-                    Divider()
+                    Rectangle().fill(Color(red: 235 / 255, green: 235 / 255, blue: 235 / 255)).frame(height: 1)
                     Button(role: .destructive) {
                         showResetUsageConfirmation = true
                     } label: {
@@ -339,12 +339,12 @@ struct LLMListView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemBackground))
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                 )
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 20, trailing: 16))
                 .listRowBackground(Color.clear)
@@ -476,12 +476,12 @@ private struct ModelRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : Color(uiColor: .quaternarySystemFill))
+                .fill(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.18) : Color(uiColor: .quaternarySystemFill))
                 .frame(width: 34, height: 34)
                 .overlay(
                     Image(systemName: "cpu")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange) : .secondary)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -505,12 +505,14 @@ private struct ModelRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground))
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.12) : Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isSelected ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06), lineWidth: 0.6)
+            Group {
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.35) : Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: isSelected ? 1 : 1)
+            }
         )
         .contentTransition(.opacity)
     }

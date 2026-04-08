@@ -223,7 +223,7 @@ extension ReasoningContentView {
             clipsToBounds = true
 
             backgroundColor = .secondarySystemFill.withAlphaComponent(0.08)
-            layer.cornerRadius = 14
+            layer.cornerRadius = ChatUIDesign.Radius.card
             layer.cornerCurve = .continuous
 
             titleLabel.textAlignment = .leading

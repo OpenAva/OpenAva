@@ -11,9 +11,9 @@ final class ChatTitleView: UIView {
     private let verticalPadding: CGFloat = 4
 
     let textLabel: GlyphixTextLabel = .init().with {
-        $0.font = .preferredFont(forTextStyle: .body).bold
+        $0.font = UIFont.systemFont(ofSize: 18, weight: .regular)
         $0.isBlurEffectEnabled = false
-        $0.textColor = .label
+        $0.textColor = ChatUIDesign.Color.offBlack
         $0.textAlignment = .center
         $0.lineBreakMode = .byTruncatingTail
         $0.numberOfLines = 1

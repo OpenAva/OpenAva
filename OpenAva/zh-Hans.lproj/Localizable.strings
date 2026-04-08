@@ -1,11 +1,12 @@
-"agent.onboarding.title" = "欢迎使用 OpenAva";
-"agent.onboarding.subtitle" = "你的个人智能助手。\n安全、快速、端侧运行。";
+"agent.onboarding.title" = "个人 AI Agent 工作台";
+"agent.onboarding.subtitle" = "在 Apple 设备上运行单个 Agent 或 Agent 团队。";
+"agent.onboarding.sectionTitle" = "开始使用";
 "agent.onboarding.createLocal.title" = "创建本地 Agent";
 "agent.onboarding.createLocal.subtitle" = "在你的设备上安全运行 AI Agent";
 "agent.onboarding.createSingle.title" = "创建单个 Agent";
-"agent.onboarding.createSingle.subtitle" = "为某个角色或任务创建一个专属 Agent。";
+"agent.onboarding.createSingle.subtitle" = "适合写作、研究、编程等个人任务。";
 "agent.onboarding.createTeam.title" = "创建 Agent 团队";
-"agent.onboarding.createTeam.subtitle" = "一次创建一组可协作的默认岗位 Agent。";
+"agent.onboarding.createTeam.subtitle" = "适合需要分工协作的复杂任务。";
 
 "agent.creation.nav.title" = "新建 Agent";
 "agent.creation.about.title" = "个人信息";
@@ -70,7 +71,7 @@
 "team.management.missing.description" = "这个团队可能已经被删除。";
 "team.management.create.footer" = "你可以先创建团队容器，之后再逐步补充成员。";
 "team.management.create.failed" = "创建团队失败。";
-"team.management.addExisting.empty" = "当前所有 Agent 都已经在这个团队中。";
+"team.management.addExisting.empty" = "没有可添加的 Agent。";
 "team.management.delete.confirm.title" = "删除团队";
 "team.management.delete.confirm.message" = "这会删除团队容器及其协作状态。";
 "agent.creation.preset.marketing.title" = "增长营销";
@@ -166,11 +167,10 @@
 "settings.remoteControl.pairChallengeReceived" = "请在 %@ 前输入 Mac 上显示的配对码。";
 "settings.remoteControl.pairing.timeout" = "等待 Mac 返回配对挑战超时。";
 "settings.remoteControl.paired" = "配对完成。";
+"settings.remoteControl.pairedWith" = "已与 %@ 配对。";
 "settings.remoteControl.agents.title" = "Agent 列表";
-"settings.remoteControl.sessions.title" = "会话列表";
-"settings.remoteControl.sessions.new" = "新建会话";
 "settings.remoteControl.message.title" = "消息";
-"settings.remoteControl.message.placeholder" = "向选中的 Mac 会话发送消息";
+"settings.remoteControl.message.placeholder" = "向选中的 Mac Agent 发送消息";
 "settings.remoteControl.message.send" = "发送";
 "settings.remoteControl.messageSent" = "消息已加入 Mac 队列。";
 "settings.remoteControl.refresh" = "刷新";
@@ -211,8 +211,7 @@
 "notification.taskFailed" = "已停止";
 "chat.activeAgent.fallbackName" = "助手";
 "chat.selectedModel.notSelected" = "未选择";
-"chat.command.newConversation" = "新会话";
-"chat.command.runHeartbeatNow" = "运行 Heartbeat";
+"chat.command.runHeartbeatNow" = "运行一次心跳";
 "chat.command.focusInput" = "聚焦输入框";
 "chat.command.compact" = "压缩";
 "chat.contextUsage.badgePlaceholder" = "上下文 --%";
@@ -261,7 +260,6 @@
 "chat.menu.noAgentsAvailable" = "暂无可用 Agent";
 "chat.menu.newLocalAgent" = "新建 Agent";
 "chat.menu.manageTeams" = "管理团队";
-"chat.menu.ungroupedAgents" = "未分组 Agent";
 "chat.menu.team.manage" = "管理 %@";
 "chat.menu.team.title" = "团队";
 "chat.menu.team.summary" = "%1$lld 个 Agent · %2$lld 个执行中 · %3$lld 个待批 · %4$lld 个任务";
@@ -356,7 +354,8 @@
 "settings.cron.schedule.section" = "计划";
 "settings.cron.schedule.mode" = "模式";
 "settings.cron.schedule.runAt" = "执行时间";
-"settings.cron.schedule.everyMinutes" = "每 %d 分钟%@";
+"settings.cron.schedule.everyPrefix" = "每隔";
+"settings.cron.schedule.minutesSuffix" = "分钟";
 "settings.cron.newJob.title" = "新建 Cron 任务";
 "settings.cron.nextRun" = "下次：%@";
 "settings.cron.kind.notify" = "提醒";
@@ -473,3 +472,8 @@
 "settings.context.emptyPlaceholder" = "暂无内容，点击输入或应用模板。";
 "settings.context.reset.confirmTitle" = "确定重置？";
 "settings.context.reset.message" = "这会清空 %@ 的内容，且无法撤销。";
+"chat.menu.newTeam" = "新建团队";
+
+"chat.menu.deleteTeamNamed" = "删除「%@」";
+
+"team.management.action.manageAgents" = "管理 Agent";

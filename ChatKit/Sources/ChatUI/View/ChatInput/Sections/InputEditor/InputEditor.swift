@@ -7,7 +7,7 @@ import Combine
 import UIKit
 
 final class InputEditor: EditorSectionView {
-    let font = UIFont.preferredFont(forTextStyle: .body)
+    let font = UIFont.systemFont(ofSize: 16, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
 
@@ -80,7 +80,7 @@ final class InputEditor: EditorSectionView {
         textView.showsHorizontalScrollIndicator = false
         textView.alwaysBounceVertical = false
         textView.alwaysBounceHorizontal = false
-        textView.textColor = .label
+        textView.textColor = ChatUIDesign.Color.offBlack
         textView.textAlignment = .natural
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
@@ -104,7 +104,7 @@ final class InputEditor: EditorSectionView {
         elementClipper.addSubview(textView)
         placeholderLabel.text = String.localized("Type something...")
         placeholderLabel.font = font
-        placeholderLabel.textColor = .placeholderText
+        placeholderLabel.textColor = ChatUIDesign.Color.black50
         elementClipper.addSubview(placeholderLabel)
         voiceButton.tapAction = { [weak self] in
             self?.delegate?.onInputEditorMicButtonTapped()
@@ -119,7 +119,7 @@ final class InputEditor: EditorSectionView {
         }
         elementClipper.addSubview(cancelVoiceButton)
         // Voice-like animation replaces static listening text.
-        voiceActivityIndicator.tintColor = .secondaryLabel
+        voiceActivityIndicator.tintColor = ChatUIDesign.Color.black60
         elementClipper.addSubview(voiceActivityIndicator)
         moreButton.tapAction = { [weak self] in
             self?.isControlPanelOpened.toggle()
