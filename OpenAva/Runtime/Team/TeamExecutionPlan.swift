@@ -61,15 +61,15 @@ struct TeamExecutionPlan: Codable, Equatable, Identifiable {
 enum TeamTopologyPlanner {
     static func defaultPlan(for profile: TeamProfile) -> TeamExecutionPlan {
         let nodes = profile.agentPoolIDs.map { TeamExecutionPlan.Node(agentID: $0) }
-        let leadAgentID = profile.leadAgentID ?? profile.agentPoolIDs.first
+        let rootAgentID = profile.agentPoolIDs.first
         let edges: [TeamExecutionPlan.Edge]
 
-        if profile.defaultTopology == .tree, let leadAgentID {
+        if profile.defaultTopology == .tree, let rootAgentID {
             edges = profile.agentPoolIDs
-                .filter { $0 != leadAgentID }
+                .filter { $0 != rootAgentID }
                 .map {
                     TeamExecutionPlan.Edge(
-                        fromAgentID: leadAgentID,
+                        fromAgentID: rootAgentID,
                         toAgentID: $0,
                         relationship: "delegates"
                     )

@@ -11,7 +11,7 @@ extension Notification.Name {
 final class TeamSwarmCoordinator {
     static let shared = TeamSwarmCoordinator()
 
-    static let teamLeadName = "team-lead"
+    static let coordinatorName = "coordinator"
 
     struct ToolContext {
         let sessionID: String?
@@ -76,8 +76,7 @@ final class TeamSwarmCoordinator {
     struct TeamRecord: Codable, Equatable {
         let name: String
         var description: String?
-        let leadAgentID: String?
-        let leadSessionID: String
+        let coordinatorSessionID: String
         let createdAt: Date
         var updatedAt: Date
         var hiddenPaneIDs: [String]?
@@ -90,21 +89,20 @@ final class TeamSwarmCoordinator {
     struct TeamSnapshot {
         let team: TeamRecord
         let pendingPermissions: [TeamPermissionRequest]
-        let leadUnreadCount: Int
-        let leadMailboxPreview: String?
+        let coordinatorUnreadCount: Int
+        let coordinatorMailboxPreview: String?
     }
 
     struct MemberSnapshot {
         let teamName: String
         let teamDescription: String?
-        let leadAgentID: String?
         let allowedPaths: [TeamAllowedPath]
         let member: TeamMember
         let teammates: [TeamMember]
         let tasks: [TeamTask]
         let pendingPermissions: [TeamPermissionRequest]
-        let leadUnreadCount: Int
-        let leadMailboxPreview: String?
+        let coordinatorUnreadCount: Int
+        let coordinatorMailboxPreview: String?
     }
 
     private let colors = ["blue", "green", "orange", "pink", "purple", "teal"]
@@ -175,39 +173,38 @@ final class TeamSwarmCoordinator {
         for team in teamsByName.values {
             if let member = team.members.first(where: { $0.sessionID == sessionID }) {
                 let pending = pendingPermissions(for: team.name)
-                let leadMailbox = leaderMailboxSummary(for: team.name)
+                let coordinatorMailbox = coordinatorMailboxSummary(for: team.name)
                 return MemberSnapshot(
                     teamName: team.name,
                     teamDescription: team.description,
-                    leadAgentID: team.leadAgentID,
                     allowedPaths: team.allowedPaths ?? [],
                     member: member,
                     teammates: team.members.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
                     tasks: team.tasks.sorted { $0.id < $1.id },
                     pendingPermissions: pending,
-                    leadUnreadCount: leadMailbox.count,
-                    leadMailboxPreview: leadMailbox.preview
+                    coordinatorUnreadCount: coordinatorMailbox.count,
+                    coordinatorMailboxPreview: coordinatorMailbox.preview
                 )
             }
         }
         return nil
     }
 
-    func leadSnapshot(for sessionID: String?) -> TeamSnapshot? {
+    func coordinatorSnapshot(for sessionID: String?) -> TeamSnapshot? {
         guard let sessionID else { return nil }
-        let team = teamsByName.values.first(where: { $0.leadSessionID == sessionID })
+        let team = teamsByName.values.first(where: { $0.coordinatorSessionID == sessionID })
             ?? activeAgentID(from: sessionID).flatMap { activeAgentID in
                 teamsByName.values.first(where: {
-                    $0.leadAgentID == activeAgentID || $0.members.contains(where: { $0.id == activeAgentID })
+                    $0.members.contains(where: { $0.id == activeAgentID })
                 })
             }
         guard let team else { return nil }
-        let leadMailbox = leaderMailboxSummary(for: team.name)
+        let coordinatorMailbox = coordinatorMailboxSummary(for: team.name)
         return TeamSnapshot(
             team: team,
             pendingPermissions: pendingPermissions(for: team.name),
-            leadUnreadCount: leadMailbox.count,
-            leadMailboxPreview: leadMailbox.preview
+            coordinatorUnreadCount: coordinatorMailbox.count,
+            coordinatorMailboxPreview: coordinatorMailbox.preview
         )
     }
 
@@ -217,12 +214,12 @@ final class TeamSwarmCoordinator {
         else {
             return nil
         }
-        let leadMailbox = leaderMailboxSummary(for: resolvedTeamName)
+        let coordinatorMailbox = coordinatorMailboxSummary(for: resolvedTeamName)
         return TeamSnapshot(
             team: team,
             pendingPermissions: pendingPermissions(for: resolvedTeamName),
-            leadUnreadCount: leadMailbox.count,
-            leadMailboxPreview: leadMailbox.preview
+            coordinatorUnreadCount: coordinatorMailbox.count,
+            coordinatorMailboxPreview: coordinatorMailbox.preview
         )
     }
 
@@ -248,21 +245,21 @@ final class TeamSwarmCoordinator {
             throw TeamError("INVALID_REQUEST: message must not be empty")
         }
         let target = sanitize(rawTarget)
-        let senderName = senderName(for: context, teamName: resolvedTeamName) ?? Self.teamLeadName
-        let isPeerMessage = senderName.caseInsensitiveCompare(Self.teamLeadName) != .orderedSame
+        let senderName = senderName(for: context, teamName: resolvedTeamName) ?? Self.coordinatorName
+        let isPeerMessage = senderName.caseInsensitiveCompare(Self.coordinatorName) != .orderedSame
 
         let transcriptLine = "[\(senderName)] \(body)"
 
-        if target.caseInsensitiveCompare(Self.teamLeadName) == .orderedSame {
+        if target.caseInsensitiveCompare(Self.coordinatorName) == .orderedSame {
             writeMailboxMessage(
                 teamName: resolvedTeamName,
-                recipientName: Self.teamLeadName,
+                recipientName: Self.coordinatorName,
                 fromName: senderName,
                 text: body,
                 messageType: messageType,
                 summary: summarize(body)
             )
-            appendLeaderMessage(team: team, fromName: senderName, text: body)
+            appendCoordinatorMessage(team: team, fromName: senderName, text: body)
             return
         }
 
@@ -355,18 +352,18 @@ final class TeamSwarmCoordinator {
                 requestID: pendingPlanRequestID,
                 resolution: TeamPermissionResolution(
                     status: .approved,
-                    resolvedBy: senderName(for: context, teamName: target.teamName) ?? Self.teamLeadName,
+                    resolvedBy: senderName(for: context, teamName: target.teamName) ?? Self.coordinatorName,
                     feedback: normalized(feedback)
                 )
             )
         }
 
         if let pendingPrompt {
-            let feedbackLine = normalized(feedback).map { "\n\nLeader feedback: \($0)" } ?? ""
+            let feedbackLine = normalized(feedback).map { "\n\nCoordinator feedback: \($0)" } ?? ""
             writeMailboxMessage(
                 teamName: target.teamName,
                 recipientName: member.name,
-                fromName: Self.teamLeadName,
+                fromName: Self.coordinatorName,
                 text: pendingPrompt + feedbackLine,
                 messageType: "approved_execution",
                 summary: summarize(pendingPrompt)
@@ -378,7 +375,7 @@ final class TeamSwarmCoordinator {
             sessionID: member.sessionID,
             title: member.sessionTitle,
             role: .system,
-            text: "Plan approved by \(senderName(for: context, teamName: target.teamName) ?? Self.teamLeadName)."
+            text: "Plan approved by \(senderName(for: context, teamName: target.teamName) ?? Self.coordinatorName)."
         )
         persist()
         notifyChanged()
@@ -565,7 +562,7 @@ final class TeamSwarmCoordinator {
                     BridgeInvokeResponse(
                         id: request.id,
                         ok: false,
-                        error: OpenClawNodeError(code: .unavailable, message: "PLAN_MODE: tools are disabled until the leader approves the plan")
+                        error: OpenClawNodeError(code: .unavailable, message: "PLAN_MODE: tools are disabled until the coordinator approves the plan")
                     )
                 }
             )
@@ -580,7 +577,7 @@ final class TeamSwarmCoordinator {
             }
             appendTranscriptMessage(sessionID: member.sessionID, title: member.sessionTitle, role: .assistant, text: output.content)
             if let team = teamsByName[teamName] {
-                appendLeaderMessage(
+                appendCoordinatorMessage(
                     team: team,
                     fromName: member.name,
                     text: "Proposed a plan and is waiting for approval.\n\n\(output.content)"
@@ -610,7 +607,7 @@ final class TeamSwarmCoordinator {
             systemPrompt: [
                 baseDefinition.systemPrompt,
                 "You are teammate \(member.name) in team \(teamName).",
-                "Use team_task_list/team_task_update to coordinate work and team_message_send to communicate with team-lead or peers.",
+                "Use team_task_list/team_task_update to coordinate work and team_message_send to communicate with the coordinator or peers.",
                 "Do not create nested teams.",
             ].joined(separator: "\n\n"),
             toolPolicy: baseDefinition.toolPolicy,
@@ -647,7 +644,7 @@ final class TeamSwarmCoordinator {
             finishMember(teamName: teamName, memberID: member.id, status: .idle, result: output.content, error: nil)
             appendTranscriptMessage(sessionID: member.sessionID, title: member.sessionTitle, role: .assistant, text: output.content)
             if let team = teamsByName[teamName] {
-                appendLeaderMessage(team: team, fromName: member.name, text: output.content)
+                appendCoordinatorMessage(team: team, fromName: member.name, text: output.content)
             }
         } catch {
             finishMember(teamName: teamName, memberID: member.id, status: .failed, result: nil, error: error.localizedDescription)
@@ -687,13 +684,13 @@ final class TeamSwarmCoordinator {
             if let error {
                 appendTranscriptMessage(sessionID: resolved.member.sessionID, title: resolved.member.sessionTitle, role: .system, text: "Error: \(error)")
                 if let team = teamsByName[teamName] {
-                    appendLeaderMessage(team: team, fromName: resolved.member.name, text: "Failed: \(error)")
+                    appendCoordinatorMessage(team: team, fromName: resolved.member.name, text: "Failed: \(error)")
                 }
             } else if status == .idle {
                 appendTranscriptMessage(sessionID: resolved.member.sessionID, title: resolved.member.sessionTitle, role: .system, text: "Teammate is idle.")
                 if let team = teamsByName[teamName] {
                     let summary = summarize(result) ?? "No summary available."
-                    appendLeaderMessage(team: team, fromName: resolved.member.name, text: "Idle update: \(summary)")
+                    appendCoordinatorMessage(team: team, fromName: resolved.member.name, text: "Idle update: \(summary)")
                 }
             }
         }
@@ -710,7 +707,7 @@ final class TeamSwarmCoordinator {
         if let team = teamsByName[teamName],
            let sender = resolveMember(memberID: senderMemberID)?.member.name
         {
-            appendLeaderMessage(team: team, fromName: sender, text: "Peer DM to \(recipientName): \(summarize(message) ?? message)")
+            appendCoordinatorMessage(team: team, fromName: sender, text: "Peer DM to \(recipientName): \(summarize(message) ?? message)")
         }
     }
 
@@ -789,26 +786,26 @@ final class TeamSwarmCoordinator {
         return TeamPermissionSync.readPending(teamDirectoryURL: teamDirectoryURL)
     }
 
-    private func leaderMailboxSummary(for teamName: String) -> (count: Int, preview: String?) {
+    private func coordinatorMailboxSummary(for teamName: String) -> (count: Int, preview: String?) {
         guard let teamDirectoryURL = teamDirectoryURL(teamName: teamName) else {
             return (0, nil)
         }
         return (
-            TeamMailbox.unreadCount(teamDirectoryURL: teamDirectoryURL, recipientName: Self.teamLeadName),
-            summarize(TeamMailbox.lastPreview(teamDirectoryURL: teamDirectoryURL, recipientName: Self.teamLeadName))
+            TeamMailbox.unreadCount(teamDirectoryURL: teamDirectoryURL, recipientName: Self.coordinatorName),
+            summarize(TeamMailbox.lastPreview(teamDirectoryURL: teamDirectoryURL, recipientName: Self.coordinatorName))
         )
     }
 
     private func resolveColor(for senderName: String, teamName: String) -> String? {
-        guard senderName.caseInsensitiveCompare(Self.teamLeadName) != .orderedSame else {
+        guard senderName.caseInsensitiveCompare(Self.coordinatorName) != .orderedSame else {
             return nil
         }
         return teamsByName[teamName]?.members.first(where: { $0.name.caseInsensitiveCompare(senderName) == .orderedSame })?.colorName
     }
 
-    private func appendLeaderMessage(team: TeamRecord, fromName: String, text: String) {
+    private func appendCoordinatorMessage(team: TeamRecord, fromName: String, text: String) {
         appendTranscriptMessage(
-            sessionID: team.leadSessionID,
+            sessionID: team.coordinatorSessionID,
             title: nil,
             role: .system,
             text: "[\(team.name)/\(fromName)] \(text)"
@@ -856,12 +853,12 @@ final class TeamSwarmCoordinator {
             return resolved.teamName
         }
         if let sessionID = context.sessionID {
-            if let matchedBySession = teamsByName.values.first(where: { $0.leadSessionID == sessionID })?.name {
+            if let matchedBySession = teamsByName.values.first(where: { $0.coordinatorSessionID == sessionID })?.name {
                 return matchedBySession
             }
             if let activeAgentID = activeAgentID(from: sessionID) {
                 return teamsByName.values.first(where: {
-                    $0.leadAgentID == activeAgentID || $0.members.contains(where: { $0.id == activeAgentID })
+                    $0.members.contains(where: { $0.id == activeAgentID })
                 })?.name
             }
         }
@@ -907,7 +904,7 @@ final class TeamSwarmCoordinator {
         {
             return resolved.member.name
         }
-        return Self.teamLeadName
+        return Self.coordinatorName
     }
 
     private func activeAgentID(from sessionID: String) -> String? {
@@ -976,8 +973,8 @@ final class TeamSwarmCoordinator {
                 description: team.description,
                 createdAt: team.createdAt,
                 updatedAt: team.updatedAt,
-                leadAgentId: team.leadAgentID ?? "\(Self.teamLeadName)@\(team.name)",
-                leadSessionId: team.leadSessionID,
+                coordinatorId: "\(Self.coordinatorName)@\(team.name)",
+                coordinatorSessionId: team.coordinatorSessionID,
                 hiddenPaneIds: team.hiddenPaneIDs ?? [],
                 teamAllowedPaths: team.allowedPaths ?? [],
                 nextTaskID: team.nextTaskID,
@@ -1069,15 +1066,12 @@ final class TeamSwarmCoordinator {
         }
 
         guard !members.isEmpty else { return nil }
-
-        let leadAgentString = profile.leadAgentID?.uuidString ?? profile.agentPoolIDs.first?.uuidString
-        let leadSessionID = persisted?.leadSessionId ?? leadAgentString ?? profile.name
+        let coordinatorSessionID = persisted?.coordinatorSessionId ?? profile.name
 
         return TeamRecord(
             name: profile.name,
             description: normalized(profile.description),
-            leadAgentID: leadAgentString,
-            leadSessionID: leadSessionID,
+            coordinatorSessionID: coordinatorSessionID,
             createdAt: persisted?.createdAt ?? profile.createdAt,
             updatedAt: persisted?.updatedAt ?? profile.updatedAt,
             hiddenPaneIDs: persisted?.hiddenPaneIds ?? [],

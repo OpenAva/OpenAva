@@ -54,8 +54,8 @@ struct TeamFile: Codable, Equatable {
     let description: String?
     let createdAt: Date
     let updatedAt: Date
-    let leadAgentId: String
-    let leadSessionId: String?
+    let coordinatorId: String
+    let coordinatorSessionId: String?
     let hiddenPaneIds: [String]
     let teamAllowedPaths: [TeamAllowedPath]
     let nextTaskID: Int
@@ -67,8 +67,8 @@ struct TeamFile: Codable, Equatable {
         case description
         case createdAt
         case updatedAt
-        case leadAgentId
-        case leadSessionId
+        case coordinatorId = "leadAgentId"
+        case coordinatorSessionId = "leadSessionId"
         case hiddenPaneIds
         case teamAllowedPaths
         case nextTaskID

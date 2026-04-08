@@ -904,7 +904,7 @@ extension ChatViewControllerWrapper {
             makeAgentAction(for: agent, team: nil, snapshot: nil)
         }
 
-        private func makeAgentAction(for agent: AgentProfile, team: TeamProfile?, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIAction {
+        private func makeAgentAction(for agent: AgentProfile, team _: TeamProfile?, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIAction {
             var title = agent.name
             if let snapshot, let memberStatus = snapshot.memberStatuses[agent.id.uuidString] {
                 let badge = statusBadge(for: memberStatus)
@@ -920,8 +920,7 @@ extension ChatViewControllerWrapper {
             let showsSwarmIndicator = snapshot?.memberStatuses[agent.id.uuidString] == .busy
             let image = makeAgentMenuImage(for: agent, showsSwarmBusy: showsSwarmIndicator)
             let state: UIMenuElement.State = (agent.id == activeAgentID) ? .on : .off
-            let attributes: UIMenuElement.Attributes = isLead(agent: agent, in: team) ? [.keepsMenuPresented] : []
-            return UIAction(title: title, image: image, identifier: nil, discoverabilityTitle: nil, attributes: attributes, state: state) { [weak self] _ in
+            return UIAction(title: title, image: image, identifier: nil, discoverabilityTitle: nil, attributes: [], state: state) { [weak self] _ in
                 self?.onAgentSwitch?(agent.id)
             }
         }
@@ -1003,11 +1002,6 @@ extension ChatViewControllerWrapper {
                 width: fittedSize.width,
                 height: fittedSize.height
             )
-        }
-
-        private func isLead(agent: AgentProfile, in team: TeamProfile?) -> Bool {
-            guard let team else { return false }
-            return team.leadAgentID == agent.id
         }
 
         private func makeAgentMenuImage(for agent: AgentProfile, showsSwarmBusy: Bool = false) -> UIImage? {

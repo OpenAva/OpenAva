@@ -14,7 +14,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
         let message = TeamMailboxMessage(
             id: "m1",
-            from: "team-lead",
+            from: "coordinator",
             text: "Finish the migration",
             timestamp: Date(timeIntervalSince1970: 1),
             read: false,
@@ -59,7 +59,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let resolved = try TeamPermissionSync.resolve(
             teamDirectoryURL: teamDirectoryURL,
             requestID: "p1",
-            resolution: TeamPermissionResolution(status: .approved, resolvedBy: "team-lead", feedback: "Looks good")
+            resolution: TeamPermissionResolution(status: .approved, resolvedBy: "coordinator", feedback: "Looks good")
         )
 
         XCTAssertEqual(resolved?.status, .approved)
@@ -82,16 +82,11 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
         _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id), defaults: .standard)
         XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
-        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.leadAgentID, firstAgentID)
-
-        _ = try TeamStore.setLeadAgent(secondAgentID, for: XCTUnwrap(created?.id), defaults: .standard)
-        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.leadAgentID, secondAgentID)
 
         _ = try TeamStore.removeAgent(firstAgentID, from: XCTUnwrap(created?.id), defaults: .standard)
 
         let remaining = TeamStore.load(defaults: .standard).teams.first
         XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])
-        XCTAssertEqual(remaining?.leadAgentID, secondAgentID)
     }
 
     private func makeTemporaryTeamDirectory() -> URL {

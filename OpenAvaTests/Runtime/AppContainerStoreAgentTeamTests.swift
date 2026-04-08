@@ -88,6 +88,5 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
         let updatedTeam = try XCTUnwrap(containerStore.addAgents([agent.id], toTeam: team.id))
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
-        XCTAssertEqual(updatedTeam.leadAgentID, agent.id)
     }
 }

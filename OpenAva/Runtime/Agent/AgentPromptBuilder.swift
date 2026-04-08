@@ -159,7 +159,7 @@ enum AgentPromptBuilder {
             Use the team tools to inspect and coordinate the active collaboration:
             - `team_status` inspects the current team state, shared tasks, and pending approvals.
             - `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` manage the shared task list.
-            - `team_message_send` coordinates between team-lead and teammates through direct mailbox messages.
+            - `team_message_send` coordinates between the coordinator and teammates through direct mailbox messages.
             - `team_plan_approve` approves a teammate plan request when plan mode is required.
             """
         )

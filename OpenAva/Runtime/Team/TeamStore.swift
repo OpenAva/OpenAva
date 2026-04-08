@@ -37,12 +37,13 @@ enum TeamStore {
         emoji: String = "👥",
         description: String? = nil,
         agentPoolIDs: [UUID] = [],
-        leadAgentID: UUID? = nil,
         defaultTopology: TeamTopologyKind = .automatic,
         defaults: UserDefaults = .standard
     ) -> TeamProfile? {
+        var state = load(defaults: defaults)
+        let assignedIDs = Set(state.teams.flatMap(\.agentPoolIDs))
         let normalizedAgentPoolIDs = agentPoolIDs.reduce(into: [UUID]()) { partialResult, id in
-            if !partialResult.contains(id) {
+            if !partialResult.contains(id), !assignedIDs.contains(id) {
                 partialResult.append(id)
             }
         }
@@ -51,22 +52,12 @@ enum TeamStore {
         guard !normalizedName.isEmpty else {
             return nil
         }
-
-        let normalizedLeadAgentID: UUID?
-        if let leadAgentID, normalizedAgentPoolIDs.contains(leadAgentID) {
-            normalizedLeadAgentID = leadAgentID
-        } else {
-            normalizedLeadAgentID = normalizedAgentPoolIDs.first
-        }
-
-        var state = load(defaults: defaults)
         let uniqueName = nextUniqueName(baseName: normalizedName, existingNames: state.teams.map(\.name))
         let team = TeamProfile(
             name: uniqueName,
             emoji: normalizedEmoji,
             description: description,
             agentPoolIDs: normalizedAgentPoolIDs,
-            leadAgentID: normalizedLeadAgentID,
             defaultTopology: defaultTopology
         )
         state.teams.append(team)
@@ -123,12 +114,16 @@ enum TeamStore {
         to teamID: UUID,
         defaults: UserDefaults = .standard
     ) -> TeamProfile? {
-        mutateTeam(teamID, defaults: defaults) { team in
-            for agentID in agentIDs where !team.agentPoolIDs.contains(agentID) {
+        let state = load(defaults: defaults)
+        let assignedIDs = Set(
+            state.teams
+                .filter { $0.id != teamID }
+                .flatMap(\.agentPoolIDs)
+        )
+        let eligible = agentIDs.filter { !assignedIDs.contains($0) }
+        return mutateTeam(teamID, defaults: defaults) { team in
+            for agentID in eligible where !team.agentPoolIDs.contains(agentID) {
                 team.agentPoolIDs.append(agentID)
-            }
-            if team.leadAgentID == nil {
-                team.leadAgentID = team.agentPoolIDs.first
             }
         }
     }
@@ -141,24 +136,6 @@ enum TeamStore {
     ) -> TeamProfile? {
         mutateTeam(teamID, defaults: defaults) { team in
             team.agentPoolIDs.removeAll { $0 == agentID }
-            if team.leadAgentID == agentID {
-                team.leadAgentID = team.agentPoolIDs.first
-            }
-        }
-    }
-
-    @discardableResult
-    static func setLeadAgent(
-        _ agentID: UUID?,
-        for teamID: UUID,
-        defaults: UserDefaults = .standard
-    ) -> TeamProfile? {
-        mutateTeam(teamID, defaults: defaults) { team in
-            if let agentID, team.agentPoolIDs.contains(agentID) {
-                team.leadAgentID = agentID
-            } else {
-                team.leadAgentID = team.agentPoolIDs.first
-            }
         }
     }
 
@@ -167,9 +144,6 @@ enum TeamStore {
         state.teams = state.teams.map { team in
             var team = team
             team.agentPoolIDs.removeAll { $0 == agentID }
-            if team.leadAgentID == agentID {
-                team.leadAgentID = team.agentPoolIDs.first
-            }
             team.updatedAt = Date()
             return team
         }

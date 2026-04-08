@@ -23,13 +23,13 @@ struct TeamToolDefinitions: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "team_message_send",
                 command: "team.message.send",
-                description: "Send a mailbox message between team-lead and teammates, or between teammates.",
+                description: "Send a mailbox message between the coordinator and teammates, or between teammates.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
                         "to": [
                             "type": "string",
-                            "description": "Recipient name, such as team-lead or a teammate name",
+                            "description": "Recipient name, such as coordinator or a teammate name",
                         ],
                         "message": [
                             "type": "string",

@@ -54,9 +54,7 @@
 "team.management.empty.description" = "Create a team first, then add existing agents or create new members inside the team.";
 "team.management.list.footer" = "Teams are dynamic containers. You can add or remove members at any time.";
 "team.management.create.button" = "Create Team";
-"team.management.lead.unassigned" = "No lead";
 "team.management.memberCount" = "%lld members";
-"team.management.lead.label" = "Lead: %@";
 "team.management.name.placeholder" = "Team name";
 "team.management.description.placeholder" = "Team description";
 "team.management.save" = "Save Team";
@@ -64,8 +62,7 @@
 "team.management.section.members" = "Members";
 "team.management.section.addMembers" = "Add Members";
 "team.management.members.empty" = "This team has no members yet.";
-"team.management.members.footer" = "Set any member as lead. Removing the current lead will automatically fall back to the first remaining member.";
-"team.management.action.makeLead" = "Make Lead";
+"team.management.members.footer" = "Members can be added to or removed from a team at any time.";
 "team.management.action.addExisting" = "Add Existing Agents";
 "team.management.action.createAndAdd" = "Create Agent and Add";
 "team.management.action.delete" = "Delete Team";

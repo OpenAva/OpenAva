@@ -54,9 +54,7 @@
 "team.management.empty.description" = "先创建一个团队，再把已有 Agent 加入，或在团队里直接创建新成员。";
 "team.management.list.footer" = "团队是动态容器，成员可以随时增加或移除。";
 "team.management.create.button" = "创建团队";
-"team.management.lead.unassigned" = "未设置负责人";
 "team.management.memberCount" = "%lld 名成员";
-"team.management.lead.label" = "负责人：%@";
 "team.management.name.placeholder" = "团队名称";
 "team.management.description.placeholder" = "团队描述";
 "team.management.save" = "保存团队";
@@ -64,8 +62,7 @@
 "team.management.section.members" = "成员";
 "team.management.section.addMembers" = "添加成员";
 "team.management.members.empty" = "这个团队还没有成员。";
-"team.management.members.footer" = "任意成员都可以设为负责人。删除当前负责人时，会自动回退到剩余的第一位成员。";
-"team.management.action.makeLead" = "设为负责人";
+"team.management.members.footer" = "团队成员可以随时加入或移除。";
 "team.management.action.addExisting" = "添加已有 Agent";
 "team.management.action.createAndAdd" = "创建 Agent 并加入";
 "team.management.action.delete" = "删除团队";

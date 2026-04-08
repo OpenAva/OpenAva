@@ -303,7 +303,6 @@ final class AgentCreationViewModel {
             emoji: data.teamEmoji,
             description: teamDescription,
             agentIDs: createdProfiles.map(\.id),
-            leadAgentID: createdProfiles.first?.id,
             defaultTopology: .automatic
         ) != nil else {
             throw NSError(

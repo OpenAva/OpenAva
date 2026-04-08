@@ -71,18 +71,7 @@ struct TeamManagementView: View {
 }
 
 private struct TeamRowView: View {
-    @Environment(\.appContainerStore) private var containerStore
-
     let team: TeamProfile
-
-    private var leadName: String {
-        guard let leadAgentID = team.leadAgentID,
-              let lead = containerStore.agents.first(where: { $0.id == leadAgentID })
-        else {
-            return L10n.tr("team.management.lead.unassigned")
-        }
-        return lead.name
-    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -97,8 +86,6 @@ private struct TeamRowView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    Text(String(format: L10n.tr("team.management.lead.label"), leadName))
-                    Text("·")
                     Text(String(format: L10n.tr("team.management.memberCount"), team.agentPoolIDs.count))
                 }
                 .font(.caption)
@@ -184,35 +171,18 @@ private struct TeamDetailView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(teamAgents) { agent in
-                            let isLead = team.leadAgentID == agent.id
                             HStack(spacing: 12) {
                                 Text(agent.emoji)
                                     .font(.title3)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text(agent.name)
-                                            .font(.body.weight(.medium))
-                                        if isLead {
-                                            Image(systemName: "crown.fill")
-                                                .font(.caption2)
-                                                .foregroundStyle(.orange)
-                                        }
-                                    }
+                                    Text(agent.name)
+                                        .font(.body.weight(.medium))
                                     Text(agent.workspaceURL.lastPathComponent)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
-                                if !isLead {
-                                    Button {
-                                        _ = containerStore.setLeadAgent(agent.id, forTeam: team.id)
-                                    } label: {
-                                        Text(L10n.tr("team.management.action.makeLead"))
-                                            .font(.caption)
-                                    }
-                                    .buttonStyle(.borderless)
-                                }
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
@@ -447,7 +417,14 @@ private struct AddExistingAgentsSheet: View {
     @State private var selectedAgentIDs: Set<UUID> = []
 
     private var availableAgents: [AgentProfile] {
-        containerStore.agents.filter { !team.agentPoolIDs.contains($0.id) }
+        let assignedIDs = Set(
+            containerStore.teams
+                .filter { $0.id != team.id }
+                .flatMap(\.agentPoolIDs)
+        )
+        return containerStore.agents.filter {
+            !team.agentPoolIDs.contains($0.id) && !assignedIDs.contains($0.id)
+        }
     }
 
     var body: some View {

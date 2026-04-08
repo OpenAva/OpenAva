@@ -203,7 +203,6 @@ final class AppContainerStore {
         emoji: String = "👥",
         description: String? = nil,
         agentIDs: [UUID] = [],
-        leadAgentID: UUID? = nil,
         defaultTopology: TeamTopologyKind = .automatic
     ) -> TeamProfile? {
         let team = TeamStore.createTeam(
@@ -211,7 +210,6 @@ final class AppContainerStore {
             emoji: emoji,
             description: description,
             agentPoolIDs: agentIDs,
-            leadAgentID: leadAgentID,
             defaultTopology: defaultTopology,
             defaults: defaults
         )
@@ -242,15 +240,6 @@ final class AppContainerStore {
     @discardableResult
     func removeAgent(_ agentID: UUID, fromTeam teamID: UUID) -> TeamProfile? {
         let team = TeamStore.removeAgent(agentID, from: teamID, defaults: defaults)
-        if team != nil {
-            reloadTeamState()
-        }
-        return team
-    }
-
-    @discardableResult
-    func setLeadAgent(_ agentID: UUID?, forTeam teamID: UUID) -> TeamProfile? {
-        let team = TeamStore.setLeadAgent(agentID, for: teamID, defaults: defaults)
         if team != nil {
             reloadTeamState()
         }
