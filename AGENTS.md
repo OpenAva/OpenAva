@@ -1,34 +1,53 @@
-# Agent Rules
+# Agent Workflow and Constraints
 
-## Think
+## Required Workflow
+
+### 1. Clarify the task
+
+- Must identify the real goal before proposing or changing anything.
+- Must identify hard constraints, explicit requirements, and non-goals.
+- Must identify the core tradeoff, then choose based on the current task rather than imagined future needs.
+
+### 2. Design the simplest sufficient solution
 
 - Must start from first principles.
-- Must identify the real goal, hard constraints, and core tradeoff before choosing a solution.
-- Must choose the minimum sufficient design.
-- Must not optimize for imagined future needs.
-- Must not add entities without clear value.
-- Must prefer clarity over cleverness.
+- Must choose the simplest solution that fully solves the task.
+- Must prefer existing code, types, and flows over adding new entities.
+- Must prefer clear structure and literal naming over cleverness.
 
-## Build
+### 3. Implement directly
 
-- Must make the smallest change that fully solves the task.
-- Must reuse existing code, types, and flows before adding new ones.
-- Must keep data flow explicit, ownership clear, and naming literal.
-- Must not introduce speculative abstractions, hidden indirection, or one-off wrappers.
+- Must keep data flow explicit and ownership clear.
+- Must avoid speculative abstractions, hidden indirection, and one-off wrappers.
+- Must not add parameters, layers, state, or helpers unless they are required to solve the task.
 - Must delete code that no longer serves the design.
 
-## Refactor
+### 4. Simplify after it works
 
-- After the first working version, must simplify once.
+- Must simplify once after the first working version.
 - Must remove unnecessary branches, parameters, state, layers, and abstractions.
-- Must merge duplication.
-- Must tighten boundaries.
-- Must rename anything misleading.
-- Must not stop at working code; stop only at the simplest correct shape.
+- Must merge duplication when it directly improves clarity.
+- Must tighten boundaries and rename anything misleading.
 
-## Check
+### 5. Verify completion
 
-- Only done when the real requirement works in actual behavior.
-- Only done when the final design is easy to explain.
-- Only done when no unnecessary entity remains.
-- Only done when every remaining complexity is justified.
+- Must verify the real requirement works in actual behavior, not only in theory.
+- Must verify the final design is easy to explain.
+- Must verify no unnecessary entity remains.
+- Must verify every remaining complexity is justified by the task.
+
+## Hard Constraints
+
+- Must not optimize for imagined future requirements.
+- Must not introduce entities without clear present value.
+- Must not stop at “working code” if the shape can still be simplified.
+- Must not preserve dead code, misleading names, or unjustified complexity.
+
+## Decision Standard
+
+When multiple solutions are possible, choose the one that is:
+
+1. Correct for the real requirement.
+2. Simplest in structure and reasoning.
+3. Clearest to read and explain.
+4. Easiest to maintain without extra abstraction.
