@@ -6,10 +6,29 @@ struct RemoteControlSettingsView: View {
         @State private var statusStore = RemoteControlStatusStore.shared
     #endif
 
+    let onDone: (() -> Void)?
+
+    init(onDone: (() -> Void)? = nil) {
+        self.onDone = onDone
+    }
+
     var body: some View {
         #if targetEnvironment(macCatalyst)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    if let onDone {
+                        ZStack {
+                            Text(L10n.tr("settings.remoteControl.navigationTitle"))
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            HStack {
+                                Spacer(minLength: 0)
+                                actionButton(title: L10n.tr("common.done"), action: onDone)
+                            }
+                        }
+                    }
+
                     hostCard
                 }
                 .padding(24)
@@ -17,8 +36,6 @@ struct RemoteControlSettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-            .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
-            .navigationBarTitleDisplayMode(.inline)
         #else
             RemoteControlClientView()
         #endif
@@ -97,6 +114,26 @@ struct RemoteControlSettingsView: View {
                 RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
                     .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
+        }
+
+        private func actionButton(
+            title: String,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button(action: action) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
         }
 
         private func statusPill(

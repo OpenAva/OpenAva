@@ -85,6 +85,10 @@ struct LLMEditView: View {
 
     var body: some View {
         Form {
+            #if targetEnvironment(macCatalyst)
+                macActionSection
+            #endif
+
             Section {
                 Picker(selection: $viewModel.selectedProviderType) {
                     ForEach(LLMProvider.allCases) { provider in
@@ -311,15 +315,11 @@ struct LLMEditView: View {
         .navigationBarTitleDisplayMode(.inline)
         #if targetEnvironment(macCatalyst)
             .formStyle(.grouped)
-        #endif
+        #else
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.tr("common.cancel")) {
-                        if viewModel.hasChanges {
-                            isShowingDiscardAlert = true
-                        } else {
-                            cancelEditing()
-                        }
+                        requestCancel()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -329,6 +329,7 @@ struct LLMEditView: View {
                     .disabled(!viewModel.isValid)
                 }
             }
+        #endif
             .alert(L10n.tr("settings.llmEdit.discard.title"), isPresented: $isShowingDiscardAlert) {
                 Button(L10n.tr("common.cancel"), role: .cancel) {}
                 Button(L10n.tr("common.discard"), role: .destructive) {
@@ -337,6 +338,82 @@ struct LLMEditView: View {
             } message: {
                 Text(L10n.tr("settings.llmEdit.discard.message"))
             }
+    }
+
+    #if targetEnvironment(macCatalyst)
+        private var macActionSection: some View {
+            Section {
+                HStack(spacing: 12) {
+                    actionButton(
+                        title: L10n.tr("common.cancel"),
+                        role: .secondary,
+                        isDisabled: false,
+                        action: requestCancel
+                    )
+
+                    Spacer(minLength: 0)
+
+                    actionButton(
+                        title: L10n.tr("common.save"),
+                        role: .primary,
+                        isDisabled: !viewModel.isValid,
+                        action: saveModel
+                    )
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        }
+    #endif
+
+    private enum ActionButtonRole {
+        case primary
+        case secondary
+    }
+
+    private func actionButton(
+        title: String,
+        role: ActionButtonRole,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foregroundColor: UIColor = switch role {
+        case .primary:
+            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.pureWhite
+        case .secondary:
+            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.offBlack
+        }
+        let backgroundColor: Color = switch role {
+        case .primary:
+            Color(uiColor: isDisabled ? UIColor.tertiarySystemFill : ChatUIDesign.Color.offBlack)
+        case .secondary:
+            .clear
+        }
+
+        return Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: foregroundColor))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    private func requestCancel() {
+        if viewModel.hasChanges {
+            isShowingDiscardAlert = true
+        } else {
+            cancelEditing()
+        }
     }
 
     private func cancelEditing() {

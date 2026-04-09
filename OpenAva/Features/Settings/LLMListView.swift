@@ -35,32 +35,35 @@ struct LLMListView: View {
 
     var body: some View {
         #if targetEnvironment(macCatalyst)
-            Group {
-                if let editorMode {
-                    HStack(spacing: 0) {
-                        modelList
-                            .frame(minWidth: 300, idealWidth: 340)
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer(minLength: 0)
+                    addActionButton(
+                        title: L10n.tr("settings.llmList.addModel"),
+                        action: { editorMode = .create }
+                    )
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
 
-                        modelDetail(for: editorMode)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                Group {
+                    if let editorMode {
+                        HStack(spacing: 0) {
+                            modelList
+                                .frame(minWidth: 300, idealWidth: 340)
+
+                            modelDetail(for: editorMode)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                        }
+                        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                    } else {
+                        modelList
                     }
-                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                } else {
-                    modelList
                 }
             }
             .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        editorMode = .create
-                    } label: {
-                        Label(L10n.tr("settings.llmList.addModel"), systemImage: "plus")
-                    }
-                }
-            }
             .alert(L10n.tr("settings.llmList.delete.title"), isPresented: .constant(modelToDelete != nil)) {
                 Button(L10n.tr("common.cancel"), role: .cancel) {
                     modelToDelete = nil
@@ -288,6 +291,28 @@ struct LLMListView: View {
         models = collection.models
         selectedModelID = containerStore.container.config.selectedLLMModelID
     }
+
+    #if targetEnvironment(macCatalyst)
+        private func addActionButton(
+            title: String,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button(action: action) {
+                Label(title, systemImage: "plus")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    #endif
 
     private var configuredFooterText: String {
         #if targetEnvironment(macCatalyst)

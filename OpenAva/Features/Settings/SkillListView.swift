@@ -16,32 +16,35 @@ struct SkillListView: View {
     var body: some View {
         Group {
             #if targetEnvironment(macCatalyst)
-                Group {
-                    if let presentation = editorPresentation {
-                        HStack(spacing: 0) {
-                            skillList
-                                .frame(minWidth: 300, idealWidth: 340)
+                VStack(spacing: 0) {
+                    HStack {
+                        Spacer(minLength: 0)
+                        addActionButton(
+                            title: L10n.tr("settings.skills.addSkill"),
+                            action: presentCreateEditor
+                        )
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
 
-                            skillDetail(for: presentation)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                    Group {
+                        if let presentation = editorPresentation {
+                            HStack(spacing: 0) {
+                                skillList
+                                    .frame(minWidth: 300, idealWidth: 340)
+
+                                skillDetail(for: presentation)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                            }
+                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                        } else {
+                            skillList
                         }
-                        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                    } else {
-                        skillList
                     }
                 }
                 .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            presentCreateEditor()
-                        } label: {
-                            Label(L10n.tr("settings.skills.addSkill"), systemImage: "plus")
-                        }
-                    }
-                }
                 .background(Color(uiColor: ChatUIDesign.Color.warmCream))
             #else
                 skillList
@@ -127,6 +130,28 @@ struct SkillListView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: feedbackBanner?.id)
     }
+
+    #if targetEnvironment(macCatalyst)
+        private func addActionButton(
+            title: String,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button(action: action) {
+                Label(title, systemImage: "plus")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    #endif
 
     private var skillList: some View {
         List {
@@ -794,6 +819,10 @@ private struct SkillEditorSheet: View {
 
     var body: some View {
         Form {
+            #if targetEnvironment(macCatalyst)
+                macActionSection
+            #endif
+
             Section(L10n.tr("settings.skills.editor.section.skill")) {
                 if mode.isNameEditable {
                     TextField(L10n.tr("settings.skills.editor.skillName"), text: $name)
@@ -895,7 +924,7 @@ private struct SkillEditorSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         #if targetEnvironment(macCatalyst)
             .formStyle(.grouped)
-        #endif
+        #else
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done")) {
@@ -912,6 +941,77 @@ private struct SkillEditorSheet: View {
                     }
                 }
             }
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+        private var macActionSection: some View {
+            Section {
+                HStack(spacing: 12) {
+                    actionButton(
+                        title: mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done"),
+                        role: .secondary,
+                        isDisabled: false,
+                        action: cancelEditing
+                    )
+
+                    Spacer(minLength: 0)
+
+                    if mode.supportsSaving {
+                        actionButton(
+                            title: mode.actionTitle,
+                            role: .primary,
+                            isDisabled: !canSave,
+                            action: commit
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        }
+    #endif
+
+    private enum ActionButtonRole {
+        case primary
+        case secondary
+    }
+
+    private func actionButton(
+        title: String,
+        role: ActionButtonRole,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foregroundColor: UIColor = switch role {
+        case .primary:
+            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.pureWhite
+        case .secondary:
+            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.offBlack
+        }
+        let backgroundColor: Color = switch role {
+        case .primary:
+            Color(uiColor: isDisabled ? UIColor.tertiarySystemFill : ChatUIDesign.Color.offBlack)
+        case .secondary:
+            .clear
+        }
+
+        return Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: foregroundColor))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
     }
 
     private var canSave: Bool {

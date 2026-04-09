@@ -12,6 +12,18 @@ struct LLMSettingsView: View {
 
     var body: some View {
         Form {
+            #if targetEnvironment(macCatalyst)
+                cardSection {
+                    HStack {
+                        Spacer(minLength: 0)
+                        actionButton(title: L10n.tr("common.reset"), systemImage: "arrow.counterclockwise") {
+                            containerStore.clearLLM()
+                            viewModel.reset()
+                        }
+                    }
+                }
+            #endif
+
             cardSection {
                 settingsCard(
                     title: L10n.tr("settings.llm.provider.header"),
@@ -249,16 +261,18 @@ struct LLMSettingsView: View {
         .onChange(of: viewModel.systemPrompt) { _, _ in autoSave() }
         .onChange(of: viewModel.contextTokens) { _, _ in autoSave() }
         .onChange(of: viewModel.requestTimeoutMs) { _, _ in autoSave() }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    containerStore.clearLLM()
-                    viewModel.reset()
-                } label: {
-                    Label(L10n.tr("common.reset"), systemImage: "arrow.counterclockwise")
+        #if !targetEnvironment(macCatalyst)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        containerStore.clearLLM()
+                        viewModel.reset()
+                    } label: {
+                        Label(L10n.tr("common.reset"), systemImage: "arrow.counterclockwise")
+                    }
                 }
             }
-        }
+        #endif
     }
 
     private func autoSave() {
@@ -266,6 +280,29 @@ struct LLMSettingsView: View {
             containerStore.saveLLMModel(model)
         }
     }
+
+    #if targetEnvironment(macCatalyst)
+        private func actionButton(
+            title: String,
+            systemImage: String,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button(action: action) {
+                Label(title, systemImage: systemImage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    #endif
 
     private func cardSection<Content: View>(
         @ViewBuilder content: () -> Content

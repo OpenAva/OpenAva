@@ -152,16 +152,18 @@ struct AgentCreationView: View {
         #endif
             .sheet(isPresented: $isEmojiPickerPresented) {
                 NavigationStack {
-                    emojiPickerGrid
-                        .navigationTitle(L10n.tr("agent.creation.emojiPicker.title"))
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button(L10n.tr("common.done")) {
-                                    isEmojiPickerPresented = false
-                                }
+                    emojiPickerSheetContent
+                    #if !targetEnvironment(macCatalyst)
+                    .navigationTitle(L10n.tr("agent.creation.emojiPicker.title"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(L10n.tr("common.done")) {
+                                isEmojiPickerPresented = false
                             }
                         }
+                    }
+                    #endif
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -394,6 +396,71 @@ struct AgentCreationView: View {
         .buttonStyle(.plain)
         .disabled(!canPerformPrimaryAction || viewModel.isCreating)
         .padding(.horizontal, 20)
+    }
+
+    private var emojiPickerSheetContent: some View {
+        VStack(spacing: 0) {
+            #if targetEnvironment(macCatalyst)
+                ZStack {
+                    Text(L10n.tr("agent.creation.emojiPicker.title"))
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        actionButton(
+                            title: L10n.tr("common.done"),
+                            role: .primary,
+                            action: { isEmojiPickerPresented = false }
+                        )
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+            #endif
+
+            emojiPickerGrid
+        }
+    }
+
+    private enum InlineActionRole {
+        case primary
+        case secondary
+    }
+
+    private func actionButton(
+        title: String,
+        role: InlineActionRole,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foregroundColor: UIColor = switch role {
+        case .primary:
+            ChatUIDesign.Color.pureWhite
+        case .secondary:
+            ChatUIDesign.Color.offBlack
+        }
+        let backgroundColor: Color = switch role {
+        case .primary:
+            Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .secondary:
+            .clear
+        }
+
+        return Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: foregroundColor))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Reusable Components

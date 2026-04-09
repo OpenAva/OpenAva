@@ -67,14 +67,9 @@ struct ChatRootView: View {
         }
         .sheet(isPresented: $showsRemoteControl) {
             NavigationStack {
-                RemoteControlSettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(L10n.tr("common.done")) {
-                                showsRemoteControl = false
-                            }
-                        }
-                    }
+                RemoteControlSettingsView(onDone: {
+                    showsRemoteControl = false
+                })
             }
             .presentationDetents([.large])
             #if os(macOS) || targetEnvironment(macCatalyst)
@@ -275,9 +270,14 @@ struct ChatRootView: View {
     }
 
     private func handleCreateAgentForTeam(_ teamID: UUID) {
-        targetTeamID = teamID
-        agentCreationMode = .singleAgent
-        showsLocalAgentCreation = true
+        #if targetEnvironment(macCatalyst)
+            windowCoordinator.openAgentCreation(targetTeamID: teamID)
+            activateOrOpenWindow(id: AppWindowID.agentCreation)
+        #else
+            targetTeamID = teamID
+            agentCreationMode = .singleAgent
+            showsLocalAgentCreation = true
+        #endif
     }
 
     private func handleDeleteTeamRequest(_ teamID: UUID) {
