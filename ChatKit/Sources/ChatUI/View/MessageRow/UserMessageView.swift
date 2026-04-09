@@ -19,10 +19,17 @@ final class UserMessageView: MessageListRowView {
                 attributedText = nil
                 return
             }
-            attributedText = .init(string: text, attributes: [
+            let attributed = NSMutableAttributedString(string: text, attributes: [
                 .font: theme.fonts.body,
                 .foregroundColor: theme.colors.body,
             ])
+            if let range = highlightedSkillCommandRange(in: text) {
+                attributed.addAttributes([
+                    .foregroundColor: ChatUIDesign.Color.brandOrange,
+                    .font: UIFont.systemFont(ofSize: theme.fonts.body.pointSize, weight: .semibold),
+                ], range: range)
+            }
+            attributedText = attributed
         }
     }
 
@@ -97,5 +104,13 @@ final class UserMessageView: MessageListRowView {
     /// Selects all text in the message bubble, showing interactive handles.
     func selectAllText() {
         textView.selectAllText()
+    }
+
+    private func highlightedSkillCommandRange(in text: String) -> NSRange? {
+        guard text.hasPrefix("/") else { return nil }
+        let commandEnd = text.firstIndex(where: \.isWhitespace) ?? text.endIndex
+        let command = String(text[..<commandEnd])
+        guard command.count > 1 else { return nil }
+        return NSRange(text.startIndex ..< commandEnd, in: text)
     }
 }

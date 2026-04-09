@@ -72,6 +72,7 @@ extension InputEditor {
 
 extension InputEditor: UITextViewDelegate {
     public func textViewDidBeginEditing(_ textView: UITextView) {
+        applySkillPresentationIfNeeded()
         updateTextHeight()
         delegate?.onInputEditorBeginEditing()
         delegate?.onInputEditorTextChanged(text: textView.text)
@@ -79,14 +80,36 @@ extension InputEditor: UITextViewDelegate {
     }
 
     public func textViewDidEndEditing(_ textView: UITextView) {
-        clearAttributedText()
+        applySkillPresentationIfNeeded()
         updateTextHeight()
         delegate?.onInputEditorTextChanged(text: textView.text)
         delegate?.onInputEditorEndEditing()
         switchToRequiredStatus()
     }
 
+    public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        // When deleting the trailing space after a completed skill command,
+        // delete the entire "/command " together.
+        if text.isEmpty, range.length == 1, range.location > 0 {
+            let fullText = textView.text ?? ""
+            let beforeDeletion = String((fullText as NSString).substring(to: range.location))
+            let skillRange = highlightedSkillCommandRange(in: beforeDeletion)
+            if let skillRange, skillRange.location + skillRange.length == beforeDeletion.utf16.count {
+                let nsFull = fullText as NSString
+                textView.text = nsFull.replacingCharacters(in: NSRange(location: skillRange.location, length: nsFull.length - skillRange.location), with: "")
+                applySkillPresentationIfNeeded()
+                updatePlaceholderAlpha()
+                updateTextHeight()
+                delegate?.onInputEditorTextChanged(text: textView.text)
+                switchToRequiredStatus()
+                return false
+            }
+        }
+        return true
+    }
+
     public func textViewDidChange(_ textView: UITextView) {
+        applySkillPresentationIfNeeded()
         updatePlaceholderAlpha()
         updateTextHeight()
         delegate?.onInputEditorTextChanged(text: textView.text)
@@ -126,16 +149,5 @@ extension InputEditor: UITextViewDelegate {
         ).height
         let decision = ceil(max(textHeight, font.lineHeight))
         doEditorLayoutAnimation { self.textHeight.send(decision) }
-    }
-
-    func clearAttributedText() {
-        let currentText = textView.text
-        textView.attributedText = NSAttributedString(
-            string: currentText ?? "",
-            attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .body),
-                .foregroundColor: UIColor.label,
-            ]
-        )
     }
 }

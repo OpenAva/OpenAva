@@ -10,6 +10,7 @@ final class InputEditor: EditorSectionView {
     let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
+    private var isApplyingTextPresentation = false
 
     let elementClipper = UIView()
 
@@ -165,6 +166,7 @@ final class InputEditor: EditorSectionView {
 
     func set(text: String) {
         textView.text = text
+        applySkillPresentationIfNeeded()
         updatePlaceholderAlpha()
         switchToRequiredStatus()
         updateTextHeight()
@@ -200,6 +202,104 @@ final class InputEditor: EditorSectionView {
         updateTextHeight()
         switchToRequiredStatus()
         return applyTranscript ? transcript : ""
+    }
+
+    func applySkillPresentationIfNeeded() {
+        guard !isApplyingTextPresentation else { return }
+
+        let originalText = textView.text ?? ""
+        let originalSelection = textView.selectedRange
+        let completed = autocompleteSkillCommandIfNeeded(text: originalText, selection: originalSelection)
+        let text = completed?.text ?? originalText
+        let selection = completed?.selection ?? originalSelection
+
+        isApplyingTextPresentation = true
+        defer { isApplyingTextPresentation = false }
+
+        if textView.text != text {
+            textView.text = text
+        }
+
+        let attributed = NSMutableAttributedString(
+            string: text,
+            attributes: baseTextAttributes()
+        )
+        if let range = highlightedSkillCommandRange(in: text) {
+            attributed.addAttributes([
+                .foregroundColor: ChatUIDesign.Color.brandOrange,
+                .font: UIFont.systemFont(ofSize: font.pointSize, weight: .semibold),
+            ], range: range)
+        }
+
+        textView.attributedText = attributed
+        textView.typingAttributes = baseTextAttributes()
+        textView.selectedRange = selection.clamped(to: text.utf16.count)
+    }
+
+    private func baseTextAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: font,
+            .foregroundColor: ChatUIDesign.Color.offBlack,
+        ]
+    }
+
+    private func autocompleteSkillCommandIfNeeded(text: String, selection: NSRange) -> (text: String, selection: NSRange)? {
+        guard selection.length == 0,
+              selection.location == text.utf16.count,
+              text.hasPrefix("/"),
+              !text.contains(where: \.isWhitespace)
+        else {
+            return nil
+        }
+
+        let command = text
+        guard command.count > 1 else { return nil }
+
+        let matches = availableSkillCommands().filter { $0.hasPrefix(command) }
+        guard matches.count == 1, let match = matches.first, match != command else {
+            return nil
+        }
+
+        let completedText = match + " "
+        return (
+            completedText,
+            NSRange(location: completedText.utf16.count, length: 0)
+        )
+    }
+
+    func highlightedSkillCommandRange(in text: String) -> NSRange? {
+        guard text.hasPrefix("/") else { return nil }
+        let commandEnd = text.firstIndex(where: \.isWhitespace) ?? text.endIndex
+        let command = String(text[..<commandEnd])
+        guard availableSkillCommands().contains(command) else { return nil }
+        return NSRange(text.startIndex ..< commandEnd, in: text)
+    }
+
+    private func availableSkillCommands() -> [String] {
+        var commands: [String] = []
+        for item in configuration.quickSettingItems {
+            guard case let .skill(_, _, _, prompt, _) = item,
+                  let command = extractSlashCommand(from: prompt)
+            else {
+                continue
+            }
+            commands.append(command)
+        }
+        return Array(Set(commands)).sorted()
+    }
+
+    private func extractSlashCommand(from prompt: String) -> String? {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let commandEnd = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
+        let command = String(trimmed[..<commandEnd])
+        return command.count > 1 ? command : nil
+    }
+}
+
+private extension NSRange {
+    func clamped(to upperBound: Int) -> NSRange {
+        NSRange(location: min(location, upperBound), length: 0)
     }
 }
 
