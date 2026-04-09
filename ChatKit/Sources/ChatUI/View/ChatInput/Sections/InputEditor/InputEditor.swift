@@ -7,7 +7,7 @@ import Combine
 import UIKit
 
 final class InputEditor: EditorSectionView {
-    let font = UIFont.systemFont(ofSize: 16, weight: .regular)
+    let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
 
@@ -27,9 +27,9 @@ final class InputEditor: EditorSectionView {
     let moreButton = IconButton(icon: "plus.circle")
     let sendButton = IconButton(icon: "send")
 
-    let inset: UIEdgeInsets = .init(top: 10, left: 10, bottom: 10, right: 10)
-    let iconSpacing: CGFloat = 10
-    let iconSize = CGSize(width: 30, height: 30)
+    let inset: UIEdgeInsets = .init(top: 8, left: 8, bottom: 8, right: 8)
+    let iconSpacing: CGFloat = 8
+    let iconSize = CGSize(width: 28, height: 28)
 
     var isControlPanelOpened: Bool = false {
         didSet { moreButton.change(icon: isControlPanelOpened ? "x.circle" : "plus.circle") }

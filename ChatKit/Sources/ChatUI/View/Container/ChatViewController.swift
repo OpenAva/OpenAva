@@ -34,12 +34,12 @@ open class ChatViewController: UIViewController {
 
     private enum Layout {
         static let topBarHorizontalInset: CGFloat = 16
-        static let topBarTopSpacing: CGFloat = 2
-        static let topBarBottomSpacing: CGFloat = 2
-        static let topBarTouchSize: CGFloat = 34
-        static let topBarTitleSpacing: CGFloat = 10
+        static let topBarTopSpacing: CGFloat = 0
+        static let topBarBottomSpacing: CGFloat = 1
+        static let topBarTouchSize: CGFloat = 32
+        static let topBarTitleSpacing: CGFloat = 8
         static let topBarDividerHeight: CGFloat = 1
-        static let topBarAvatarSize: CGFloat = 24
+        static let topBarAvatarSize: CGFloat = 22
     }
 
     public private(set) var sessionID: String

@@ -18,10 +18,10 @@ class BlockButton: UIButton {
 
     var actionBlock: () -> Void = {}
 
-    let font = UIFont.systemFont(ofSize: 14, weight: .regular) // Saans / standard UI body light
-    let spacing: CGFloat = 8
-    let inset: CGFloat = 8
-    let iconSize: CGFloat = 16
+    let font = UIFont.systemFont(ofSize: 13, weight: .regular)
+    let spacing: CGFloat = 6
+    let inset: CGFloat = 7
+    let iconSize: CGFloat = 15
 
     var strikeThrough: Bool = false {
         didSet { updateStrikes() }

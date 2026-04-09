@@ -24,8 +24,8 @@ public enum ChatUIDesign {
     }
 
     public enum Typography {
-        public static let agentTitle = UIFont.systemFont(ofSize: 16, weight: .regular)
-        public static let agentSubtitle = UIFont.systemFont(ofSize: 12, weight: .regular)
+        public static let agentTitle = UIFont.systemFont(ofSize: 15, weight: .regular)
+        public static let agentSubtitle = UIFont.systemFont(ofSize: 11, weight: .regular)
     }
 }
 

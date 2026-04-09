@@ -59,7 +59,7 @@ open class ChatInputView: EditorSectionView {
         controlPanel,
     ]
 
-    let spacing: CGFloat = 16
+    let spacing: CGFloat = 12
     var keyboardAdditionalHeight: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }

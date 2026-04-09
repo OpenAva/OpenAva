@@ -847,7 +847,7 @@ extension ChatViewControllerWrapper {
                 title: "",
                 options: .displayInline,
                 children: memberActions.isEmpty
-                    ? [UIAction(title: L10n.tr("chat.menu.noAgentsAvailable"), attributes: [.disabled]) { _ in }]
+                    ? [UIAction(title: L10n.tr("chat.menu.team.noAgents"), attributes: [.disabled]) { _ in }]
                     : memberActions
             )
 

@@ -8,10 +8,10 @@ import UIKit
 final class ChatAgentModelTitleView: UIView {
     private enum Layout {
         static let minWidth: CGFloat = 120
-        static let horizontalPadding: CGFloat = 8
-        static let verticalPadding: CGFloat = 2
+        static let horizontalPadding: CGFloat = 6
+        static let verticalPadding: CGFloat = 1
         static let verticalSpacing: CGFloat = 0
-        static let minHeight: CGFloat = 28
+        static let minHeight: CGFloat = 24
     }
 
     private let stackView = UIStackView()
