@@ -15,7 +15,7 @@ struct ChatContextUsagePanelView: View {
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
                     header
                     overviewCard
                     breakdownCard
@@ -28,22 +28,22 @@ struct ChatContextUsagePanelView: View {
                         lastCompactionCard(lastCompaction)
                     }
                 }
-                .padding(16)
+                .padding(12)
             }
         }
-        .frame(minWidth: 340, idealWidth: 380, maxWidth: 420, idealHeight: 520, maxHeight: .infinity)
+        .frame(minWidth: 340, idealWidth: 380, maxWidth: 420, idealHeight: 440, maxHeight: .infinity)
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.tr("chat.contextUsage.title"))
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.system(size: 15, weight: .regular))
                     .tracking(-0.2)
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
                 Text(formattedModelName)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             }
 
@@ -52,10 +52,10 @@ struct ChatContextUsagePanelView: View {
             HStack(spacing: 8) {
                 Button(action: onManualCompact) {
                     Label(L10n.tr("chat.contextUsage.manualCompact"), systemImage: "rectangle.compress.vertical")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                         .overlay(
                             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
                                 .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
@@ -65,9 +65,9 @@ struct ChatContextUsagePanelView: View {
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                         .overlay(
                             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
                                 .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
@@ -76,14 +76,14 @@ struct ChatContextUsagePanelView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.bottom, 4)
+        .padding(.bottom, 0)
     }
 
     private var overviewCard: some View {
         ContextCard(title: L10n.tr("chat.contextUsage.overview")) {
             VStack(spacing: 0) {
                 progressBar
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 10)
 
                 PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextLength)) (\(snapshot.usedPercentage)%)")
                 PanelDivider()
@@ -102,7 +102,7 @@ struct ChatContextUsagePanelView: View {
 
     private var breakdownCard: some View {
         ContextCard(title: L10n.tr("chat.contextUsage.breakdown")) {
-            VStack(spacing: 16) {
+            VStack(spacing: 10) {
                 BreakdownRow(
                     title: L10n.tr("chat.contextUsage.instructions"),
                     subtitle: L10n.tr("chat.contextUsage.requestMessagesCount", snapshot.instructionMessageCount),
@@ -163,13 +163,13 @@ struct ChatContextUsagePanelView: View {
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
-                    .frame(height: 8)
+                    .frame(height: 6)
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(accentColor)
-                    .frame(width: fillWidth, height: 8)
+                    .frame(width: fillWidth, height: 6)
             }
         }
-        .frame(height: 8)
+        .frame(height: 6)
     }
 
     private var formattedModelName: String {
@@ -219,10 +219,10 @@ private struct ContextCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .textCase(.uppercase)
@@ -230,7 +230,7 @@ private struct ContextCard<Content: View>: View {
 
             content
         }
-        .padding(16)
+        .padding(12)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .overlay(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
@@ -245,18 +245,18 @@ private struct PanelRow: View {
     let value: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
             Text(value)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
     }
 }
 
@@ -272,14 +272,14 @@ private struct BreakdownRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 14, weight: .regular))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     Text(subtitle)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 9, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
 
@@ -287,11 +287,11 @@ private struct BreakdownRow: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Self.format(value))
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         .monospacedDigit()
                     Text(Self.percent(value: value, total: total))
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 9, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
             }
@@ -306,7 +306,7 @@ private struct BreakdownRow: View {
                             .frame(width: width * progressValue)
                     }
             }
-            .frame(height: 6)
+            .frame(height: 5)
         }
     }
 

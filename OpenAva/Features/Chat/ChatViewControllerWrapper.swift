@@ -119,7 +119,7 @@ private final class ContextUsagePanelOverlayController: UIViewController {
         }
 
         let availableAbove = max(240, anchorRect.minY - safeTop - verticalSpacing)
-        let height = min(520, min(maxHeight, availableAbove))
+        let height = min(440, min(maxHeight, availableAbove))
         let x = min(max(anchorRect.midX - width / 2, horizontalInset), view.bounds.width - horizontalInset - width)
         let y = max(safeTop, anchorRect.minY - height - verticalSpacing)
 
@@ -692,16 +692,16 @@ extension ChatViewControllerWrapper {
             if #available(iOS 15.0, *) {
                 var configuration = button.configuration ?? .plain()
                 configuration.image = image
-                configuration.contentInsets = NSDirectionalEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+                configuration.contentInsets = .zero
                 configuration.imagePadding = 0
                 button.configuration = configuration
             } else {
                 button.setImage(image, for: .normal)
-                button.imageEdgeInsets = UIEdgeInsets(top: 1, left: 1, bottom: 1, right: 1)
+                button.imageEdgeInsets = .zero
             }
             button.tintColor = UIColor.label.withAlphaComponent(0.9)
             button.imageView?.contentMode = .scaleAspectFit
-            button.contentHorizontalAlignment = .center
+            button.contentHorizontalAlignment = .left
             button.contentVerticalAlignment = .center
             button.showsMenuAsPrimaryAction = true
             leadingMenuButton = button
