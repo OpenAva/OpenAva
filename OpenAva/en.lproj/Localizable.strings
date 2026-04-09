@@ -154,6 +154,7 @@
 "settings.remoteControl.discovery.title" = "Nearby Macs";
 "settings.remoteControl.discovery.device" = "Device";
 "settings.remoteControl.discovery.connect" = "Connect & Pair";
+"settings.remoteControl.discovery.disconnect" = "Disconnect";
 "settings.remoteControl.discovery.searching" = "Searching for nearby Macs…";
 "settings.remoteControl.discovery.resolving" = "Found %1$@ nearby service(s). Resolving device details…";
 "settings.remoteControl.discovery.waiting" = "Waiting for local network access: %@";
@@ -176,6 +177,7 @@
 "settings.remoteControl.refresh" = "Refresh";
 "settings.remoteControl.connection.disconnected" = "Connection to the Mac was lost.";
 "settings.remoteControl.status.title" = "Status";
+"settings.remoteControl.status.connected" = "Connected";
 "settings.remoteControl.host.title" = "This Mac";
 "settings.remoteControl.host.discovery.starting" = "Starting nearby discovery…";
 "settings.remoteControl.host.discovery.ready" = "This Mac is discoverable to nearby iPhone and iPad devices.";
@@ -462,8 +464,11 @@
 "intent.runSkill.request.unavailableHint" = "If this skill is currently unavailable, explain directly and suggest the closest available one.";
 "intent.runSkill.request.task" = "Task: %@";
 "intent.runSkill.request.defaultTask" = "Task: Execute a minimum viable example for this skill and briefly explain the result.";
+"intent.runSkill.parameter.skill" = "Skill";
+"intent.runSkill.parameter.task" = "Task";
 "intent.runSkill.error.emptySkill" = "Skill name cannot be empty.";
 "intent.runSkill.error.skillNotFound" = "Skill not found: %@. Please install or enable it in the skills directory first.";
+"intent.runSkill.error.agentUnavailable" = "Please create or select an agent in OpenAva first.";
 "intent.runSkill.error.emptyMessage" = "Request content cannot be empty.";
 "intent.runSkill.error.noClientConfigured" = "LLM is not configured. Please add an LLM model in settings and try again.";
 "intent.runSkill.meta.title" = "Run OpenAva Skill";

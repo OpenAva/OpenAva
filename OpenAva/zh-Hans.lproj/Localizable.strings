@@ -154,6 +154,7 @@
 "settings.remoteControl.discovery.title" = "附近的 Mac";
 "settings.remoteControl.discovery.device" = "设备";
 "settings.remoteControl.discovery.connect" = "连接并配对";
+"settings.remoteControl.discovery.disconnect" = "断开连接";
 "settings.remoteControl.discovery.searching" = "正在搜索附近的 Mac…";
 "settings.remoteControl.discovery.resolving" = "已发现 %1$@ 个附近服务，正在解析设备信息…";
 "settings.remoteControl.discovery.waiting" = "正在等待本地网络访问权限：%@";
@@ -176,6 +177,7 @@
 "settings.remoteControl.refresh" = "刷新";
 "settings.remoteControl.connection.disconnected" = "与 Mac 的连接已断开。";
 "settings.remoteControl.status.title" = "状态";
+"settings.remoteControl.status.connected" = "已连接";
 "settings.remoteControl.host.title" = "这台 Mac";
 "settings.remoteControl.host.discovery.starting" = "正在启动附近发现…";
 "settings.remoteControl.host.discovery.ready" = "这台 Mac 已可被附近的 iPhone 和 iPad 发现。";
@@ -463,8 +465,11 @@
 "intent.runSkill.request.unavailableHint" = "如果该技能当前不可用，请直接说明并给出最接近的可用技能。";
 "intent.runSkill.request.task" = "任务：%@";
 "intent.runSkill.request.defaultTask" = "任务：执行该技能的一个最小可行示例，并简要解释结果。";
+"intent.runSkill.parameter.skill" = "技能";
+"intent.runSkill.parameter.task" = "任务";
 "intent.runSkill.error.emptySkill" = "技能名称不能为空。";
 "intent.runSkill.error.skillNotFound" = "找不到技能：%@。请先在技能目录中安装或启用该技能。";
+"intent.runSkill.error.agentUnavailable" = "请先在 OpenAva 中创建或选择一个 Agent。";
 "intent.runSkill.error.emptyMessage" = "请求内容不能为空。";
 "intent.runSkill.error.noClientConfigured" = "LLM 未配置，请在设置中添加 LLM 模型后再试。";
 "intent.runSkill.meta.title" = "调用 OpenAva Skill";
