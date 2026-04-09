@@ -269,6 +269,7 @@
 "chat.menu.team.approve" = "批准 %@";
 "chat.menu.team.stop" = "停止 %@";
 "chat.menu.team.profile" = "%1$@ · %2$lld 个 Agent · %3$@";
+"chat.menu.team.noAgents" = "这个团队还没有 Agent";
 "chat.menu.team.busyCount" = "%lld 个执行中";
 "chat.menu.team.pendingCount" = "%lld 个待批";
 "chat.menu.team.failedCount" = "%lld 个失败";

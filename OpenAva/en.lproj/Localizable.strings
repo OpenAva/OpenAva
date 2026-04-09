@@ -477,3 +477,4 @@
 "chat.menu.deleteTeamNamed" = "Delete Team \"%@\"";
 
 "team.management.action.manageAgents" = "Manage Agents";
+"chat.menu.team.noAgents" = "This team has no agents yet";
