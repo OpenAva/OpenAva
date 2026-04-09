@@ -12,7 +12,10 @@ final class RemoteControlClientViewModel {
     var discoveryStatusText: String?
     var discoveryDiagnosticsText: String?
     var pairCode = ""
-    var statusText: String?
+    var isPairingInProgress = false
+    var pairChallengeExpiryText: String?
+    var pairErrorText: String?
+    var connectionStatusText: String?
     var agents: [LocalControlAgentSummary] = []
     var messageText = ""
     var isConnected = false
@@ -21,6 +24,8 @@ final class RemoteControlClientViewModel {
     @ObservationIgnored private var browserDiagnostics = LocalControlBrowserDiagnostics()
     private let browser = LocalControlBrowser()
     private let client = LocalControlClient()
+
+    private var reconnectTask: Task<Void, Never>?
 
     init() {
         browser.onServicesChanged = { [weak self] services in
@@ -34,6 +39,7 @@ final class RemoteControlClientViewModel {
                 self.selectedServiceID = services.first?.id
             }
             self.refreshDiscoveryStatus()
+            self.tryReconnectIfPaired()
         }
         browser.onStateChanged = { [weak self] state in
             self?.browserState = state
@@ -50,9 +56,6 @@ final class RemoteControlClientViewModel {
                 }
             }
         }
-        Task { [weak self] in
-            await self?.restoreLastPairedStatusIfNeeded()
-        }
     }
 
     func startBrowsing(forceRefresh: Bool = false) {
@@ -65,6 +68,8 @@ final class RemoteControlClientViewModel {
     }
 
     func stopBrowsing(disconnect: Bool = false) {
+        reconnectTask?.cancel()
+        reconnectTask = nil
         browser.stop()
         browserState = nil
         browserDiagnostics = .init()
@@ -90,10 +95,9 @@ final class RemoteControlClientViewModel {
     }
 
     func connectAndPair() async {
-        guard let service = selectedService else {
-            statusText = L10n.tr("settings.remoteControl.noServiceSelected")
-            return
-        }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        guard let service = selectedService else { return }
         do {
             let localHello = LocalControlHello(
                 role: .controller,
@@ -107,9 +111,10 @@ final class RemoteControlClientViewModel {
             )
             try await client.connect(to: service, localHello: localHello)
             let challenge = try await client.beginPairing()
-            statusText = L10n.tr("settings.remoteControl.pairChallengeReceived", formatDate(challenge.expiresAtMs))
-            isConnected = true
-            refreshDiscoveryStatus()
+            pairChallengeExpiryText = formatDate(challenge.expiresAtMs)
+            pairErrorText = nil
+            pairCode = ""
+            isPairingInProgress = true
             selectedServiceID = service.id
         } catch {
             resetConnectionState()
@@ -120,11 +125,34 @@ final class RemoteControlClientViewModel {
     func approvePairing() async {
         do {
             let approved = try await client.approvePairing(code: pairCode)
-            statusText = L10n.tr("settings.remoteControl.pairedWith", approved.host.displayName)
+            isConnected = true
+            isPairingInProgress = false
+            pairChallengeExpiryText = nil
+            pairErrorText = nil
+            connectionStatusText = L10n.tr("settings.remoteControl.pairedWith", approved.host.displayName)
             await refreshAgents()
         } catch {
-            applyErrorState(error)
+            if isPairingTimeout(error) {
+                isPairingInProgress = false
+                pairChallengeExpiryText = nil
+                connectionStatusText = L10n.tr("settings.remoteControl.pairing.timeout")
+            } else {
+                pairErrorText = error.localizedDescription
+            }
         }
+    }
+
+    func cancelPairing() {
+        isPairingInProgress = false
+        pairChallengeExpiryText = nil
+        pairErrorText = nil
+        pairCode = ""
+        resetConnectionState()
+    }
+
+    func disconnect() {
+        Task { await client.disconnect(silently: true) }
+        resetConnectionState()
     }
 
     func refreshAgents() async {
@@ -166,7 +194,6 @@ final class RemoteControlClientViewModel {
             )
             _ = try await client.invoke(request)
             messageText = ""
-            statusText = L10n.tr("settings.remoteControl.messageSent")
         } catch {
             applyErrorState(error)
         }
@@ -202,11 +229,38 @@ final class RemoteControlClientViewModel {
         return formatter.string(from: date)
     }
 
-    private func restoreLastPairedStatusIfNeeded() async {
-        guard !isConnected, statusText == nil else { return }
-        let peers = await LocalControlPairingStore.shared.allPeers()
-        guard let peer = peers.max(by: { $0.pairedAtMs < $1.pairedAtMs }) else { return }
-        statusText = L10n.tr("settings.remoteControl.pairedWith", peer.displayName)
+    private func tryReconnectIfPaired() {
+        guard !isConnected, reconnectTask == nil else { return }
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.reconnectTask = nil }
+            let peers = await LocalControlPairingStore.shared.allPeers()
+            guard let lastPeer = peers.max(by: { $0.pairedAtMs < $1.pairedAtMs }) else {
+                return
+            }
+            let matchingService = services.first { $0.name == lastPeer.displayName }
+            guard let service = matchingService ?? services.first else { return }
+            do {
+                let localHello = LocalControlHello(
+                    role: .controller,
+                    instanceId: InstanceIdentity.instanceId,
+                    displayName: InstanceIdentity.displayName,
+                    platform: InstanceIdentity.platformString,
+                    deviceFamily: InstanceIdentity.deviceFamily,
+                    modelIdentifier: InstanceIdentity.modelIdentifier,
+                    appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                    appBuild: (Bundle.main.infoDictionary?["CFBundleVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                try await client.connect(to: service, localHello: localHello)
+                await client.loadStoredPairing(instanceId: lastPeer.instanceId)
+                isConnected = true
+                selectedServiceID = service.id
+                connectionStatusText = L10n.tr("settings.remoteControl.pairedWith", lastPeer.displayName)
+                await refreshAgents()
+            } catch {
+                connectionStatusText = nil
+            }
+        }
     }
 
     private func applyErrorState(_ error: Error) {
@@ -214,22 +268,28 @@ final class RemoteControlClientViewModel {
             handleDisconnect(reason: error.localizedDescription)
         } else if isPairingTimeout(error) {
             resetConnectionState()
-            statusText = L10n.tr("settings.remoteControl.pairing.timeout")
+            connectionStatusText = L10n.tr("settings.remoteControl.pairing.timeout")
         } else {
-            statusText = error.localizedDescription
+            connectionStatusText = error.localizedDescription
         }
     }
 
     private func handleDisconnect(reason: String) {
         resetConnectionState()
-        statusText = reason == "Disconnected"
+        connectionStatusText = reason == "Disconnected"
             ? L10n.tr("settings.remoteControl.connection.disconnected")
             : reason
     }
 
     private func resetConnectionState() {
         isConnected = false
+        isPairingInProgress = false
+        pairChallengeExpiryText = nil
+        pairErrorText = nil
+        connectionStatusText = nil
         agents = []
+        reconnectTask?.cancel()
+        reconnectTask = nil
         refreshDiscoveryStatus()
     }
 
@@ -324,49 +384,57 @@ struct RemoteControlClientView: View {
                     tint: .blue
                 ) {
                     cardField(L10n.tr("settings.remoteControl.discovery.device")) {
-                        Picker("", selection: $viewModel.selectedServiceID) {
-                            ForEach(viewModel.services, id: \.id) { service in
-                                Text(service.name).tag(Optional(service.id))
+                        HStack(spacing: 8) {
+                            Picker("", selection: $viewModel.selectedServiceID) {
+                                ForEach(viewModel.services, id: \.id) { service in
+                                    Text(service.name).tag(Optional(service.id))
+                                }
+                            }
+                            .pickerStyle(.menu)
+
+                            if viewModel.isConnected {
+                                statusPill(
+                                    title: L10n.tr("settings.remoteControl.status.connected"),
+                                    tint: .green
+                                )
                             }
                         }
-                        .pickerStyle(.menu)
                     }
 
-                    Button(L10n.tr("settings.remoteControl.discovery.connect")) {
-                        Task { await viewModel.connectAndPair() }
-                    }
-                    .buttonStyle(RemotePrimaryButtonStyle())
-                    .disabled(viewModel.selectedServiceID == nil)
-
-                    if let discoveryStatusText = viewModel.discoveryStatusText {
-                        Text(discoveryStatusText)
+                    if let connectionStatusText = viewModel.connectionStatusText {
+                        Text(connectionStatusText)
                             .font(.footnote)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .foregroundStyle(viewModel.isConnected
+                                ? Color(uiColor: ChatUIDesign.Color.black60)
+                                : .red)
                     }
 
-                    if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
-                        Text(discoveryDiagnosticsText)
-                            .font(.caption)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    }
-                }
-
-                settingsCard(
-                    title: L10n.tr("settings.remoteControl.pairing.title"),
-                    tint: .indigo
-                ) {
-                    cardField(L10n.tr("settings.remoteControl.pairing.code")) {
-                        TextField(L10n.tr("settings.remoteControl.pairing.code"), text: $viewModel.pairCode)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .remoteCardInputStyle()
+                    if viewModel.isConnected {
+                        Button(L10n.tr("settings.remoteControl.discovery.disconnect")) {
+                            viewModel.disconnect()
+                        }
+                        .buttonStyle(RemoteSecondaryButtonStyle())
+                    } else {
+                        Button(L10n.tr("settings.remoteControl.discovery.connect")) {
+                            Task { await viewModel.connectAndPair() }
+                        }
+                        .buttonStyle(RemotePrimaryButtonStyle())
+                        .disabled(viewModel.selectedServiceID == nil || viewModel.isPairingInProgress)
                     }
 
-                    Button(L10n.tr("settings.remoteControl.pairing.approve")) {
-                        Task { await viewModel.approvePairing() }
+                    if !viewModel.isConnected {
+                        if let discoveryStatusText = viewModel.discoveryStatusText {
+                            Text(discoveryStatusText)
+                                .font(.footnote)
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        }
+
+                        if let discoveryDiagnosticsText = viewModel.discoveryDiagnosticsText {
+                            Text(discoveryDiagnosticsText)
+                                .font(.caption)
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        }
                     }
-                    .buttonStyle(RemotePrimaryButtonStyle())
-                    .disabled(viewModel.pairCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
                 settingsCard(
@@ -410,18 +478,6 @@ struct RemoteControlClientView: View {
                     .buttonStyle(RemotePrimaryButtonStyle())
                     .disabled(!viewModel.isConnected || viewModel.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-
-                if let statusText = viewModel.statusText {
-                    settingsCard(
-                        title: L10n.tr("settings.remoteControl.status.title"),
-                        tint: .red
-                    ) {
-                        Text(statusText)
-                            .font(.subheadline)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
             }
             .padding(24)
             .frame(maxWidth: 640)
@@ -429,6 +485,9 @@ struct RemoteControlClientView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream))
         .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
+        .sheet(isPresented: $viewModel.isPairingInProgress) {
+            pairingSheet
+        }
         .task {
             viewModel.startBrowsing(forceRefresh: true)
         }
@@ -438,6 +497,67 @@ struct RemoteControlClientView: View {
         .onDisappear {
             viewModel.stopBrowsing(disconnect: true)
         }
+    }
+
+    private var pairingSheet: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                if let expiryText = viewModel.pairChallengeExpiryText {
+                    Text(L10n.tr("settings.remoteControl.pairChallengeReceived", expiryText))
+                        .font(.subheadline)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                TextField(L10n.tr("settings.remoteControl.pairing.code"), text: $viewModel.pairCode)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.numberPad)
+                    .remoteCardInputStyle()
+
+                if let pairErrorText = viewModel.pairErrorText {
+                    Text(pairErrorText)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(L10n.tr("settings.remoteControl.pairing.approve")) {
+                    Task { await viewModel.approvePairing() }
+                }
+                .buttonStyle(RemotePrimaryButtonStyle())
+                .disabled(viewModel.pairCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(24)
+            .navigationTitle(L10n.tr("settings.remoteControl.pairing.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("common.cancel")) {
+                        viewModel.cancelPairing()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func statusPill(title: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(tint.opacity(0.12))
+        )
     }
 
     private func settingsCard<Content: View>(

@@ -39,22 +39,11 @@ final class RemoteControlCoordinator {
     }
 
     func sendMessage(_ message: String) async -> LocalControlSendMessagePayload {
-        await SkillLaunchService.enqueueAutoSend(message: message, sessionID: currentSessionID)
+        await SkillLaunchService.enqueueAutoSend(message: message)
         return .init(enqueued: true)
     }
 
     func pairCodeDidUpdate(_ code: String, peerName: String) {
         RemoteControlStatusStore.shared.updatePairingCode(code, peerName: peerName)
-    }
-
-    private var currentSessionID: String {
-        let defaultSessionKey = containerStore?.container.defaultSessionKey
-        return normalizedSessionKey(defaultSessionKey, fallback: "main")
-    }
-
-    private func normalizedSessionKey(_ key: String?, fallback: String) -> String {
-        let trimmed = (key ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackTrimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? (fallbackTrimmed.isEmpty ? "main" : fallbackTrimmed) : trimmed
     }
 }
