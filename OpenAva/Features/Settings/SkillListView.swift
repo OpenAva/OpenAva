@@ -441,6 +441,7 @@ struct SkillListView: View {
                     isEnabled: AgentSkillToggleStore.isEnabled(skill, workspaceRootURL: workspaceRoot)
                 )
             }
+            SkillLauncherCatalogPublisher.publish(activeAgent: containerStore.activeAgent)
         } catch {
             showError(error)
         }
@@ -570,6 +571,7 @@ struct SkillListView: View {
 
         // Keep the list state in sync so the toggle does not wait for a full refresh.
         skills[index].isEnabled = isEnabled
+        SkillLauncherCatalogPublisher.publish(activeAgent: containerStore.activeAgent)
         showFeedback(for: isEnabled ? .enabled(skill.displayName) : .disabled(skill.displayName))
     }
 

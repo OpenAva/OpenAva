@@ -328,6 +328,7 @@ final class AppContainerStore {
         agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
         let resolvedConfig = Self.applyAgent(to: baseConfig, state: agentState)
         container = AppContainer.make(config: resolvedConfig)
+        SkillLauncherCatalogPublisher.publish(activeAgent: agentState.activeAgent)
     }
 
     private func reloadTeamState() {
