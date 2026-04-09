@@ -99,6 +99,10 @@ extension MessageListView {
         }
 
         for message in messages {
+            if message.isCompactionSummary {
+                continue
+            }
+
             checkAddDateHint(message.createdAt)
 
             let textContent = message.textContent

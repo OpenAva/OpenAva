@@ -28,7 +28,7 @@ extension ConversationSession {
             if message.isCompactBoundary {
                 return []
             }
-            if ConversationMarkers.isContextSummary(content) {
+            if message.isCompactionSummary {
                 return [.user(content: .text(content))]
             }
             guard !ConversationMarkers.isToolUseSummary(content) else { return [] }

@@ -287,7 +287,7 @@ actor AgentDurableMemoryExtractor {
     }
 
     private static func isModelVisibleMessage(_ message: ConversationMessage) -> Bool {
-        message.role == .user || message.role == .assistant
+        !message.isCompactionSummary && (message.role == .user || message.role == .assistant)
     }
 }
 

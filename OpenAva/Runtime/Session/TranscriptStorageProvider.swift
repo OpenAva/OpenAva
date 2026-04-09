@@ -594,7 +594,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func isCompactionSummary(_ message: ConversationMessage) -> Bool {
-        message.metadata["isCompactionSummary"] == "true"
+        message.isCompactionSummary
     }
 
     private func previewText(from messages: [ConversationMessage]) -> String? {
@@ -619,7 +619,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         if message.isCompactBoundary {
             return message.compactBoundaryMetadata?.messagesSummarized.map { "messages_summarized=\($0)" }
         }
-        if ConversationMarkers.isContextSummary(trimmed) {
+        if message.isCompactionSummary {
             return ConversationMarkers.stripContextSummaryPrefix(from: trimmed)
         }
         return trimmed

@@ -66,6 +66,10 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
 }
 
 public extension ConversationMessage {
+    var isCompactionSummary: Bool {
+        metadata["isCompactionSummary"] == "true"
+    }
+
     var subtype: String? {
         get { metadata["subtype"] }
         set { metadata["subtype"] = newValue }

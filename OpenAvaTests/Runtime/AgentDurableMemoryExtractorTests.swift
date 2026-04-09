@@ -52,8 +52,9 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         let keptAssistant = ConversationMessage(sessionID: sessionID, role: .assistant)
         keptAssistant.textContent = "好的，我会保持简洁。"
 
-        let summary = ConversationMessage(sessionID: sessionID, role: .system)
+        let summary = ConversationMessage(sessionID: sessionID, role: .user)
         summary.textContent = "\(ConversationMarkers.contextSummaryPrefix)\n\nEarlier conversation summary."
+        summary.metadata["isCompactionSummary"] = "true"
 
         let boundary = ConversationMessage(sessionID: sessionID, role: .system)
         boundary.textContent = "\(ConversationMarkers.compactBoundaryPrefix)\n\nConversation compacted."

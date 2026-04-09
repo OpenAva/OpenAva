@@ -168,7 +168,7 @@ extension ConversationSession {
 
         let discoveredToolNames = compactDiscoveredToolNames(from: tools)
 
-        let summaryMessage = storageProvider.createMessage(in: id, role: .system)
+        let summaryMessage = storageProvider.createMessage(in: id, role: .user)
         summaryMessage.textContent = "\(ConversationMarkers.contextSummaryPrefix)\n\n\(summaryText)"
         summaryMessage.createdAt = anchorDate.addingTimeInterval(0.001)
         summaryMessage.metadata["isCompactionSummary"] = "true"
