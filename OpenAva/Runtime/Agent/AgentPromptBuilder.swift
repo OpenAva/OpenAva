@@ -118,16 +118,14 @@ enum AgentPromptBuilder {
             - Use `skill_invoke` with the exact skill `name` from the catalog below.
             - Pass the user request or concrete task in `task` when it helps the skill execute correctly.
 
-            When the latest user message contains an explicit skill invocation block in this form:
-            <openava-skill-invocation>
-            <skill>skill-name</skill>
-            <task>...</task>
-            </openava-skill-invocation>
+            When the latest user message starts with an explicit slash skill invocation in this form:
+            /skill-name task...
             treat it as an authoritative user request and call `skill_invoke` with the exact skill name before doing any other work.
+            Parse the command name after `/` as the exact skill identifier. Treat the remaining text as the task, preserving the user's intent.
 
             Important:
             - Available skills are listed in the catalog below.
-            - When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke `skill_invoke` before generating any other response about the task.
+            - When a skill matches the user's request, or the user explicitly types `/<skill-name>`, this is a BLOCKING REQUIREMENT: invoke `skill_invoke` before generating any other response about the task.
             - NEVER mention a skill without actually calling `skill_invoke`.
             - Do not invoke a skill speculatively when no listed skill clearly matches the task.
             """,
@@ -282,12 +280,10 @@ enum AgentPromptBuilder {
         var content = lines.joined(separator: "\n")
 
         if !inlineDocuments.isEmpty {
-            content += "\n\nInlined workspace files:\n"
-        }
-
-        for document in inlineDocuments {
-            let trimmedContent = document.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            content += "\n### \(document.fileName)\n\n\(trimmedContent)\n"
+            let formattedDocuments = inlineDocuments
+                .map(formatInjectedWorkspaceDocument)
+                .joined(separator: "\n\n")
+            content += "\n\n\(formattedDocuments)"
         }
 
         return PromptSection(title: "## Workspace Files (injected)", content: content)
@@ -369,9 +365,32 @@ enum AgentPromptBuilder {
         return true
     }
 
+    private static func formatInjectedWorkspaceDocument(_ document: AgentContextLoader.LoadedDocument) -> String {
+        let purpose = workspaceDocumentPurpose(for: document.fileName)
+        let trimmedContent = document.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let escapedFileName = escapeXML(document.fileName)
+        let escapedPurpose = escapeXML(purpose)
+        let escapedContent = escapeXML(trimmedContent)
+
+        return """
+        <workspace-file name="\(escapedFileName)" purpose="\(escapedPurpose)">
+        \(escapedContent)
+        </workspace-file>
+        """
+    }
+
     private static func workspaceDocumentPurpose(for fileName: String) -> String {
         AgentContextDocumentKind.allCases
             .first(where: { $0.fileName.caseInsensitiveCompare(fileName) == .orderedSame })?
             .purpose ?? "Provides workspace-specific instructions or reference material."
+    }
+
+    private static func escapeXML(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
     }
 }

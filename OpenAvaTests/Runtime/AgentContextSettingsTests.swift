@@ -149,11 +149,40 @@ final class AgentContextSettingsTests: XCTestCase {
 
         XCTAssertNotNil(prompt)
         XCTAssertTrue(prompt?.contains("Available skills (") == true)
+        XCTAssertTrue(prompt?.contains("When the latest user message starts with an explicit slash skill invocation") == true)
+        XCTAssertTrue(prompt?.contains("/skill-name task...") == true)
         XCTAssertTrue(prompt?.contains("BLOCKING REQUIREMENT: invoke `skill_invoke`") == true)
         XCTAssertTrue(prompt?.contains("<skill id=alpha source=workspace execution_context=inline>") == true)
         XCTAssertTrue(prompt?.contains("description: Workspace alpha") == true)
         XCTAssertFalse(prompt?.contains("Always-loaded skills:") == true)
         XCTAssertFalse(prompt?.contains("# Workspace Alpha") == true)
+    }
+
+    func testSkillLaunchServiceBuildsSlashSkillInvocationMessage() {
+        let message = SkillLaunchService.makeInvocationMessage(
+            skillName: "frontend-design",
+            task: "Build landing page"
+        )
+
+        XCTAssertEqual(message, #"/frontend-design "Build landing page""#)
+    }
+
+    func testSkillLaunchServiceEscapesQuotedSlashArguments() {
+        let message = SkillLaunchService.makeInvocationMessage(
+            skillName: "expert-translator",
+            task: #"Rewrite "Hello world" politely"#
+        )
+
+        XCTAssertEqual(message, #"/expert-translator "Rewrite \"Hello world\" politely""#)
+    }
+
+    func testSkillLaunchServiceLeavesSkillCommandBlankWhenTaskMissing() {
+        let message = SkillLaunchService.makeInvocationMessage(
+            skillName: "frontend-design",
+            task: nil
+        )
+
+        XCTAssertEqual(message, "/frontend-design ")
     }
 
     func testBuiltInSkillsIncludeDefaultCatalogEntries() {
@@ -225,7 +254,7 @@ final class AgentContextSettingsTests: XCTestCase {
 
     func testPromptBuilderSeparatesRuntimeMemoryFromWorkspaceMemoryFiles() {
         let context = AgentContextLoader.LoadedContext(documents: [
-            .init(fileName: "SOUL.md", content: "# Soul\nBe direct."),
+            .init(fileName: "SOUL.md", content: "# Soul\nUse <calm> tone & stay direct."),
             .init(fileName: "USER.md", content: "# User\nPrefers Chinese."),
         ])
 
@@ -238,8 +267,10 @@ final class AgentContextSettingsTests: XCTestCase {
         )
 
         XCTAssertTrue(prompt.contains("Indexed durable memories:"))
-        XCTAssertTrue(prompt.contains("### SOUL.md"))
-        XCTAssertTrue(prompt.contains("### USER.md"))
+        XCTAssertTrue(prompt.contains("<workspace-file name=\"SOUL.md\" purpose=\"Defines the agent&apos;s core personality and behavioral principles.\">"))
+        XCTAssertTrue(prompt.contains("<workspace-file name=\"USER.md\" purpose=\"Defines user preferences, habits, and background information.\">"))
+        XCTAssertTrue(prompt.contains("Use &lt;calm&gt; tone &amp; stay direct."))
+        XCTAssertFalse(prompt.contains("### SOUL.md"))
         XCTAssertFalse(prompt.contains("### MEMORY.md"))
     }
 }

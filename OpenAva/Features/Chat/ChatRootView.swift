@@ -98,18 +98,17 @@ struct ChatRootView: View {
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             RemoteControlCoordinator.shared.bind(containerStore: containerStore)
             presentOnboardingIfNeeded()
-            drainPendingAutoSend(for: containerStore.activeAgent?.id)
+            drainPendingAutoSend()
             updateHeartbeatService()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                drainPendingAutoSend(for: containerStore.activeAgent?.id)
+                drainPendingAutoSend()
             }
             updateHeartbeatService()
         }
         .onReceive(NotificationCenter.default.publisher(for: .OpenAvaIntentAutoSend)) { _ in
-            // Re-read from persistent queue so filtering always follows current agent.
-            drainPendingAutoSend(for: containerStore.activeAgent?.id)
+            drainPendingAutoSend()
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
@@ -117,7 +116,7 @@ struct ChatRootView: View {
                 HeartbeatService.shared.stop()
                 return
             }
-            drainPendingAutoSend(for: newAgentID)
+            drainPendingAutoSend()
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             updateHeartbeatService()
         }
@@ -211,17 +210,10 @@ struct ChatRootView: View {
         }
     }
 
-    /// Reads one pending auto-send request for the currently active agent.
-    private func drainPendingAutoSend(for activeAgentID: UUID?) {
-        let activeSessionID = scopedSessionID(
-            for: primarySessionKey,
-            agentID: activeAgentID
-        )
-        guard let request = SkillLaunchService.dequeuePendingAutoSend(
-            for: activeAgentID,
-            activeSessionID: activeSessionID
-        ),
-            request.id != pendingAutoSendID
+    /// Reads one pending launch request and resolves it into a chat message.
+    private func drainPendingAutoSend() {
+        guard let request = SkillLaunchService.dequeuePendingAutoSend(),
+              request.id != pendingAutoSendID
         else { return }
         let id = request.id
         let message = request.message

@@ -3,72 +3,35 @@ import Foundation
 import OpenClawKit
 
 extension Notification.Name {
-    /// Posted when a skill intent wants the chat UI to auto-send a message.
+    /// Posted when a skill launch request is queued while the app is active.
     static let OpenAvaIntentAutoSend = Notification.Name("com.day1-labs.openava.intentAutoSend")
 }
 
 struct RunSkillIntent: AppIntent {
-    static let title: LocalizedStringResource = "Run OpenAva Skill"
-    static let description = IntentDescription("Trigger OpenAva skill via Siri, Shortcuts, or widgets.")
-    /// Open the app so the skill runs through the real agentic loop in the chat UI.
+    static let title: LocalizedStringResource = "intent.runSkill.meta.title"
+    static let description = IntentDescription("intent.runSkill.meta.description")
     static let openAppWhenRun = true
 
-    @Parameter(title: "Skill", optionsProvider: SkillNameOptionsProvider())
-    var skill: String
+    @Parameter(title: "intent.runSkill.parameter.skill", optionsProvider: SkillNameOptionsProvider())
+    var skillID: String
 
-    @Parameter(title: "Task", default: "")
+    @Parameter(title: "intent.runSkill.parameter.task", default: "")
     var task: String
 
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let normalizedSkill = Self.normalizedSkillLabel(skill)
-        guard !normalizedSkill.isEmpty else {
-            throw SkillInvocationError.emptySkill
-        }
-        let normalizedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+    init() {}
 
-        // Resolve skill using the active agent's workspace.
-        let container = await MainActor.run {
-            AppContainerStore(container: .makeDefault()).container
-        }
-        let availableSkills = AgentSkillsLoader.listSkills(
-            filterUnavailable: true,
-            visibility: .userInvocable,
-            workspaceRootURL: container.config.agent.workspaceRootURL
-        )
-        let resolvedSkill = availableSkills.first(where: { $0.name == normalizedSkill })
-            ?? availableSkills.first(where: { $0.displayName.localizedCaseInsensitiveCompare(normalizedSkill) == .orderedSame })
-        guard let resolvedSkill else {
-            throw SkillInvocationError.skillNotFound(normalizedSkill)
-        }
-
-        // Build a structured invocation block so the runtime can treat this as
-        // an explicit skill request instead of a best-effort natural-language hint.
-        let message = SkillLaunchService.makeInvocationMessage(
-            skillName: resolvedSkill.name,
-            task: normalizedTask.isEmpty ? nil : normalizedTask
-        )
-
-        // Enqueue for auto-send via the chat UI (same agentic loop as manual input).
-        await SkillLaunchService.enqueueAutoSend(message: message)
-
-        return .result(value: L10n.tr("intent.runSkill.triggeredFallback", resolvedSkill.displayName))
+    init(skillID: String, task: String = "") {
+        self.skillID = skillID
+        self.task = task
     }
-}
 
-extension RunSkillIntent {
-    private static func normalizedSkillLabel(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let separator = trimmed.firstIndex(of: " ") else {
-            return trimmed
-        }
-
-        let prefix = String(trimmed[..<separator])
-        guard prefix.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.properties.isEmoji }) else {
-            return trimmed
-        }
-
-        let candidate = trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
-        return candidate.isEmpty ? trimmed : candidate
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let displayName = try SkillLaunchService.enqueueSkillLaunch(
+            skillID: skillID,
+            task: task,
+            source: .shortcut
+        )
+        return .result(value: L10n.tr("intent.runSkill.triggeredFallback", displayName))
     }
 }
 
@@ -81,7 +44,7 @@ struct OpenAvaAppShortcuts: AppShortcutsProvider {
                 "Call skill with \(.applicationName)",
                 "Let \(.applicationName) execute skill",
             ],
-            shortTitle: "Run Skill",
+            shortTitle: "intent.runSkill.meta.shortTitle",
             systemImageName: "wand.and.stars"
         )
     }
@@ -96,98 +59,137 @@ struct SkillNameOptionsProvider: DynamicOptionsProvider {
         let workspaceRoot = AgentStore.load().activeAgent?.workspaceURL
         return AgentSkillsLoader
             .listSkills(filterUnavailable: true, visibility: .userInvocable, workspaceRootURL: workspaceRoot)
-            .map { skill in
-                if let emoji = skill.emoji {
-                    return "\(emoji) \(skill.displayName)"
-                }
-                return skill.displayName
-            }
+            .map(\.name)
     }
 }
 
 enum SkillLaunchService {
+    struct PendingAutoSendRequest {
+        let id: String
+        let message: String
+    }
+
     static func handleDeepLink(url: URL, container _: AppContainer) async {
         guard let route = DeepLinkParser.parse(url) else { return }
         guard case let .agent(link) = route else { return }
-        guard !link.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         await enqueueAutoSend(message: link.message)
     }
 
-    struct PendingAutoSendRequest: Codable {
-        let id: String
-        let message: String
-        let agentID: String?
-        let sessionID: String?
-        let createdAtMs: Int64
-
-        var userInfo: [String: String] {
-            var payload: [String: String] = [
-                "id": id,
-                "message": message,
-            ]
-            if let agentID {
-                payload["agentID"] = agentID
-            }
-            if let sessionID {
-                payload["sessionID"] = sessionID
-            }
-            return payload
-        }
-    }
-
-    /// Legacy key kept for one-way migration to queue storage.
-    static let pendingAutoSendKey = "openava.pendingAutoSend"
-    static let pendingAutoSendQueueKey = "openava.pendingAutoSend.queue.v1"
-
-    /// Persists and broadcasts an intent message for ChatRootView to consume once.
-    static func enqueueAutoSend(message: String, sessionID: String? = nil) async {
-        let request = PendingAutoSendRequest(
-            id: UUID().uuidString,
-            message: message,
-            agentID: AgentStore.load().activeAgentID?.uuidString,
-            sessionID: sessionID,
-            createdAtMs: Int64(Date().timeIntervalSince1970 * 1000)
+    static func enqueueAutoSend(message: String) async {
+        guard let normalizedMessage = nonEmpty(message) else { return }
+        PendingChatLaunchRequestStore.enqueue(
+            PendingChatLaunchRequest(message: normalizedMessage, source: .deepLink)
         )
-        await MainActor.run {
-            var queue = loadPendingQueue()
-            queue.append(request)
-            savePendingQueue(queue)
-            NotificationCenter.default.post(
-                name: .OpenAvaIntentAutoSend,
-                object: nil,
-                userInfo: request.userInfo
-            )
-        }
+        await notifyQueueChanged()
     }
 
-    /// Dequeue one pending request for the active agent.
-    static func dequeuePendingAutoSend(for activeAgentID: UUID?, activeSessionID: String?) -> PendingAutoSendRequest? {
-        migrateLegacyPendingPayloadIfNeeded()
-        var queue = loadPendingQueue()
-        let activeID = activeAgentID?.uuidString
-        guard let index = queue.firstIndex(where: { request in
-            shouldDeliver(
-                requestAgentID: request.agentID,
-                activeAgentID: activeID,
-                requestSessionID: request.sessionID,
-                activeSessionID: activeSessionID
-            )
-        }) else {
-            return nil
+    @discardableResult
+    static func enqueueSkillLaunch(skillID: String, task: String?, source: SkillLaunchSource) throws -> String {
+        guard let normalizedSkillID = nonEmpty(skillID) else {
+            throw SkillInvocationError.emptySkill
         }
-        let request = queue.remove(at: index)
-        savePendingQueue(queue)
-        return request
+        guard let resolvedSkill = resolveSkillDefinition(named: normalizedSkillID) else {
+            throw AgentStore.load().activeAgent == nil
+                ? SkillInvocationError.agentUnavailable
+                : SkillInvocationError.skillNotFound(normalizedSkillID)
+        }
+
+        PendingChatLaunchRequestStore.enqueue(
+            PendingChatLaunchRequest(
+                skillID: resolvedSkill.name,
+                task: nonEmpty(task),
+                source: source
+            )
+        )
+
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .OpenAvaIntentAutoSend, object: nil)
+        }
+
+        return resolvedSkill.displayName
+    }
+
+    static func dequeuePendingAutoSend() -> PendingAutoSendRequest? {
+        var queue = PendingChatLaunchRequestStore.loadQueue()
+        guard !queue.isEmpty else { return nil }
+
+        let activeAgent = AgentStore.load().activeAgent
+        let workspaceRootURL = activeAgent?.workspaceURL
+        var index = 0
+        var mutated = false
+
+        while index < queue.count {
+            let request = queue[index]
+
+            switch request.kind {
+            case .message:
+                guard let normalizedMessage = nonEmpty(request.message) else {
+                    queue.remove(at: index)
+                    mutated = true
+                    continue
+                }
+                guard activeAgent != nil else {
+                    if mutated {
+                        PendingChatLaunchRequestStore.saveQueue(queue)
+                    }
+                    return nil
+                }
+                queue.remove(at: index)
+                PendingChatLaunchRequestStore.saveQueue(queue)
+                return PendingAutoSendRequest(id: request.id, message: normalizedMessage)
+
+            case .skill:
+                guard activeAgent != nil else {
+                    if mutated {
+                        PendingChatLaunchRequestStore.saveQueue(queue)
+                    }
+                    return nil
+                }
+                guard let normalizedSkillID = nonEmpty(request.skillID) else {
+                    queue.remove(at: index)
+                    mutated = true
+                    continue
+                }
+                guard let resolvedSkill = resolveSkillDefinition(
+                    named: normalizedSkillID,
+                    workspaceRootURL: workspaceRootURL
+                ) else {
+                    queue.remove(at: index)
+                    mutated = true
+                    continue
+                }
+                let message = makeInvocationMessage(skillName: resolvedSkill.name, task: request.task)
+                queue.remove(at: index)
+                PendingChatLaunchRequestStore.saveQueue(queue)
+                return PendingAutoSendRequest(id: request.id, message: message)
+            }
+        }
+
+        if mutated {
+            PendingChatLaunchRequestStore.saveQueue(queue)
+        }
+        return nil
     }
 
     static func makeInvocationMessage(skillName: String, task: String?) -> String {
-        let resolvedTask = nonEmpty(task) ?? L10n.tr("intent.runSkill.request.defaultTask")
-        return [
-            "<openava-skill-invocation>",
-            "<skill>\(escapeXML(skillName))</skill>",
-            "<task>\(escapeXML(resolvedTask))</task>",
-            "</openava-skill-invocation>",
-        ].joined(separator: "\n")
+        let escapedSkill = escapeSlashArgument(skillName)
+        guard let resolvedTask = nonEmpty(task) else {
+            return "/\(escapedSkill) "
+        }
+        let escapedTask = escapeSlashArgument(resolvedTask)
+        return "/\(escapedSkill) \(escapedTask)"
+    }
+
+    private static func resolveSkillDefinition(
+        named requestedName: String,
+        workspaceRootURL: URL? = AgentStore.load().activeAgent?.workspaceURL
+    ) -> AgentSkillsLoader.SkillDefinition? {
+        AgentSkillsLoader.resolveSkill(
+            named: requestedName,
+            visibility: .userInvocable,
+            filterUnavailable: true,
+            workspaceRootURL: workspaceRootURL
+        )
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
@@ -195,71 +197,25 @@ enum SkillLaunchService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func escapeXML(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
+    private static func escapeSlashArgument(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let escaped = trimmed.replacingOccurrences(of: "\"", with: "\\\"")
+        guard escaped.contains(where: \.isWhitespace) else {
+            return escaped
+        }
+        return "\"\(escaped)\""
     }
 
-    private static func loadPendingQueue() -> [PendingAutoSendRequest] {
-        guard let data = UserDefaults.standard.data(forKey: pendingAutoSendQueueKey),
-              let queue = try? JSONDecoder().decode([PendingAutoSendRequest].self, from: data)
-        else {
-            return []
-        }
-        return queue
-    }
-
-    private static func savePendingQueue(_ queue: [PendingAutoSendRequest]) {
-        if queue.isEmpty {
-            UserDefaults.standard.removeObject(forKey: pendingAutoSendQueueKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(queue) else { return }
-        UserDefaults.standard.set(data, forKey: pendingAutoSendQueueKey)
-    }
-
-    private static func migrateLegacyPendingPayloadIfNeeded() {
-        guard let payload = UserDefaults.standard.dictionary(forKey: pendingAutoSendKey) as? [String: String],
-              let id = payload["id"],
-              let message = payload["message"]
-        else {
-            return
-        }
-        var queue = loadPendingQueue()
-        if !queue.contains(where: { $0.id == id }) {
-            queue.append(PendingAutoSendRequest(
-                id: id,
-                message: message,
-                agentID: payload["agentID"],
-                sessionID: payload["sessionID"],
-                createdAtMs: Int64(Date().timeIntervalSince1970 * 1000)
-            ))
-            savePendingQueue(queue)
-        }
-        UserDefaults.standard.removeObject(forKey: pendingAutoSendKey)
-    }
-
-    private static func shouldDeliver(
-        requestAgentID: String?,
-        activeAgentID: String?,
-        requestSessionID: String?,
-        activeSessionID: String?
-    ) -> Bool {
-        guard let requestAgentID else {
-            // Legacy payloads without agent binding can be consumed by current active agent.
-            return requestSessionID == nil || requestSessionID == activeSessionID
-        }
-        guard requestAgentID == activeAgentID else { return false }
-        // Session-bound requests must only execute in their original chat session.
-        return requestSessionID == nil || requestSessionID == activeSessionID
+    @MainActor
+    private static func notifyQueueChanged() {
+        NotificationCenter.default.post(name: .OpenAvaIntentAutoSend, object: nil)
     }
 }
 
 enum SkillInvocationError: LocalizedError {
     case emptySkill
     case skillNotFound(String)
+    case agentUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -267,6 +223,8 @@ enum SkillInvocationError: LocalizedError {
             L10n.tr("intent.runSkill.error.emptySkill")
         case let .skillNotFound(name):
             L10n.tr("intent.runSkill.error.skillNotFound", name)
+        case .agentUnavailable:
+            L10n.tr("intent.runSkill.error.agentUnavailable")
         }
     }
 }
