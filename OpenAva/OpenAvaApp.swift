@@ -203,6 +203,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
             if let titlebar = scene.titlebar {
                 titlebar.titleVisibility = .hidden
+                titlebar.toolbarStyle = .automatic
                 titlebar.separatorStyle = .none
             }
             scene.sizeRestrictions?.minimumSize = CGSize(width: 600, height: 440)

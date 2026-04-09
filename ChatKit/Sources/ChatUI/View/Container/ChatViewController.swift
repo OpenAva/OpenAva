@@ -6,6 +6,10 @@
 import Combine
 import UIKit
 
+#if targetEnvironment(macCatalyst)
+    import AppKit
+#endif
+
 /// A complete chat view controller that provides message display and user input.
 ///
 /// Usage:
@@ -14,6 +18,81 @@ import UIKit
 ///     present(vc, animated: true)
 ///
 open class ChatViewController: UIViewController {
+    #if targetEnvironment(macCatalyst)
+        @MainActor
+        private final class CatalystTitlebarToolbarCoordinator: NSObject, NSToolbarDelegate {
+            private enum Item {
+                static let leading = NSToolbarItem.Identifier("openava.chat.leading")
+                static let title = NSToolbarItem.Identifier("openava.chat.title")
+                static let trailing = NSToolbarItem.Identifier("openava.chat.trailing")
+            }
+
+            private let toolbar = NSToolbar(identifier: "openava.chat.titlebar")
+            let leadingBarButtonItem: UIBarButtonItem
+            let titleBarButtonItem: UIBarButtonItem
+            let trailingBarButtonItem: UIBarButtonItem
+
+            init(leadingBarButtonItem: UIBarButtonItem, titleBarButtonItem: UIBarButtonItem, trailingBarButtonItem: UIBarButtonItem) {
+                self.leadingBarButtonItem = leadingBarButtonItem
+                self.titleBarButtonItem = titleBarButtonItem
+                self.trailingBarButtonItem = trailingBarButtonItem
+
+                super.init()
+                toolbar.delegate = self
+                toolbar.allowsUserCustomization = false
+                toolbar.displayMode = .iconOnly
+                if #available(iOS 16.0, *) {
+                    toolbar.centeredItemIdentifiers = [Item.title]
+                }
+            }
+
+            func install(on titlebar: UITitlebar) {
+                titlebar.titleVisibility = .hidden
+                titlebar.toolbarStyle = .automatic
+                titlebar.separatorStyle = .none
+                if titlebar.toolbar !== toolbar {
+                    titlebar.toolbar = toolbar
+                }
+            }
+
+            func toolbarAllowedItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
+                [
+                    Item.leading,
+                    Item.title,
+                    Item.trailing,
+                    .flexibleSpace,
+                ]
+            }
+
+            func toolbarDefaultItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
+                [
+                    Item.leading,
+                    .flexibleSpace,
+                    Item.title,
+                    .flexibleSpace,
+                    Item.trailing,
+                ]
+            }
+
+            func toolbar(
+                _: NSToolbar,
+                itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                willBeInsertedIntoToolbar _: Bool
+            ) -> NSToolbarItem? {
+                switch itemIdentifier {
+                case Item.leading:
+                    return NSToolbarItem(itemIdentifier: Item.leading, barButtonItem: leadingBarButtonItem)
+                case Item.title:
+                    return NSToolbarItem(itemIdentifier: Item.title, barButtonItem: titleBarButtonItem)
+                case Item.trailing:
+                    return NSToolbarItem(itemIdentifier: Item.trailing, barButtonItem: trailingBarButtonItem)
+                default:
+                    return nil
+                }
+            }
+        }
+    #endif
+
     private enum QuickCommand {
         static let contextUsage = "/context"
     }
@@ -35,11 +114,14 @@ open class ChatViewController: UIViewController {
     private enum Layout {
         static let topBarHorizontalInset: CGFloat = 16
         static let topBarTopSpacing: CGFloat = 0
-        static let topBarBottomSpacing: CGFloat = 1
         static let topBarTouchSize: CGFloat = 32
         static let topBarTitleSpacing: CGFloat = 8
-        static let topBarDividerHeight: CGFloat = 1
         static let topBarAvatarSize: CGFloat = 22
+
+        #if targetEnvironment(macCatalyst)
+            static let catalystTopBarHorizontalInset: CGFloat = 80
+            static let catalystTopBarTopInset: CGFloat = 10
+        #endif
     }
 
     public private(set) var sessionID: String
@@ -77,7 +159,6 @@ open class ChatViewController: UIViewController {
 
     private let topBarBackgroundView = UIView()
     private let topBarBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
-    private let topBarDividerView = SeparatorView()
     private let topBarContentView = UIView()
     private let titleAvatarContainerView = UIView()
     private lazy var avatarButton: UIButton = .init(type: .system)
@@ -99,6 +180,57 @@ open class ChatViewController: UIViewController {
     private var contextUsageRefreshTask: Task<Void, Never>?
 
     private var draftInputObject: ChatInputContent?
+
+    #if targetEnvironment(macCatalyst)
+        private lazy var catalystTitleBarButtonItem: UIBarButtonItem = {
+            let item = UIBarButtonItem(
+                title: "Assistant \u{203A}",
+                style: .plain,
+                target: self,
+                action: #selector(catalystTitleBarButtonTapped)
+            )
+            item.setTitleTextAttributes([
+                .font: UIFont.systemFont(ofSize: 14, weight: .semibold),
+            ], for: .normal)
+            item.setTitleTextAttributes([
+                .font: UIFont.systemFont(ofSize: 14, weight: .semibold),
+            ], for: .highlighted)
+            return item
+        }()
+
+        @objc private func catalystTitleBarButtonTapped() {
+            menuDelegate?.chatViewControllerDidTapModelTitle(self)
+        }
+
+        private static func catalystToolbarIcon(_ name: String, fallback: String) -> UIImage? {
+            let base = UIImage.chatInputIcon(named: name) ?? UIImage(systemName: fallback)
+            let targetSize = CGSize(width: 18, height: 18)
+            guard let base, base.size.width > targetSize.width else { return base }
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            return renderer.image { _ in base.draw(in: CGRect(origin: .zero, size: targetSize)) }
+                .withRenderingMode(.alwaysTemplate)
+        }
+
+        private lazy var catalystLeadingBarButtonItem = UIBarButtonItem(
+            image: Self.catalystToolbarIcon("users", fallback: "person.2"),
+            style: .plain,
+            target: nil,
+            action: nil
+        )
+
+        private lazy var catalystTrailingBarButtonItem = UIBarButtonItem(
+            image: Self.catalystToolbarIcon("menu", fallback: "ellipsis"),
+            style: .plain,
+            target: nil,
+            action: nil
+        )
+
+        private lazy var catalystTitlebarToolbarCoordinator = CatalystTitlebarToolbarCoordinator(
+            leadingBarButtonItem: catalystLeadingBarButtonItem,
+            titleBarButtonItem: catalystTitleBarButtonItem,
+            trailingBarButtonItem: catalystTrailingBarButtonItem
+        )
+    #endif
 
     /// When set, the input draft is persisted to UserDefaults under this key so it survives
     /// app restarts. Should be unique per agent to isolate drafts between agents.
@@ -178,6 +310,12 @@ open class ChatViewController: UIViewController {
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutViews()
+        updateCatalystTitlebarToolbarIfNeeded()
+    }
+
+    override open func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateCatalystTitlebarToolbarIfNeeded()
     }
 
     private func layoutViews() {
@@ -198,22 +336,16 @@ open class ChatViewController: UIViewController {
             height: totalInputHeight
         )
 
-        if prefersNavigationBarManaged {
-            // Extend the list view behind the translucent navigation bar.
-            // Content is offset via contentSafeAreaInsets so it starts below the bar,
-            // but scrolls underneath it for the glass morphism effect.
+        if prefersNavigationBarManaged || usesCatalystTitlebarToolbar {
             messageListView.frame = CGRect(
                 x: 0,
                 y: 0,
                 width: view.bounds.width,
                 height: chatInputView.frame.minY
             )
-            messageListView.contentSafeAreaInsets = UIEdgeInsets(
-                top: safeArea.top,
-                left: 0,
-                bottom: 0,
-                right: 0
-            )
+            messageListView.contentSafeAreaInsets = prefersNavigationBarManaged
+                ? UIEdgeInsets(top: safeArea.top, left: 0, bottom: 0, right: 0)
+                : .zero
         } else {
             messageListView.frame = CGRect(
                 x: 0,
@@ -227,12 +359,12 @@ open class ChatViewController: UIViewController {
 
     @discardableResult
     private func layoutTopBar(safeAreaTop: CGFloat) -> CGFloat {
-        if prefersNavigationBarManaged {
+        if prefersNavigationBarManaged || usesCatalystTitlebarToolbar {
             topBarBackgroundView.frame = .zero
             return safeAreaTop
         }
-        let contentY = safeAreaTop + Layout.topBarTopSpacing
-        let leadingInset: CGFloat = Layout.topBarHorizontalInset
+        let contentY = resolvedTopBarContentY(safeAreaTop: safeAreaTop)
+        let leadingInset = resolvedTopBarLeadingInset
         let contentHeight = max(Layout.topBarTouchSize, navigationTitleView.intrinsicContentSize.height)
         let iconSide = Layout.topBarAvatarSize
 
@@ -247,25 +379,23 @@ open class ChatViewController: UIViewController {
             x: 0,
             y: 0,
             width: view.bounds.width,
-            height: topBarContentView.frame.maxY + Layout.topBarBottomSpacing
+            height: topBarContentView.frame.maxY
         )
         topBarBlurView.frame = topBarBackgroundView.bounds
-        topBarDividerView.frame = CGRect(
-            x: 0,
-            y: topBarBackgroundView.bounds.height - Layout.topBarDividerHeight,
-            width: topBarBackgroundView.bounds.width,
-            height: Layout.topBarDividerHeight
-        )
 
-        let avatarY = (contentHeight - iconSide) / 2
         titleAvatarContainerView.frame = CGRect(
             x: leadingInset,
             y: 0,
             width: Layout.topBarTouchSize,
             height: contentHeight
         )
-        avatarButton.frame = CGRect(x: 0, y: avatarY, width: iconSide, height: iconSide)
         let menuY = (contentHeight - Layout.topBarTouchSize) / 2
+        avatarButton.frame = CGRect(
+            x: 0,
+            y: menuY,
+            width: Layout.topBarTouchSize,
+            height: Layout.topBarTouchSize
+        )
         menuButton.frame = CGRect(
             x: topBarContentView.bounds.width - Layout.topBarHorizontalInset - Layout.topBarTouchSize,
             y: menuY,
@@ -289,6 +419,22 @@ open class ChatViewController: UIViewController {
         )
 
         return topBarBackgroundView.frame.maxY
+    }
+
+    private var resolvedTopBarLeadingInset: CGFloat {
+        #if targetEnvironment(macCatalyst)
+            Layout.catalystTopBarHorizontalInset
+        #else
+            Layout.topBarHorizontalInset
+        #endif
+    }
+
+    private func resolvedTopBarContentY(safeAreaTop: CGFloat) -> CGFloat {
+        #if targetEnvironment(macCatalyst)
+            return Layout.catalystTopBarTopInset
+        #else
+            return safeAreaTop + Layout.topBarTopSpacing
+        #endif
     }
 
     private func setupKeyboardObservation() {
@@ -330,31 +476,26 @@ open class ChatViewController: UIViewController {
     }
 
     private func configureNavigationItems() {
-        if prefersNavigationBarManaged {
-            // In managed mode, title and menu live in the navigation bar.
+        navigationItem.titleView = nil
+        navigationItem.leftBarButtonItem = nil
+        navigationItem.rightBarButtonItem = nil
+
+        menuDelegate?.chatViewControllerLeadingButton(self, button: avatarButton)
+
+        if usesCatalystTitlebarToolbar {
+            #if targetEnvironment(macCatalyst)
+                catalystLeadingBarButtonItem.menu = avatarButton.menu
+                catalystTrailingBarButtonItem.menu = menuDelegate?.chatViewControllerMenu(self)
+            #endif
+            updateCatalystTitlebarToolbarIfNeeded()
+        } else if prefersNavigationBarManaged {
             navigationItem.title = headerState.agentName
             navigationItem.largeTitleDisplayMode = .inline
-
-            if let menu = menuDelegate?.chatViewControllerMenu(self) {
-                let barButton = UIBarButtonItem(
-                    image: UIImage(systemName: "ellipsis.circle"),
-                    menu: menu
-                )
-                navigationItem.rightBarButtonItem = barButton
-            } else {
-                navigationItem.rightBarButtonItem = nil
+            navigationItem.rightBarButtonItem = menuDelegate?.chatViewControllerMenu(self).map {
+                UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), menu: $0)
             }
-
-            // Hide the custom top bar menu button since nav bar owns it now.
             menuButton.isHidden = true
         } else {
-            navigationItem.titleView = nil
-            navigationItem.leftBarButtonItem = nil
-            navigationItem.rightBarButtonItem = nil
-
-            // Re-apply leading button configuration when delegate data changes.
-            menuDelegate?.chatViewControllerLeadingButton(self, button: avatarButton)
-
             if let menu = menuDelegate?.chatViewControllerMenu(self) {
                 menuButton.menu = menu
                 menuButton.isHidden = false
@@ -371,7 +512,7 @@ open class ChatViewController: UIViewController {
 
     private func applyNavigationBarManagedMode() {
         let managed = prefersNavigationBarManaged
-        topBarBackgroundView.isHidden = managed
+        topBarBackgroundView.isHidden = managed || usesCatalystTitlebarToolbar
         if managed {
             navigationItem.largeTitleDisplayMode = .inline
             if let nav = navigationController {
@@ -379,7 +520,6 @@ open class ChatViewController: UIViewController {
             }
         }
         configureNavigationItems()
-        view.setNeedsLayout()
     }
 
     private func bindNavigationTitleUpdates(session: ConversationSession) {
@@ -474,16 +614,11 @@ open class ChatViewController: UIViewController {
         chatInputView.quickSettingBar.updateCommand(command: QuickCommand.contextUsage, title: title, icon: "gauge")
     }
 
-    @MainActor
-    private func switchSession(to id: String) {
+    private func resetInputState() {
         draftInputObject = nil
         clearPersistedDraft()
         chatInputView.resetValues()
         chatInputView.storage.removeAll()
-        chatInputView.bind(sessionID: id)
-        configureSession(for: id)
-        messageListView.updateList()
-        refreshNavigationTitle()
     }
 
     private func resolveTitle(from metadata: ConversationTitleMetadata?) -> String {
@@ -519,14 +654,13 @@ open class ChatViewController: UIViewController {
         avatarButton.sendActions(for: .touchUpInside)
     }
 
-    public func presentTrailingMenu() {
-        menuButton.sendActions(for: .touchUpInside)
-    }
-
     private func applyHeaderStateToTitleView() {
         navigationTitleView.agentTitle = headerState.agentName
         navigationTitleView.agentEmoji = headerState.agentEmoji ?? ""
         navigationTitleView.modelTitle = makeModelSubtitle(from: headerState)
+        #if targetEnvironment(macCatalyst)
+            updateCatalystTitleBarButtonText()
+        #endif
         if prefersNavigationBarManaged {
             navigationItem.title = headerState.agentName
         }
@@ -552,18 +686,16 @@ open class ChatViewController: UIViewController {
 
         // Configure avatar button for custom interactions (e.g., session switching)
         avatarButton.menu = nil
-        avatarButton.showsMenuAsPrimaryAction = false
         let leadingImage = UIImage.chatInputIcon(named: "users") ?? UIImage(systemName: "person.2")
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        #if targetEnvironment(macCatalyst)
-            applyCatalystMenuButtonStyle(avatarButton, image: leadingImage, symbolConfiguration: symbolConfig)
-        #else
-            avatarButton.setImage(leadingImage, for: .normal)
-            avatarButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
-        #endif
-        avatarButton.imageView?.contentMode = .scaleAspectFit
-        avatarButton.adjustsImageWhenHighlighted = false
-        avatarButton.tintColor = UIColor.secondaryLabel.withAlphaComponent(0.5)
+        applyTopBarButtonStyle(
+            avatarButton,
+            image: leadingImage,
+            symbolConfiguration: symbolConfig,
+            horizontalAlignment: .left,
+            showsMenuAsPrimaryAction: false,
+            isHidden: false
+        )
         menuDelegate?.chatViewControllerLeadingButton(self, button: avatarButton)
 
         navigationTitleView.onAgentTap = { [weak self] in
@@ -576,26 +708,76 @@ open class ChatViewController: UIViewController {
         }
 
         let menuImage = UIImage(systemName: "chevron.down")
-        #if targetEnvironment(macCatalyst)
-            applyCatalystMenuButtonStyle(menuButton, image: menuImage, symbolConfiguration: symbolConfig)
-        #else
-            menuButton.setImage(menuImage, for: .normal)
-            menuButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
-        #endif
-        menuButton.showsMenuAsPrimaryAction = true
-        menuButton.tintColor = UIColor.secondaryLabel.withAlphaComponent(0.5)
-        menuButton.imageView?.contentMode = .scaleAspectFit
-        menuButton.contentHorizontalAlignment = .right
-        menuButton.contentVerticalAlignment = .center
-        menuButton.isHidden = true
+        applyTopBarButtonStyle(
+            menuButton,
+            image: menuImage,
+            symbolConfiguration: symbolConfig,
+            horizontalAlignment: .right,
+            showsMenuAsPrimaryAction: true,
+            isHidden: false
+        )
 
         topBarBackgroundView.addSubview(topBarBlurView)
-        topBarBackgroundView.addSubview(topBarDividerView)
         topBarBackgroundView.addSubview(topBarContentView)
         topBarContentView.addSubview(titleAvatarContainerView)
         titleAvatarContainerView.addSubview(avatarButton)
         topBarContentView.addSubview(navigationTitleView)
         topBarContentView.addSubview(menuButton)
+    }
+
+    private var usesCatalystTitlebarToolbar: Bool {
+        #if targetEnvironment(macCatalyst)
+            true
+        #else
+            false
+        #endif
+    }
+
+    private func updateCatalystTitlebarToolbarIfNeeded() {
+        #if targetEnvironment(macCatalyst)
+            guard usesCatalystTitlebarToolbar,
+                  let titlebar = view.window?.windowScene?.titlebar
+            else {
+                return
+            }
+
+            updateCatalystTitleBarButtonText()
+            catalystTitlebarToolbarCoordinator.install(on: titlebar)
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+        private func updateCatalystTitleBarButtonText() {
+            let emoji = headerState.agentEmoji?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let name = headerState.agentName
+            let base = emoji.isEmpty ? name : "\(emoji) \(name)"
+            let model = headerState.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedModel = model.isEmpty ? "Not Selected" : model
+            catalystTitleBarButtonItem.title = "\(base) \u{2022} \(resolvedModel)"
+        }
+    #endif
+
+    private func applyTopBarButtonStyle(
+        _ button: UIButton,
+        image: UIImage?,
+        symbolConfiguration: UIImage.SymbolConfiguration,
+        horizontalAlignment: UIControl.ContentHorizontalAlignment,
+        showsMenuAsPrimaryAction: Bool,
+        isHidden: Bool
+    ) {
+        #if targetEnvironment(macCatalyst)
+            applyCatalystMenuButtonStyle(button, image: image, symbolConfiguration: symbolConfiguration)
+        #else
+            button.setImage(image, for: .normal)
+            button.setPreferredSymbolConfiguration(symbolConfiguration, forImageIn: .normal)
+        #endif
+        button.imageView?.contentMode = .scaleAspectFit
+        button.adjustsImageWhenHighlighted = false
+        button.tintColor = UIColor.secondaryLabel.withAlphaComponent(0.5)
+        button.contentHorizontalAlignment = horizontalAlignment
+        button.contentVerticalAlignment = .center
+        button.showsMenuAsPrimaryAction = showsMenuAsPrimaryAction
+        button.isHidden = isHidden
     }
 
     #if targetEnvironment(macCatalyst)
@@ -622,82 +804,11 @@ open class ChatViewController: UIViewController {
     #endif
 }
 
-// MARK: - Title Regeneration
-
-public extension ChatViewController {
-    /// Regenerate the conversation title and emoji avatar.
-    /// Shows a loading alert during generation and dismisses it upon completion.
-    func regenerateTitle() {
-        guard let session = currentSession else { return }
-
-        let alert = UIAlertController(
-            title: nil,
-            message: String.localized("Generating…"),
-            preferredStyle: .alert
-        )
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.startAnimating()
-        alert.view.addSubview(indicator)
-        NSLayoutConstraint.activate([
-            indicator.centerYAnchor.constraint(equalTo: alert.view.centerYAnchor),
-            indicator.leadingAnchor.constraint(equalTo: alert.view.leadingAnchor, constant: 20),
-        ])
-
-        present(alert, animated: true)
-
-        Task { @MainActor in
-            await session.regenerateTitle()
-            alert.dismiss(animated: true) { [weak self] in
-                self?.refreshNavigationTitle()
-            }
-        }
-    }
-
-    func clearConversation() {
-        guard let session = currentSession else { return }
-
-        draftInputObject = nil
-        clearPersistedDraft()
-        chatInputView.resetValues()
-        chatInputView.storage.removeAll()
-        chatInputView.bind(sessionID: sessionID)
-        session.clear { [weak self] in
-            Task { @MainActor in
-                self?.messageListView.updateList()
-                self?.refreshNavigationTitle()
-            }
-        }
-    }
-
-    private func handleCommand(_ command: String) {
-        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if menuDelegate?.chatViewControllerHandleCommand(self, command: normalized) == true {
-            return
-        }
-        switch normalized {
-        default:
-            let alert = UIAlertController(
-                title: String.localized("Unsupported command"),
-                message: command,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
-            present(alert, animated: true)
-        }
-    }
-}
-
 // MARK: - Chat Input
 
 extension ChatViewController: ChatInputDelegate {
-    public func chatInputDidSubmit(_ input: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
-        _ = input
-        guard let session = messageListView.session else {
-            completion(false)
-            return
-        }
-        guard let model = session.models.chat else {
+    public func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
+        guard let session = messageListView.session, let model = session.models.chat else {
             completion(false)
             return
         }
@@ -728,7 +839,17 @@ extension ChatViewController: ChatInputDelegate {
     }
 
     public func chatInputDidTriggerCommand(_: ChatInputView, command: String) {
-        handleCommand(command)
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if menuDelegate?.chatViewControllerHandleCommand(self, command: normalized) == true {
+            return
+        }
+        let alert = UIAlertController(
+            title: String.localized("Unsupported command"),
+            message: command,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
+        present(alert, animated: true)
     }
 
     public func chatInputDidTriggerSkill(_ input: ChatInputView, prompt: String, autoSubmit: Bool) {

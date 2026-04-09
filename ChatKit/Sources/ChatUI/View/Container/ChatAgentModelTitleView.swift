@@ -65,6 +65,8 @@ final class ChatAgentModelTitleView: UIView {
 
     private func setupViews() {
         isUserInteractionEnabled = true
+        backgroundColor = .clear
+        isOpaque = false
 
         stackView.axis = .vertical
         stackView.alignment = .center

@@ -18,7 +18,7 @@ final class ModelChatMenuWrapper: NSObject, ChatViewControllerMenuDelegate {
         objc_setAssociatedObject(chatViewController, &AssociatedKeys.menuWrapper, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
+    func chatViewControllerMenu(_: ChatViewController) -> UIMenu? {
         let infoMenu = UIMenu(
             title: String(localized: "Info"),
             image: UIImage(systemName: "info.circle"),
@@ -28,22 +28,8 @@ final class ModelChatMenuWrapper: NSObject, ChatViewControllerMenuDelegate {
             ]
         )
 
-        let titleMenu = UIMenu(
-            title: String(localized: "Title"),
-            image: UIImage(systemName: "textformat"),
-            children: [
-                UIAction(title: String(localized: "Regenerate Title"), image: UIImage(systemName: "arrow.trianglehead.2.clockwise")) { _ in
-                    controller.regenerateTitle()
-                },
-            ]
-        )
-
         return UIMenu(children: [
             infoMenu,
-            titleMenu,
-            UIAction(title: String(localized: "Clear"), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                controller.clearConversation()
-            },
         ])
     }
 }
