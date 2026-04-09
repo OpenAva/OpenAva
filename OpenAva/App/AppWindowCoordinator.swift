@@ -35,14 +35,17 @@ final class AppWindowCoordinator: ObservableObject {
     @Published private(set) var agentCreationRequestID: Int = 0
     @Published private(set) var teamCreationRequestID: Int = 0
     @Published private(set) var agentCreationMode: AgentCreationViewModel.CreationMode = .singleAgent
+    @Published private(set) var agentCreationTargetTeamID: UUID?
 
-    func openAgentCreation() {
+    func openAgentCreation(targetTeamID: UUID? = nil) {
         agentCreationMode = .singleAgent
+        agentCreationTargetTeamID = targetTeamID
         agentCreationRequestID &+= 1
     }
 
     func openTeamCreation() {
         agentCreationMode = .defaultTeam
+        agentCreationTargetTeamID = nil
         agentCreationRequestID &+= 1
     }
 }
@@ -92,9 +95,13 @@ struct AgentCreationWindowRootView: View {
 
     var body: some View {
         NavigationStack {
-            AgentCreationView(initialMode: windowCoordinator.agentCreationMode, onComplete: {
-                dismiss()
-            })
+            AgentCreationView(
+                initialMode: windowCoordinator.agentCreationMode,
+                targetTeamID: windowCoordinator.agentCreationTargetTeamID,
+                onComplete: {
+                    dismiss()
+                }
+            )
         }
         .background(Color.white)
     }
