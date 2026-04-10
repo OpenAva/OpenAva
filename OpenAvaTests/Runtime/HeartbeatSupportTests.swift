@@ -24,11 +24,10 @@ final class HeartbeatSupportTests: XCTestCase {
         XCTAssertFalse(HeartbeatSupport.shouldSuppressAssistantMessage("Please review today's reminders."))
     }
 
-    func testIdentifiesHiddenHeartbeatSessionIDs() {
-        let sessionID = HeartbeatSupport.sessionID(for: "agent-1")
-
-        XCTAssertTrue(HeartbeatSupport.isHiddenSessionID(sessionID))
-        XCTAssertFalse(HeartbeatSupport.isHiddenSessionID("main"))
+    func testResolvesMainHeartbeatSessionID() {
+        XCTAssertEqual(HeartbeatSupport.mainSessionID(nil), "main")
+        XCTAssertEqual(HeartbeatSupport.mainSessionID(""), "main")
+        XCTAssertEqual(HeartbeatSupport.mainSessionID("custom-session"), "custom-session")
     }
 
     func testParseDocumentFrontMatterOverridesIntervalAndActiveHours() {

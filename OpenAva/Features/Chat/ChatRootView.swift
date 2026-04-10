@@ -302,7 +302,7 @@ struct ChatRootView: View {
         HeartbeatService.shared.reconfigure(
             .init(
                 agentID: activeAgent.id.uuidString,
-                sessionID: scopedSessionID(for: primarySessionKey, agentID: activeAgent.id),
+                mainSessionID: scopedSessionID(for: primarySessionKey, agentID: activeAgent.id),
                 agentName: activeAgent.name,
                 agentEmoji: activeAgent.emoji,
                 workspaceRootURL: workspaceRootURL,

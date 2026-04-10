@@ -8,6 +8,7 @@ import UserNotifications
 @MainActor
 struct HeartbeatRuntimeConfiguration {
     let agentID: String?
+    let mainSessionID: String
     let agentName: String
     let agentEmoji: String
     let workspaceRootURL: URL
@@ -30,12 +31,6 @@ final class HeartbeatService {
     private enum RunAttempt {
         case skipped
         case completed(Bool)
-    }
-
-    fileprivate enum ExecutionOutcome {
-        case success
-        case failure(String?)
-        case interrupted(String)
     }
 
     private struct RunResult {
@@ -233,37 +228,35 @@ final class HeartbeatService {
         heartbeatMarkdown: String,
         notificationMode: HeartbeatSupport.Configuration.NotificationMode
     ) async throws -> RunResult {
-        let sessionID = HeartbeatSupport.sessionID(for: configuration.agentID)
+        let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
+        let toolInvocationSessionID = "\(AppConfig.nonEmpty(configuration.agentID) ?? "global")::\(mainSessionID)"
         let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
         let baselineMessages = HeartbeatSupport.trimToRecent(
-            storageProvider.messages(in: sessionID),
+            storageProvider.messages(in: mainSessionID),
             limit: HeartbeatSupport.retainMessageLimit
         )
-
-        ConversationSessionManager.shared.removeSession(for: sessionID)
-        storageProvider.setTitle("Heartbeat", for: sessionID)
+        let baselineTitle = storageProvider.title(for: mainSessionID)
 
         let agentDelegate = AgentSessionDelegate(
-            sessionID: sessionID,
+            sessionID: mainSessionID,
             workspaceRootURL: configuration.workspaceRootURL,
             runtimeRootURL: configuration.runtimeRootURL,
             baseSystemPrompt: configuration.baseSystemPrompt,
             chatClient: configuration.chatClient,
             agentName: configuration.agentName,
-            agentEmoji: configuration.agentEmoji,
-            shouldExtractDurableMemory: false
+            agentEmoji: configuration.agentEmoji
         )
-        let heartbeatDelegate = HeartbeatSessionDelegate(base: agentDelegate)
         let sessionConfiguration = ConversationSession.Configuration(
             storage: storageProvider,
             tools: RegistryToolProvider(
                 toolInvokeService: configuration.toolInvokeService,
-                invocationSessionID: "heartbeat::\(configuration.agentID ?? "default")"
+                invocationSessionID: toolInvocationSessionID
             ),
-            delegate: heartbeatDelegate,
+            delegate: agentDelegate,
             systemPrompt: configuration.baseSystemPrompt ?? "You are a helpful assistant.",
             collapseReasoningWhenComplete: true
         )
+        let session = ConversationSessionManager.shared.session(for: mainSessionID, configuration: sessionConfiguration)
 
         let models = ConversationSession.Models(
             chat: ConversationSession.Model(
@@ -275,7 +268,7 @@ final class HeartbeatService {
         )
 
         let controller = ChatViewController(
-            sessionID: sessionID,
+            sessionID: mainSessionID,
             models: models,
             sessionConfiguration: sessionConfiguration
         )
@@ -290,40 +283,23 @@ final class HeartbeatService {
             }
         }
 
-        let outcome = heartbeatDelegate.executionOutcome
         let latestMessages = HeartbeatSupport.trimToRecent(
-            storageProvider.messages(in: sessionID),
+            storageProvider.messages(in: mainSessionID),
             limit: HeartbeatSupport.retainMessageLimit
         )
         let latestAssistantText = latestMessages.reversed().first(where: { $0.role == .assistant })?
             .textContent
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        switch outcome {
-        case let .failure(errorDescription):
-            Self.logger.error("heartbeat session failed: \(errorDescription ?? "unknown", privacy: .public)")
-            persistMessages(latestMessages, for: sessionID, storageProvider: storageProvider)
-            ConversationSessionManager.shared.removeSession(for: sessionID)
-            return RunResult(notificationBody: nil, shouldNotify: false)
-
-        case let .interrupted(reason):
-            Self.logger.debug("heartbeat session interrupted: \(reason, privacy: .public)")
-            persistMessages(latestMessages, for: sessionID, storageProvider: storageProvider)
-            ConversationSessionManager.shared.removeSession(for: sessionID)
-            return RunResult(notificationBody: nil, shouldNotify: false)
-
-        case .success, .none:
-            break
-        }
-
         if HeartbeatSupport.shouldSuppressAssistantMessage(latestAssistantText) {
-            replaceSession(sessionID: sessionID, with: baselineMessages, storageProvider: storageProvider)
-            ConversationSessionManager.shared.removeSession(for: sessionID)
+            restoreBaseline(
+                session: session,
+                baselineMessages: baselineMessages,
+                baselineTitle: baselineTitle,
+                storageProvider: storageProvider
+            )
             return RunResult(notificationBody: nil, shouldNotify: false)
         }
-
-        persistMessages(latestMessages, for: sessionID, storageProvider: storageProvider)
-        ConversationSessionManager.shared.removeSession(for: sessionID)
 
         guard !latestAssistantText.isEmpty else {
             return RunResult(notificationBody: nil, shouldNotify: false)
@@ -335,32 +311,18 @@ final class HeartbeatService {
         )
     }
 
-    private func replaceSession(
-        sessionID: String,
-        with messages: [ConversationMessage],
+    private func restoreBaseline(
+        session: ConversationSession,
+        baselineMessages: [ConversationMessage],
+        baselineTitle: String?,
         storageProvider: TranscriptStorageProvider
     ) {
-        let existingIDs = storageProvider.messages(in: sessionID).map(\.id)
-        if !existingIDs.isEmpty {
-            storageProvider.delete(existingIDs)
+        if let lastBaselineID = baselineMessages.last?.id {
+            session.delete(after: lastBaselineID)
+        } else {
+            session.clear()
         }
-        let trimmedMessages = HeartbeatSupport.trimToRecent(messages, limit: HeartbeatSupport.retainMessageLimit)
-        if !trimmedMessages.isEmpty {
-            storageProvider.save(trimmedMessages)
-        }
-        storageProvider.setTitle("Heartbeat", for: sessionID)
-    }
-
-    private func persistMessages(
-        _ messages: [ConversationMessage],
-        for sessionID: String,
-        storageProvider: TranscriptStorageProvider
-    ) {
-        replaceSession(
-            sessionID: sessionID,
-            with: HeartbeatSupport.trimToRecent(messages, limit: HeartbeatSupport.retainMessageLimit),
-            storageProvider: storageProvider
-        )
+        storageProvider.setTitle(baselineTitle ?? "", for: session.id)
     }
 
     private func loadHeartbeatMarkdown(from workspaceRootURL: URL) -> String? {
@@ -421,38 +383,5 @@ final class HeartbeatService {
             trigger: nil
         )
         try await center.add(request)
-    }
-}
-
-@MainActor
-private final class HeartbeatSessionDelegate: SessionDelegate {
-    private let base: AgentSessionDelegate
-
-    fileprivate private(set) var executionOutcome: HeartbeatService.ExecutionOutcome?
-
-    init(base: AgentSessionDelegate) {
-        self.base = base
-    }
-
-    func composeSystemPrompt() async -> String? {
-        await base.composeSystemPrompt()
-    }
-
-    func sessionDidReportUsage(_ usage: TokenUsage, for sessionID: String) {
-        base.sessionDidReportUsage(usage, for: sessionID)
-    }
-
-    func sessionExecutionDidStart(for sessionID: String) {
-        base.sessionExecutionDidStart(for: sessionID)
-    }
-
-    func sessionExecutionDidFinish(for sessionID: String, success: Bool, errorDescription: String?) {
-        base.sessionExecutionDidFinish(for: sessionID, success: success, errorDescription: errorDescription)
-        executionOutcome = success ? .success : .failure(errorDescription)
-    }
-
-    func sessionExecutionDidInterrupt(for sessionID: String, reason: String) {
-        base.sessionExecutionDidInterrupt(for: sessionID, reason: reason)
-        executionOutcome = .interrupted(reason)
     }
 }
