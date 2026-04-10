@@ -425,7 +425,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onDeleteTeam = onDeleteTeam
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
-        context.coordinator.refreshLeadingMenu()
+        uiViewController.menuDelegate = context.coordinator
+        uiViewController.refreshNavigationMenus()
         uiViewController.updateAutoCompactEnabled(autoCompactEnabled)
 
         #if targetEnvironment(macCatalyst)
@@ -436,7 +437,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             }
         #endif
 
-        uiViewController.menuDelegate = context.coordinator
         uiViewController.updateHeader(.init(
             agentName: activeAgentName,
             agentEmoji: activeAgentEmoji,

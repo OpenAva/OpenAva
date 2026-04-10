@@ -5,15 +5,24 @@ struct ManageTeamAgentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appContainerStore) private var containerStore
 
-    let team: TeamProfile
+    let teamID: UUID
 
     @State private var selectedAgentIDs: Set<UUID> = []
+    @State private var lastSyncedAgentIDs: Set<UUID> = []
+
+    private var currentTeam: TeamProfile? {
+        containerStore.teams.first { $0.id == teamID }
+    }
+
+    private var currentTeamAgentIDs: Set<UUID> {
+        Set(currentTeam?.agentPoolIDs ?? [])
+    }
 
     /// Show all available agents except those belonging to OTHER teams.
     private var availableAgents: [AgentProfile] {
         let assignedToOtherTeamsIDs = Set(
             containerStore.teams
-                .filter { $0.id != team.id }
+                .filter { $0.id != teamID }
                 .flatMap(\.agentPoolIDs)
         )
         return containerStore.agents.filter {
@@ -44,7 +53,10 @@ struct ManageTeamAgentsSheet: View {
         }
         .presentationBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
         .onAppear {
-            selectedAgentIDs = Set(team.agentPoolIDs)
+            syncSelectionIfNeeded(force: true)
+        }
+        .onChange(of: currentTeamAgentIDs) { _, _ in
+            syncSelectionIfNeeded(force: false)
         }
     }
 
@@ -180,9 +192,22 @@ struct ManageTeamAgentsSheet: View {
     }
 
     private func saveSelection() {
-        var updatedTeam = team
+        guard var updatedTeam = currentTeam else {
+            dismiss()
+            return
+        }
         updatedTeam.agentPoolIDs = Array(selectedAgentIDs)
         containerStore.updateTeam(updatedTeam)
         dismiss()
+    }
+
+    private func syncSelectionIfNeeded(force: Bool) {
+        let latestAgentIDs = currentTeamAgentIDs
+        guard force || selectedAgentIDs == lastSyncedAgentIDs else {
+            lastSyncedAgentIDs = latestAgentIDs
+            return
+        }
+        selectedAgentIDs = latestAgentIDs
+        lastSyncedAgentIDs = latestAgentIDs
     }
 }

@@ -33,7 +33,7 @@ struct ChatRootView: View {
     @State private var pendingAutoSendID: String? = nil
     @State private var pendingAutoSendMessage: String? = nil
     @State private var targetTeamID: UUID?
-    @State private var teamToManageAgents: TeamProfile?
+    @State private var teamToManageAgents: ManageAgentsSheetTarget?
     @State private var showsDeleteTeamAlert = false
     @State private var teamToDelete: UUID?
 
@@ -43,6 +43,10 @@ struct ChatRootView: View {
         case cron
         case skills
         case remoteControl
+    }
+
+    private struct ManageAgentsSheetTarget: Identifiable {
+        let id: UUID
     }
 
     var body: some View {
@@ -76,8 +80,8 @@ struct ChatRootView: View {
                 .frame(minWidth: 540, minHeight: 600)
             #endif
         }
-        .sheet(item: $teamToManageAgents) { team in
-            ManageTeamAgentsSheet(team: team)
+        .sheet(item: $teamToManageAgents) { target in
+            ManageTeamAgentsSheet(teamID: target.id)
         }
         .alert(isPresented: $showsDeleteTeamAlert) {
             Alert(
@@ -258,7 +262,7 @@ struct ChatRootView: View {
     }
 
     private func handleAddAgentToTeam(_ teamID: UUID) {
-        teamToManageAgents = containerStore.teams.first(where: { $0.id == teamID })
+        teamToManageAgents = ManageAgentsSheetTarget(id: teamID)
     }
 
     private func handleCreateAgentForTeam(_ teamID: UUID) {
@@ -298,6 +302,7 @@ struct ChatRootView: View {
         HeartbeatService.shared.reconfigure(
             .init(
                 agentID: activeAgent.id.uuidString,
+                sessionID: scopedSessionID(for: primarySessionKey, agentID: activeAgent.id),
                 agentName: activeAgent.name,
                 agentEmoji: activeAgent.emoji,
                 workspaceRootURL: workspaceRootURL,

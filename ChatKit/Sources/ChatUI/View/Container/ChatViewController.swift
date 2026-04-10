@@ -650,6 +650,10 @@ open class ChatViewController: UIViewController {
         applyHeaderStateToTitleView()
     }
 
+    public func refreshNavigationMenus() {
+        configureNavigationItems()
+    }
+
     public func presentLeadingMenu() {
         avatarButton.sendActions(for: .touchUpInside)
     }
