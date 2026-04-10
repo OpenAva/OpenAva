@@ -420,7 +420,6 @@ struct LLMListView: View {
     private func selectModel(_ model: AppConfig.LLMModel) {
         containerStore.selectLLMModel(id: model.id)
         selectedModelID = model.id
-        openEditor(for: model)
     }
 
     private func openEditor(for model: AppConfig.LLMModel) {
