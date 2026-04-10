@@ -285,6 +285,9 @@ open class ChatViewController: UIViewController {
 
         view.backgroundColor = ChatUIDesign.Color.warmCream
         topBarBackgroundView.backgroundColor = .clear
+        chatInputView.usesAutoLayoutHeightConstraint = false
+        chatInputView.translatesAutoresizingMaskIntoConstraints = true
+        messageListView.translatesAutoresizingMaskIntoConstraints = true
 
         configureTopBarViews()
 
@@ -303,6 +306,7 @@ open class ChatViewController: UIViewController {
 
         setupKeyboardObservation()
         setupInputHeightObservation()
+        setupActivationObservation()
 
         applyNavigationBarManagedMode()
     }
@@ -473,6 +477,26 @@ open class ChatViewController: UIViewController {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func setupActivationObservation() {
+        #if targetEnvironment(macCatalyst)
+            NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.isViewLoaded else { return }
+                        self.keyboardHeight = 0
+                        self.chatInputView.setNeedsLayout()
+                        self.chatInputView.layoutIfNeeded()
+                        self.messageListView.setNeedsLayout()
+                        self.messageListView.layoutIfNeeded()
+                        self.layoutViews()
+                        self.updateCatalystTitlebarToolbarIfNeeded()
+                    }
+                }
+                .store(in: &cancellables)
+        #endif
     }
 
     private func configureNavigationItems() {

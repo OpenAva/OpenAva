@@ -9,6 +9,12 @@ import UIKit
 @MainActor
 open class ChatInputView: EditorSectionView {
     var storage: TemporaryStorage = .init(id: "-1")
+    var usesAutoLayoutHeightConstraint = true {
+        didSet {
+            guard !usesAutoLayoutHeightConstraint, heightContraints.isActive else { return }
+            heightContraints.isActive = false
+        }
+    }
 
     public var configuration: ChatInputConfiguration = .default {
         didSet { applyConfiguration() }
@@ -226,6 +232,16 @@ open class ChatInputView: EditorSectionView {
     }
 
     func updateHeightConstraint(_ height: CGFloat) {
+        guard usesAutoLayoutHeightConstraint else {
+            if heightContraints.isActive {
+                heightContraints.isActive = false
+            }
+            setNeedsLayout()
+            layoutIfNeeded()
+            parentViewController?.view.setNeedsLayout()
+            parentViewController?.view.layoutIfNeeded()
+            return
+        }
         guard heightContraints.constant != height else { return }
         heightContraints.isActive = false
         heightContraints = heightAnchor.constraint(equalToConstant: height)
