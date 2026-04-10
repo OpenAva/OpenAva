@@ -1,7 +1,7 @@
 ---
 name: javascript-runtime
-description: Use the built-in JavaScript runtime for deterministic parsing, transformation, validation, numeric computation, and compact orchestration of one or more read-only tools.
-when_to_use: The task asks to parse, reshape, normalize, filter, sort, group, aggregate, diff, validate, or compute structured data, or to merge several tool outputs deterministically and return stable JSON-like results.
+description: Execute JavaScript in the built-in JavaScript runtime, with support for async code, persistent sessions, and tool calls.
+when_to_use: Use when the solution should be carried out by executing JavaScript, so the result comes from code execution rather than only natural-language reasoning.
 user-invocable: false
 allowed-tools:
   - javascript_execute

@@ -1,7 +1,7 @@
 ---
 name: javascript-runtime
-description: 当任务需要确定性的解析、转换、校验、数值计算，或需要把一个或多个只读 Tool 的结果做紧凑编排时，使用内置 JavaScript 运行时技能。
-when_to_use: 当任务要求解析、重组、规范化、过滤、排序、分组、聚合、对比、校验或计算结构化数据，或需要把多个 Tool 输出稳定合并成 JSON 风格结果时，优先考虑此技能。
+description: 在内置的 JavaScript 运行时中执行代码，支持 async、持久会话和 Tool 调用。
+when_to_use: 当这个任务更适合通过实际执行 JavaScript 来完成，并希望结果来自代码执行而不只是自然语言推理时，可使用此技能。
 user-invocable: false
 allowed-tools:
   - javascript_execute

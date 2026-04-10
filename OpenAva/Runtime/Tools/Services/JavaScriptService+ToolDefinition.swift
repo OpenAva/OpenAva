@@ -8,16 +8,16 @@ extension JavaScriptService: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "javascript_execute",
                 command: "javascript.execute",
-                description: "Execute JavaScript with Apple system JavaScriptCore. Best for deterministic parsing, data reshaping, filtering, sorting, grouping, aggregation, validation, numeric computation, and combining tool outputs into stable structured results. The code runs inside an async function body, so use return for the final result and await openava.tools.call(functionName, args) to invoke allowed tools. Provide session_id when you want later calls to reuse variables and functions from the same JavaScript session.",
+                description: "Execute JavaScript with Apple system JavaScriptCore. The code runs as the body of an async function and can use openava.input, openava.session, and await openava.tools.call(functionName, args) for allowed tools.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
                         "code": [
                             "type": "string",
-                            "description": "JavaScript source code executed as the body of an async function. Prefer concise deterministic scripts. Use return to produce the final result.",
+                            "description": "JavaScript source code executed as the body of an async function. Use return to produce the final result.",
                         ],
                         "input": [
-                            "description": "Optional JSON-serializable value exposed as openava.input in the JavaScript runtime. Put task data here instead of hardcoding it into code whenever practical.",
+                            "description": "Optional JSON-serializable value exposed as openava.input in the JavaScript runtime.",
                         ],
                         "allowed_tools": [
                             "type": "array",
