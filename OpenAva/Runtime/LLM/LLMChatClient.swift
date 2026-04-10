@@ -34,8 +34,15 @@ open class LLMChatClient: ChatClient, @unchecked Sendable {
     }
 
     public func chat(body: ChatRequestBody) async throws -> ChatResponse {
-        let chunks = try await chatChunks(body: body)
-        return ChatResponse(chunks: chunks)
+        let providerClient = try makeProviderClient()
+        delegatedErrorCollector = providerClient.errorCollector
+
+        var requestBody = body
+        requestBody.model = AppConfig.nonEmpty(modelConfig.model)
+        requestBody.stream = false
+
+        Self.logger.info("delegating non-streaming request to ChatKit provider client")
+        return try await providerClient.chat(body: requestBody)
     }
 
     public func streamingChat(body: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {

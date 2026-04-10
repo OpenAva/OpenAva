@@ -24,6 +24,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         XCTAssertEqual(entries.first?.slug, "response-style")
         XCTAssertEqual(entries.first?.type, .feedback)
         XCTAssertEqual(chatClient.chatCallCount, 1)
+        XCTAssertEqual(chatClient.streamingChatCallCount, 0)
     }
 
     func testExtractorSkipsPreservedSegmentWhenCursorWasCompactedAway() async throws {
@@ -72,6 +73,32 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         await extractor.extractIfNeeded(for: sessionID, messages: [boundary, summary, keptUser, keptAssistant])
 
         XCTAssertEqual(chatClient.chatCallCount, 0)
+        XCTAssertEqual(chatClient.streamingChatCallCount, 0)
+    }
+
+    func testExtractorAcceptsWrappedJSONResponse() async throws {
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+
+        let responseText = #"""
+        I found one durable memory.
+        ```json
+        {"memories":[{"name":"User prefers Chinese","type":"user","description":"Preferred response language","content":"Always reply in simplified Chinese unless asked otherwise.","slug":"language-preference"}]}
+        ```
+        """#
+        let chatClient = StubChatClient(responseText: responseText)
+        let extractor = AgentDurableMemoryExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
+        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+
+        await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
+
+        let entries = try await store.listEntries()
+        XCTAssertEqual(entries.map(\.slug), ["language-preference"])
+        XCTAssertEqual(entries.first?.type, .user)
+        XCTAssertEqual(chatClient.chatCallCount, 1)
+        XCTAssertEqual(chatClient.streamingChatCallCount, 0)
     }
 
     private func makeConversation(sessionID: String) -> [ConversationMessage] {
@@ -91,6 +118,7 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
     private let responseText: String
     private let lock = NSLock()
     private var calls = 0
+    private var streamingCalls = 0
 
     init(responseText: String) {
         self.responseText = responseText
@@ -102,6 +130,12 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
         return calls
     }
 
+    var streamingChatCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return streamingCalls
+    }
+
     func chat(body _: ChatRequestBody) async throws -> ChatResponse {
         lock.lock()
         calls += 1
@@ -110,7 +144,10 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
     }
 
     func streamingChat(body _: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
-        AsyncStream<ChatResponseChunk> { continuation in
+        lock.lock()
+        streamingCalls += 1
+        lock.unlock()
+        return AsyncStream<ChatResponseChunk> { continuation in
             continuation.finish()
         }.eraseToAnyAsyncSequence()
     }

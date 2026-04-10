@@ -67,26 +67,16 @@ extension ConversationSession {
 
         do {
             let client = titleGenerationModel.client
-            let stream = try await client.streamingChat(body: .init(
+            let response = try await client.chat(body: .init(
                 messages: [.user(content: .text(prompt))],
-                stream: true,
+                stream: false,
                 tools: [ConversationTitleMetadata.generationTool]
             ))
-            var toolRequest: ToolRequest?
-            var streamedText = ""
-            for try await chunk in stream {
-                if case let .tool(request) = chunk,
-                   request.name == ConversationTitleMetadata.generationToolName
-                {
-                    toolRequest = request
-                } else if case let .text(value) = chunk {
-                    streamedText += value
-                }
-            }
+            let toolRequest = response.tools.first { $0.name == ConversationTitleMetadata.generationToolName }
 
             let titleMetadata = toolRequest
                 .flatMap { ConversationTitleMetadata(toolArguments: $0.arguments) }
-                ?? ConversationTitleMetadata(storageValue: streamedText)
+                ?? ConversationTitleMetadata(storageValue: response.text)
 
             if let titleMetadata, !titleMetadata.title.isEmpty, titleMetadata.title.count < 50 {
                 storageProvider.setTitle(titleMetadata.storageValue, for: id)

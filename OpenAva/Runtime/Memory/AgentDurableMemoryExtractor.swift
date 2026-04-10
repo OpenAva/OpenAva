@@ -164,29 +164,94 @@ actor AgentDurableMemoryExtractor {
                 stream: false
             )
         )
-        return try parseResponse(response.text.isEmpty ? response.reasoning : response.text)
+        return parseResponse([response.text, response.reasoning])
     }
 
-    private func parseResponse(_ raw: String) throws -> ExtractionResponse {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ExtractionResponse(memories: [])
-        }
-        let unwrapped: String
-        if trimmed.hasPrefix("```") {
-            let lines = trimmed.components(separatedBy: .newlines)
-            if lines.count >= 3, lines.last == "```" {
-                unwrapped = lines.dropFirst().dropLast().joined(separator: "\n")
-            } else {
-                unwrapped = trimmed
+    private func parseResponse(_ candidates: [String]) -> ExtractionResponse {
+        for raw in candidates {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let unwrapped = unwrapCodeFence(in: trimmed)
+            if let decoded = decodeExtractionResponse(from: unwrapped) {
+                return decoded
             }
-        } else {
-            unwrapped = trimmed
+            if let jsonObject = extractJSONObject(from: unwrapped),
+               let decoded = decodeExtractionResponse(from: jsonObject)
+            {
+                return decoded
+            }
         }
-        guard let data = unwrapped.data(using: .utf8) else {
-            return ExtractionResponse(memories: [])
+
+        return ExtractionResponse(memories: [])
+    }
+
+    private func decodeExtractionResponse(from raw: String) -> ExtractionResponse? {
+        guard let data = raw.data(using: .utf8) else {
+            return nil
         }
-        return try JSONDecoder().decode(ExtractionResponse.self, from: data)
+        return try? JSONDecoder().decode(ExtractionResponse.self, from: data)
+    }
+
+    private func unwrapCodeFence(in raw: String) -> String {
+        guard raw.hasPrefix("```") else {
+            return raw
+        }
+
+        let lines = raw.components(separatedBy: .newlines)
+        guard lines.count >= 3,
+              let first = lines.first,
+              first.hasPrefix("```"),
+              let last = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+              last == "```"
+        else {
+            return raw
+        }
+
+        return lines.dropFirst().dropLast().joined(separator: "\n")
+    }
+
+    private func extractJSONObject(from raw: String) -> String? {
+        var startIndex: String.Index?
+        var depth = 0
+        var isInsideString = false
+        var isEscaping = false
+
+        for index in raw.indices {
+            let character = raw[index]
+
+            if isInsideString {
+                if isEscaping {
+                    isEscaping = false
+                } else if character == "\\" {
+                    isEscaping = true
+                } else if character == "\"" {
+                    isInsideString = false
+                }
+                continue
+            }
+
+            if character == "\"" {
+                isInsideString = true
+                continue
+            }
+            if character == "{" {
+                if depth == 0 {
+                    startIndex = index
+                }
+                depth += 1
+                continue
+            }
+            if character == "}" {
+                guard depth > 0 else { continue }
+                depth -= 1
+                if depth == 0, let startIndex {
+                    return String(raw[startIndex ... index])
+                }
+            }
+        }
+
+        return nil
     }
 
     private func recentMessages(from messages: [ConversationMessage], since messageID: String?) -> [ConversationMessage] {

@@ -35,6 +35,7 @@ open class AnthropicClient: BaseChatClient, @unchecked Sendable {
         case invalidData
     }
 
+    let session: URLSessioning
     let eventSourceFactory: EventSourceProducing
     let chunkDecoderFactory: @Sendable () -> JSONDecoding
 
@@ -73,9 +74,33 @@ open class AnthropicClient: BaseChatClient, @unchecked Sendable {
         self.apiVersion = apiVersion
         self.defaultHeaders = defaultHeaders
         self.thinkingBudgetTokens = thinkingBudgetTokens
+        session = dependencies.session
         eventSourceFactory = dependencies.eventSourceFactory
         chunkDecoderFactory = dependencies.chunkDecoderFactory
         super.init(errorCollector: errorCollector)
+    }
+
+    override open func chat(body: ChatRequestBody) async throws -> ChatResponse {
+        let transformer = AnthropicRequestTransformer(
+            thinkingBudgetTokens: thinkingBudgetTokens
+        )
+        let requestBody = transformer.makeRequestBody(
+            from: body,
+            model: model,
+            stream: false
+        )
+        let request = try makeURLRequest(body: requestBody)
+        logger.info("starting Anthropic non-streaming request to model: \(self.model) with \(body.messages.count) messages")
+
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
+            let message = extractConnectionError(from: data, statusCode: http.statusCode)
+            await errorCollector.collect(message)
+            throw Error.invalidData
+        }
+
+        let payload = try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
+        return try payload.asChatResponse()
     }
 
     override open func provideStreamingChat(
@@ -159,5 +184,93 @@ open class AnthropicClient: BaseChatClient, @unchecked Sendable {
             return nil
         }
         return message
+    }
+}
+
+private struct AnthropicMessageResponse: Decodable {
+    struct Usage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let cacheCreationInputTokens: Int?
+        let cacheReadInputTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case inputTokens = "input_tokens"
+            case outputTokens = "output_tokens"
+            case cacheCreationInputTokens = "cache_creation_input_tokens"
+            case cacheReadInputTokens = "cache_read_input_tokens"
+        }
+    }
+
+    struct ContentBlock: Decodable {
+        let type: String
+        let text: String?
+        let id: String?
+        let name: String?
+        let input: [String: AnyCodingValue]?
+        let thinking: String?
+        let signature: String?
+        let data: String?
+    }
+
+    let content: [ContentBlock]
+    let usage: Usage?
+
+    func asChatResponse() throws -> ChatResponse {
+        var reasoning = ""
+        var text = ""
+        var tools: [ToolRequest] = []
+        var thinkingBlocks: [ChatResponse.ThinkingBlockContent] = []
+
+        for block in content {
+            switch block.type {
+            case "text":
+                text += block.text ?? ""
+            case "tool_use":
+                guard let name = block.name else { continue }
+                let arguments = try Self.encodeJSON(block.input ?? [:])
+                tools.append(.init(id: block.id ?? UUID().uuidString, name: name, arguments: arguments))
+            case "thinking":
+                let value = block.thinking ?? ""
+                reasoning += value
+                if let signature = block.signature {
+                    thinkingBlocks.append(.thinking(.init(thinking: value, signature: signature)))
+                }
+            case "redacted_thinking":
+                if let data = block.data {
+                    thinkingBlocks.append(.redactedThinking(data: data))
+                }
+            default:
+                continue
+            }
+        }
+
+        let usage = usage.map {
+            TokenUsage(
+                inputTokens: $0.inputTokens ?? 0,
+                outputTokens: $0.outputTokens ?? 0,
+                cacheReadTokens: $0.cacheReadInputTokens ?? 0,
+                cacheWriteTokens: $0.cacheCreationInputTokens ?? 0,
+                costUSD: nil,
+                model: nil
+            )
+        }
+
+        return ChatResponse(
+            reasoning: reasoning,
+            text: text,
+            images: [],
+            tools: tools,
+            thinkingBlocks: thinkingBlocks,
+            usage: usage
+        )
+    }
+
+    private static func encodeJSON(_ payload: [String: AnyCodingValue]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: payload.untypedDictionary, options: [.sortedKeys])
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw AnthropicClient.Error.invalidData
+        }
+        return string
     }
 }
