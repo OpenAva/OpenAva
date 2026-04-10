@@ -23,7 +23,7 @@ final class AgentContextSettingsTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let environment = ["ICLAW_AGENT_CONTEXT_DIR": tempRoot.path]
+        let environment = ["OPENAVA_AGENT_CONTEXT_DIR": tempRoot.path]
         // Save and verify content persistence.
         try AgentContextLoader.saveEditableContent("# Identity", for: .identity, environment: environment)
 

@@ -32,7 +32,7 @@ struct AgentPreset: Identifiable, Codable, Equatable {
 }
 
 enum AgentPresetCatalog {
-    static let environmentPathKey = "ICLAW_AGENT_PRESETS_PATH"
+    static let environmentPathKey = "OPENAVA_AGENT_PRESETS_PATH"
     static let defaultTeamPresetIDs = [
         "marketing",
         "sales",

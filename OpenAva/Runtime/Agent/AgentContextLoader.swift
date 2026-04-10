@@ -91,8 +91,8 @@ enum AgentContextLoader {
     ]
 
     private static let rootEnvironmentKeys = [
-        "ICLAW_AGENT_CONTEXT_DIR",
-        "ICLAW_WORKSPACE_DIR",
+        "OPENAVA_AGENT_CONTEXT_DIR",
+        "OPENAVA_WORKSPACE_DIR",
         "PWD",
     ]
 

@@ -110,7 +110,7 @@ struct AppConfig {
         environment: [String: String],
         persistedLLMCollection: LLMCollection? = nil
     ) -> AppConfig {
-        let defaultSessionKey = nonEmpty(environment["ICLAW_DEFAULT_SESSION_KEY"]) ?? "main"
+        let defaultSessionKey = nonEmpty(environment["OPENAVA_DEFAULT_SESSION_KEY"]) ?? "main"
 
         let llmCollection = resolveLLMCollection(
             environment: environment,
@@ -132,14 +132,14 @@ struct AppConfig {
     }
 
     private static func resolveLLMURL(environment: [String: String]) -> URL? {
-        if let rawURL = nonEmpty(environment["ICLAW_LLM_URL"]) ??
-            nonEmpty(environment["ICLAW_LLM_ENDPOINT"]),
+        if let rawURL = nonEmpty(environment["OPENAVA_LLM_URL"]) ??
+            nonEmpty(environment["OPENAVA_LLM_ENDPOINT"]),
             let parsedURL = URL(string: rawURL)
         {
             return parsedURL
         }
 
-        guard let rawBaseURL = nonEmpty(environment["ICLAW_LLM_BASE_URL"]),
+        guard let rawBaseURL = nonEmpty(environment["OPENAVA_LLM_BASE_URL"]),
               var components = URLComponents(string: rawBaseURL)
         else {
             return nil
@@ -163,19 +163,19 @@ struct AppConfig {
 
         // Create from environment if configured.
         let envEndpoint = resolveLLMURL(environment: environment)
-        let envModel = nonEmpty(environment["ICLAW_LLM_MODEL"])
+        let envModel = nonEmpty(environment["OPENAVA_LLM_MODEL"])
 
         if envEndpoint != nil, let envModel {
             let model = LLMModel(
-                name: nonEmpty(environment["ICLAW_LLM_PROVIDER"]) ?? "Environment",
+                name: nonEmpty(environment["OPENAVA_LLM_PROVIDER"]) ?? "Environment",
                 endpoint: envEndpoint,
-                apiKey: nonEmpty(environment["ICLAW_LLM_API_KEY"]),
-                apiKeyHeader: nonEmpty(environment["ICLAW_LLM_API_KEY_HEADER"]) ?? "Authorization",
+                apiKey: nonEmpty(environment["OPENAVA_LLM_API_KEY"]),
+                apiKeyHeader: nonEmpty(environment["OPENAVA_LLM_API_KEY_HEADER"]) ?? "Authorization",
                 model: envModel,
-                provider: nonEmpty(environment["ICLAW_LLM_PROVIDER"]) ?? "openai-compatible",
-                systemPrompt: nonEmpty(environment["ICLAW_LLM_SYSTEM_PROMPT"]),
-                contextTokens: Int(environment["ICLAW_LLM_CONTEXT_TOKENS"] ?? "") ?? 128_000,
-                requestTimeoutMs: Int(environment["ICLAW_LLM_TIMEOUT_MS"] ?? "") ?? 60000
+                provider: nonEmpty(environment["OPENAVA_LLM_PROVIDER"]) ?? "openai-compatible",
+                systemPrompt: nonEmpty(environment["OPENAVA_LLM_SYSTEM_PROMPT"]),
+                contextTokens: Int(environment["OPENAVA_LLM_CONTEXT_TOKENS"] ?? "") ?? 128_000,
+                requestTimeoutMs: Int(environment["OPENAVA_LLM_TIMEOUT_MS"] ?? "") ?? 60000
             )
             return LLMCollection(
                 models: [model]
