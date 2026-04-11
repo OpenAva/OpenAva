@@ -1,6 +1,6 @@
 //
 //  MessageListView+Adapter.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import ListViewKit
@@ -222,15 +222,7 @@ extension MessageListView: ListViewAdapter {
                 reasoningContentView.thinkingDuration = message.thinkingDuration
                 reasoningContentView.text = message.content
                 reasoningContentView.thinkingTileTapHandler = { [weak self] _ in
-                    guard let self, let conversationMessage = session?.message(for: message.messageID) else { return }
-                    for (index, part) in conversationMessage.parts.enumerated() {
-                        if case var .reasoning(reasoningPart) = part {
-                            reasoningPart.isCollapsed.toggle()
-                            conversationMessage.parts[index] = .reasoning(reasoningPart)
-                            break
-                        }
-                    }
-                    session?.notifyMessagesDidChange(scrolling: false)
+                    self?.onToggleReasoningCollapse?(message.messageID)
                 }
             }
         } else if let toolResultContentView = rowView as? ToolResultContentView {
@@ -274,8 +266,7 @@ extension MessageListView: ListViewAdapter {
             if case let .interruptionRetry(title) = entry {
                 retryActionView.title = title
                 retryActionView.tapHandler = { [weak self] in
-                    guard let self else { return }
-                    session?.retryInterruptedInference(messageListView: self)
+                    self?.onRetryInterruptedInference?()
                 }
             }
         } else if let toolHintView = rowView as? ToolHintView {
@@ -287,24 +278,10 @@ extension MessageListView: ListViewAdapter {
                 toolHintView.hasResult = toolCallRepresentation.hasResult
                 toolHintView.isExpanded = toolCallRepresentation.isExpanded
                 toolHintView.clickHandler = { [weak self] in
-                    guard let self,
-                          let conversationMessage = session?.message(for: toolCallRepresentation.messageID)
-                    else {
-                        return
-                    }
-                    var didToggle = false
-                    for (index, part) in conversationMessage.parts.enumerated() {
-                        guard case var .toolResult(toolResult) = part,
-                              toolResult.toolCallID == toolCallRepresentation.toolCall.id
-                        else {
-                            continue
-                        }
-                        toolResult.isCollapsed.toggle()
-                        conversationMessage.parts[index] = .toolResult(toolResult)
-                        didToggle = true
-                    }
-                    guard didToggle else { return }
-                    session?.notifyMessagesDidChange(scrolling: false)
+                    self?.onToggleToolResultCollapse?(
+                        toolCallRepresentation.messageID,
+                        toolCallRepresentation.toolCall.id
+                    )
                 }
             }
         }

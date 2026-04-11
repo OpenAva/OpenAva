@@ -26,7 +26,6 @@ let package = Package(
         .package(url: "https://github.com/SnapKit/SnapKit.git", from: "5.7.1"),
         .package(url: "https://github.com/mischa-hildebrand/AlignedCollectionViewFlowLayout", from: "1.1.3"),
         .package(url: "https://github.com/ktiays/GlyphixTextFx/", from: "2.3.6"),
-        .package(url: "https://github.com/alfianlosari/GPTEncoder.git", from: "1.0.4"),
     ],
     targets: [
         .target(
@@ -44,7 +43,6 @@ let package = Package(
                 "SnapKit",
                 "AlignedCollectionViewFlowLayout",
                 "GlyphixTextFx",
-                "GPTEncoder",
             ],
             resources: [.process("Resources")]
         ),

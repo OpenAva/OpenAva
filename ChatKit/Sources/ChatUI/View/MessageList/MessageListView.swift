@@ -1,12 +1,11 @@
 //
 //  MessageListView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  High-performance message list using ListViewKit.
 //  Adapted from FlowDown's MessageListView.
 //
 
-import Combine
 import ListViewKit
 import Litext
 import MarkdownView
@@ -15,6 +14,9 @@ import UIKit
 
 public final class MessageListView: UIView {
     private lazy var listView: ListViewKit.ListView = .init()
+    private var renderedMessages: [ConversationMessage] = []
+    private var loadingMessage: String?
+    private var lastRenderScrolling = false
 
     public var contentSize: CGSize {
         listView.contentSize
@@ -26,44 +28,26 @@ public final class MessageListView: UIView {
     private var isFirstLoad: Bool = true
     private let autoScrollTolerance: CGFloat = 2
 
-    var session: ConversationSession! {
+    public var onRollbackUserQuery: ((String, String) -> Void)?
+    public var onToggleReasoningCollapse: ((String) -> Void)?
+    public var onToggleToolResultCollapse: ((String, String) -> Void)?
+    public var onRetryInterruptedInference: (() -> Void)?
+    public var showsInterruptedRetryAction = false {
         didSet {
-            isFirstLoad = true
-            alpha = 0
-            sessionScopedCancellables.forEach { $0.cancel() }
-            sessionScopedCancellables.removeAll()
-            Publishers.CombineLatest(
-                session.messagesDidChange,
-                loadingState
-            )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] v1, v2 in
-                guard let self else { return }
-                updateFromUpstreamPublisher(v1.0, v1.1, isLoading: v2)
-            }
-            .store(in: &sessionScopedCancellables)
-            session.userDidSendMessage
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in
-                    self?.isAutoScrollingToBottom = true
-                }
-                .store(in: &sessionScopedCancellables)
+            guard oldValue != showsInterruptedRetryAction else { return }
+            updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: loadingMessage)
         }
     }
 
-    var onRollbackUserQuery: ((String, String) -> Void)?
-
     private var isAutoScrollingToBottom: Bool = true
-    private var sessionScopedCancellables: Set<AnyCancellable> = .init()
-    let loadingState = CurrentValueSubject<String?, Never>(nil)
 
-    var contentSafeAreaInsets: UIEdgeInsets = .zero {
+    public var contentSafeAreaInsets: UIEdgeInsets = .zero {
         didSet { setNeedsLayout() }
     }
 
     static let listRowInsets: UIEdgeInsets = .init(top: 0, left: 20, bottom: 16, right: 20)
 
-    var theme: MarkdownTheme = .default {
+    public var theme: MarkdownTheme = .default {
         didSet { listView.reloadData() }
     }
 
@@ -71,7 +55,7 @@ public final class MessageListView: UIView {
     private(set) lazy var markdownViewForSizeCalculation: MarkdownTextView = .init()
     private(set) lazy var markdownPackageCache: MarkdownPackageCache = .init()
 
-    init() {
+    public init() {
         super.init(frame: .zero)
 
         listView.delegate = self
@@ -125,20 +109,38 @@ public final class MessageListView: UIView {
         return abs(listView.contentOffset.y - listView.maximumContentOffset.y) <= tolerance
     }
 
-    func loading(with message: String = .init()) {
-        loadingState.send(message)
+    public func prepareForNewSession() {
+        renderedMessages = []
+        loadingMessage = nil
+        lastRenderScrolling = false
+        isAutoScrollingToBottom = true
+        showsInterruptedRetryAction = false
+        isFirstLoad = true
+        alpha = 0
+        dataSource.applySnapshot(using: [], animatingDifferences: false)
     }
 
-    func stopLoading() {
-        loadingState.send(nil)
+    public func markNextUpdateAsUserInitiated() {
+        isAutoScrollingToBottom = true
     }
 
-    func updateList() {
-        let entries = entries(from: session.messages)
-        dataSource.applySnapshot(using: entries, animatingDifferences: false)
+    public func render(messages: [ConversationMessage], scrolling: Bool) {
+        renderedMessages = messages
+        lastRenderScrolling = scrolling
+        updateFromUpstreamPublisher(messages, scrolling, isLoading: loadingMessage)
     }
 
-    func updateFromUpstreamPublisher(_ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?) {
+    public func loading(with message: String = .init()) {
+        loadingMessage = message
+        updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: loadingMessage)
+    }
+
+    public func stopLoading() {
+        loadingMessage = nil
+        updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: nil)
+    }
+
+    private func updateFromUpstreamPublisher(_ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?) {
         var entries = entries(from: messages)
 
         for entry in entries {

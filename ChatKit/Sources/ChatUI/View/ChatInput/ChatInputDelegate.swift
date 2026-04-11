@@ -1,6 +1,6 @@
 //
 //  ChatInputDelegate.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit
@@ -10,6 +10,8 @@ import UIKit
 public protocol ChatInputDelegate: AnyObject {
     /// Called when the user submits input. Call `completion(true)` to confirm, `false` to reject.
     func chatInputDidSubmit(_ input: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void)
+    /// Called when the user taps stop while the current turn is executing.
+    func chatInputDidRequestStop(_ input: ChatInputView)
     /// Called when the input content changes.
     func chatInputDidUpdateObject(_ input: ChatInputView, object: ChatInputContent)
     /// Called to request a previously saved object for restoration.
@@ -25,6 +27,7 @@ public protocol ChatInputDelegate: AnyObject {
 /// Default implementations making all methods optional.
 @MainActor
 public extension ChatInputDelegate {
+    func chatInputDidRequestStop(_: ChatInputView) {}
     func chatInputDidUpdateObject(_: ChatInputView, object _: ChatInputContent) {}
     func chatInputDidRequestObjectForRestore(_: ChatInputView) -> ChatInputContent? {
         nil

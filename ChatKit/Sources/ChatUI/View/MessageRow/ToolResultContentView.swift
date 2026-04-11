@@ -1,6 +1,6 @@
 //
 //  ToolResultContentView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Displays expanded tool result content styled to match ReasoningContentView:
 //  left indicator bar + footnote-sized secondary-label text.

@@ -1,6 +1,6 @@
 //
 //  DeleteButton.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

@@ -1,6 +1,6 @@
 //
 //  TokenUsage.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Token usage tracking for inference calls, inspired by Vercel AI SDK.
 //

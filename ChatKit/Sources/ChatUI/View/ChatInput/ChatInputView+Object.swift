@@ -1,6 +1,6 @@
 //
 //  ChatInputView+Object.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation
@@ -22,7 +22,7 @@ extension ChatInputView {
         )
     }
 
-    func resetValues() {
+    public func resetValues() {
         inputEditor.set(text: "")
         inputEditor.endEditing(true)
         attachmentsBar.attachments.removeAll()

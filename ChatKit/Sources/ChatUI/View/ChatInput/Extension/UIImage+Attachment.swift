@@ -1,6 +1,6 @@
 //
 //  UIImage+Attachment.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Created by 秋星桥 on 1/17/25.
 //

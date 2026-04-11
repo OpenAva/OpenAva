@@ -1,6 +1,6 @@
 //
 //  GiantButton.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

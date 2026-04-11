@@ -1,6 +1,6 @@
 //
 //  EditorSectionView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Combine
@@ -8,7 +8,7 @@ import UIKit
 
 @MainActor
 open class EditorSectionView: UIView {
-    let heightPublisher: CurrentValueSubject<CGFloat, Never> = .init(0)
+    public let heightPublisher: CurrentValueSubject<CGFloat, Never> = .init(0)
     var cancellables: Set<AnyCancellable> = .init()
 
     var horizontalAdjustment: CGFloat = 0 {

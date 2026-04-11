@@ -1,6 +1,6 @@
 //
 //  UIColor+Accent.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

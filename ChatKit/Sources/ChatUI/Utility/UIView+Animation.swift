@@ -1,6 +1,6 @@
 //
 //  UIView+Animation.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

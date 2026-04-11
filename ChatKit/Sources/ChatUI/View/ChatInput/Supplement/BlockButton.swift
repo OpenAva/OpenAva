@@ -1,6 +1,6 @@
 //
 //  BlockButton.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

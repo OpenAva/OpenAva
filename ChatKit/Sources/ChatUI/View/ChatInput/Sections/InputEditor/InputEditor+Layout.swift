@@ -1,6 +1,6 @@
 //
 //  InputEditor+Layout.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit
@@ -29,6 +29,10 @@ extension InputEditor {
             cancelVoiceButton.transform = .identity
             if isVoiceRecording {
                 layoutStatus = .voiceRecording
+                return
+            }
+            if isExecuting {
+                layoutStatus = .executing
                 return
             }
             if textView.isFirstResponder {
@@ -236,5 +240,68 @@ extension InputEditor {
         )
         textView.alpha = 1
         placeholderLabel.frame = textView.frame
+    }
+
+    func layoutAsExecuting() {
+        stopVoiceButton.alpha = 0
+        cancelVoiceButton.alpha = 0
+        voiceActivityIndicator.alpha = 0
+
+        sendButton.frame = CGRect(
+            x: bounds.width - inset.right - iconSize.width,
+            y: bounds.height - iconSize.height - inset.bottom,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        sendButton.alpha = 1
+
+        moreButton.frame = CGRect(
+            x: bounds.width + iconSpacing,
+            y: inset.top,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        moreButton.alpha = 0
+        moreButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+
+        voiceButton.frame = CGRect(
+            x: bounds.width + iconSpacing,
+            y: inset.top,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        voiceButton.alpha = 0
+        voiceButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+
+        let hasText = !(textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasText {
+            let textLayoutHeight = textLayoutHeight(textHeight.value)
+            textView.frame = CGRect(
+                x: inset.left,
+                y: (bounds.height - textLayoutHeight) / 2,
+                width: sendButton.frame.minX - inset.left - iconSpacing,
+                height: textLayoutHeight
+            )
+            textView.alpha = 1
+        } else {
+            textView.frame = CGRect(
+                x: inset.left,
+                y: inset.top,
+                width: 0,
+                height: max(textLayoutHeight(textHeight.value), font.lineHeight)
+            )
+            textView.alpha = 0
+        }
+        placeholderLabel.frame = textView.frame
+        placeholderLabel.alpha = 0
+
+        bossButton.frame = CGRect(
+            x: 0 - inset.left - iconSize.width,
+            y: inset.top,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        bossButton.alpha = 0
+        bossButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
     }
 }

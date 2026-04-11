@@ -1,6 +1,6 @@
 //
 //  Data+EXIF.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Created by 秋星桥 on 1/18/25.
 //

@@ -1,6 +1,6 @@
 //
 //  MessageRole.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

@@ -1,6 +1,6 @@
 //
 //  FinishReason.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Tracks why model generation stopped, inspired by Vercel AI SDK.
 //

@@ -1,6 +1,6 @@
 //
 //  IconButton.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

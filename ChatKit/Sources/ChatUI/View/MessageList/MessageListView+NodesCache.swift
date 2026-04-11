@@ -1,6 +1,6 @@
 //
 //  MessageListView+NodesCache.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Thread-safe cache for preprocessed markdown content.
 //

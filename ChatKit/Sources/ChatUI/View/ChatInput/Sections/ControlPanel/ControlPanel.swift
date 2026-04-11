@@ -1,6 +1,6 @@
 //
 //  ControlPanel.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Combine

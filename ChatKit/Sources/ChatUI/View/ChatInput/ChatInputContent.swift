@@ -1,6 +1,6 @@
 //
 //  ChatInputContent.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

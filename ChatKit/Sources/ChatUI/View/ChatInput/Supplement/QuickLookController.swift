@@ -1,6 +1,6 @@
 //
 //  QuickLookController.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

@@ -1,6 +1,6 @@
 //
 //  ToggleBlockButton.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

@@ -1,6 +1,6 @@
 //
 //  ConversationMessage.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

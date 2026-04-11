@@ -1,6 +1,6 @@
 //
 //  ControlPanelItem.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

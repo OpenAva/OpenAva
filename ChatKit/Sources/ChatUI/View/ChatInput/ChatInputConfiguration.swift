@@ -1,6 +1,6 @@
 //
 //  ChatInputConfiguration.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

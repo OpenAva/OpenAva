@@ -1,6 +1,6 @@
 //
 //  AttachmentsBar+Type.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

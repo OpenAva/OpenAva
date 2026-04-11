@@ -1,6 +1,6 @@
 //
 //  UserAttachmentView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

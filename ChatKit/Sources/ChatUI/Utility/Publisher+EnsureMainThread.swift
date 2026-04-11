@@ -1,6 +1,6 @@
 //
 //  Publisher+EnsureMainThread.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Combine

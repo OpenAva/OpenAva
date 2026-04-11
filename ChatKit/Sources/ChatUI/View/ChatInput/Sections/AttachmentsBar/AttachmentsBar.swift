@@ -1,6 +1,6 @@
 //
 //  AttachmentsBar.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import AlignedCollectionViewFlowLayout
@@ -198,7 +198,7 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
 
     private var previewTempDir: URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("LanguageModelChatUI.Preview")
+            .appendingPathComponent("ChatUI.Preview")
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {

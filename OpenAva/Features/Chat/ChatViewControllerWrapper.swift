@@ -1,5 +1,6 @@
 import ChatClient
 import ChatUI
+import MarkdownView
 import OpenClawKit
 import SwiftUI
 import UIKit
@@ -151,11 +152,14 @@ private final class ContextUsagePanelOverlayController: UIViewController {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                self?.handleGlobalCommand(notification)
+                guard let command = CatalystGlobalCommandCenter.resolve(notification) else { return }
+                Task { @MainActor [weak self] in
+                    self?.handleGlobalCommand(command)
+                }
             }
         }
 
-        deinit {
+        isolated deinit {
             if let commandObserver {
                 NotificationCenter.default.removeObserver(commandObserver)
             }
@@ -175,8 +179,7 @@ private final class ContextUsagePanelOverlayController: UIViewController {
             })
         }
 
-        private func handleGlobalCommand(_ notification: Notification) {
-            guard let command = CatalystGlobalCommandCenter.resolve(notification) else { return }
+        private func handleGlobalCommand(_ command: CatalystGlobalCommand) {
             switch command {
             case .openModelSettings:
                 handleOpenModelSettingsShortcut()
@@ -309,7 +312,10 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         let inputConfiguration = ChatInputConfiguration(
             quickSettingItems: buildQuickSettingItems()
         )
-        let viewConfiguration = ChatViewController.Configuration(input: inputConfiguration)
+        let viewConfiguration = ChatViewController.Configuration(
+            input: inputConfiguration,
+            messageTheme: .default
+        )
         let chatViewController: ChatViewController
 
         #if targetEnvironment(macCatalyst)
@@ -337,11 +343,10 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             chatViewController.draftPersistenceKey = agentID.uuidString
         }
 
-        // Configure for navigation bar integration
-        chatViewController.prefersNavigationBarManaged = false
         chatViewController.definesPresentationContext = true
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
+        context.coordinator.chatViewController = chatViewController
         chatViewController.updateHeader(.init(
             agentName: activeAgentName,
             agentEmoji: activeAgentEmoji,
@@ -425,6 +430,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onDeleteTeam = onDeleteTeam
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
+        context.coordinator.chatViewController = uiViewController
         uiViewController.menuDelegate = context.coordinator
         uiViewController.refreshNavigationMenus()
         uiViewController.updateAutoCompactEnabled(autoCompactEnabled)
@@ -468,7 +474,7 @@ extension ChatViewControllerWrapper {
         var onDeleteTeam: ((UUID) -> Void)?
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
-        weak var leadingMenuButton: UIButton?
+        weak var chatViewController: ChatViewController?
         private var swarmObserver: NSObjectProtocol?
 
         init(
@@ -515,7 +521,9 @@ extension ChatViewControllerWrapper {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                self?.refreshLeadingMenu()
+                Task { @MainActor [weak self] in
+                    self?.refreshLeadingMenu()
+                }
             }
         }
 
@@ -526,7 +534,7 @@ extension ChatViewControllerWrapper {
         }
 
         func refreshLeadingMenu() {
-            leadingMenuButton?.menu = buildAgentMenu()
+            chatViewController?.refreshNavigationMenus()
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
@@ -704,7 +712,6 @@ extension ChatViewControllerWrapper {
             button.contentHorizontalAlignment = .left
             button.contentVerticalAlignment = .center
             button.showsMenuAsPrimaryAction = true
-            leadingMenuButton = button
             button.menu = buildAgentMenu()
         }
 

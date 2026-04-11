@@ -1,6 +1,6 @@
 //
 //  ShimmerTextLabel.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

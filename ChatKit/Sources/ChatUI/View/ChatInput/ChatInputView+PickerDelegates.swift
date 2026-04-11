@@ -1,6 +1,6 @@
 //
 //  ChatInputView+PickerDelegates.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import PhotosUI

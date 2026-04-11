@@ -1,6 +1,6 @@
 //
 //  UIEdgeInsets+Convenience.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

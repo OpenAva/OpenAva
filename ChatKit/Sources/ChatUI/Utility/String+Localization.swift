@@ -1,11 +1,11 @@
 import Foundation
 
-extension String {
+public extension String {
     static func localized(
         _ value: String.LocalizationValue,
         table: String? = nil,
-        bundle: Bundle = .module
+        bundle: Bundle? = nil
     ) -> String {
-        String(localized: value, table: table, bundle: bundle)
+        String(localized: value, table: table, bundle: bundle ?? .module)
     }
 }

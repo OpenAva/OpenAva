@@ -76,7 +76,15 @@ final class RegistryToolProvider: ToolProvider {
             paramsJSON: parameters.isEmpty ? nil : parameters
         )
 
+        logger.notice(
+            "registry provider execute start session=\(self.invocationSessionID, privacy: .public) command=\(registryTool.command, privacy: .public) requestID=\(request.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
+        )
+
         let response = await toolInvokeService.handle(request, sessionID: invocationSessionID)
+
+        logger.notice(
+            "registry provider execute end session=\(self.invocationSessionID, privacy: .public) command=\(registryTool.command, privacy: .public) requestID=\(request.id, privacy: .public) ok=\(String(response.ok), privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
+        )
 
         if response.ok {
             if let payload = response.payload {

@@ -1,6 +1,6 @@
 //
 //  ModalContentController.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

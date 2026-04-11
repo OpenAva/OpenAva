@@ -1,6 +1,6 @@
 //
 //  RightClickFinder.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

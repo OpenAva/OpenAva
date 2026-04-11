@@ -108,6 +108,7 @@ final class ViewController: ConfigurableViewController {
 
     // MARK: - Chat Factory
 
+    @MainActor
     static func makeChatViewController(
         for def: ModelDefinition,
         toolProvider: DemoAlertTool.Provider,
@@ -121,7 +122,8 @@ final class ViewController: ConfigurableViewController {
                 tools: toolProvider,
                 systemPrompt: def.systemPrompt,
                 collapseReasoningWhenComplete: def.collapseReasoning
-            )
+            ),
+            configuration: .default()
         )
         chatVC.prefersNavigationBarManaged = navigated
         let wrapper = ModelChatMenuWrapper(chatViewController: chatVC, def: def)

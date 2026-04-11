@@ -1,6 +1,6 @@
 //
 //  SpeechRecognitionSession.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import AVFAudio

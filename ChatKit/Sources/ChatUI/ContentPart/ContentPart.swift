@@ -1,6 +1,6 @@
 //
 //  ContentPart.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Inspired by Vercel AI SDK's Parts pattern.
 //  Each content block in a message is a typed Part with clear semantics.

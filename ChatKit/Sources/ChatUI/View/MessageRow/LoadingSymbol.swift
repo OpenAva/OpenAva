@@ -1,6 +1,6 @@
 //
 //  LoadingSymbol.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

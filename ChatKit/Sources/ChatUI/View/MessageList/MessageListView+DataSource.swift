@@ -1,6 +1,6 @@
 //
 //  MessageListView+DataSource.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Data source types and message-to-entry conversion.
 //
@@ -289,7 +289,7 @@ extension MessageListView {
             }
         }
 
-        if session.showsInterruptedRetryAction {
+        if showsInterruptedRetryAction {
             entries.append(.interruptionRetry("任务已中断，请点重试"))
         }
 

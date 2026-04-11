@@ -1,6 +1,6 @@
 //
 //  ChatInputView+Drop.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit
@@ -43,7 +43,7 @@ extension ChatInputView: UIDropInteractionDelegate {
         let items = session.items
         UIView.animate(withDuration: 0.25) { self.dropColorView.alpha = 0 }
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LanguageModelChatUI.Drop")
+            .appendingPathComponent("ChatUI.Drop")
             .appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 

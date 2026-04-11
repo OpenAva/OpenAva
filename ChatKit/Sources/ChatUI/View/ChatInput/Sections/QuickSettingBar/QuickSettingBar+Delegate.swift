@@ -1,6 +1,6 @@
 //
 //  QuickSettingBar+Delegate.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

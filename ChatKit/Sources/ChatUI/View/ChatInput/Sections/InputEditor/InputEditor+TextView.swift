@@ -1,6 +1,6 @@
 //
 //  InputEditor+TextView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit
@@ -138,7 +138,11 @@ extension InputEditor: UITextViewDelegate {
     }
 
     func updatePlaceholderAlpha() {
-        placeholderLabel.alpha = textView.text.isEmpty ? 1 : 0
+        if isVoiceRecording || isExecuting {
+            placeholderLabel.alpha = 0
+        } else {
+            placeholderLabel.alpha = textView.text.isEmpty ? 1 : 0
+        }
     }
 
     func updateTextHeight() {

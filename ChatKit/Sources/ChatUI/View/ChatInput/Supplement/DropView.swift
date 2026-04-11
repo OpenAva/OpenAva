@@ -1,6 +1,6 @@
 //
 //  DropView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

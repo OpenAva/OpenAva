@@ -1,6 +1,6 @@
 //
 //  SimpleSpeechController+Task.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import AVFAudio

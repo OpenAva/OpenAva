@@ -1,6 +1,6 @@
 //
 //  InputEditor+Delegate.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit
@@ -15,6 +15,7 @@ extension InputEditor {
         func onInputEditorBeginEditing()
         func onInputEditorEndEditing()
         func onInputEditorSubmitButtonTapped()
+        func onInputEditorStopButtonTapped()
         func onInputEditorPasteAsAttachmentTapped()
         func onInputEditorTextChanged(text: String)
         func onInputEditorPastingLargeTextAsDocument(content: String)

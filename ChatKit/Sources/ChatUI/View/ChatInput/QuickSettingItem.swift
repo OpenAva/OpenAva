@@ -1,6 +1,6 @@
 //
 //  QuickSettingItem.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import UIKit

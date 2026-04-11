@@ -1,5 +1,5 @@
 {
-  "originHash" : "ad8ebfff5bb2ac17ef6c27f42a54eaf6d5c72591cda583306d11d957b98fea5a",
+  "originHash" : "3bb60c44f9fad72133c3237a3ab243a92aed42394c83b74bf78c0686964d7b98",
   "pins" : [
     {
       "identity" : "alignedcollectionviewflowlayout",
@@ -44,15 +44,6 @@
       "state" : {
         "revision" : "e1d0aa71c1849363a1bbef061d3d92f10481e62c",
         "version" : "2.3.6"
-      }
-    },
-    {
-      "identity" : "gptencoder",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/alfianlosari/GPTEncoder.git",
-      "state" : {
-        "revision" : "a86968867ab4380e36b904a14c42215f71efe8b4",
-        "version" : "1.0.4"
       }
     },
     {

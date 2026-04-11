@@ -1,6 +1,6 @@
 //
 //  Withable.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation

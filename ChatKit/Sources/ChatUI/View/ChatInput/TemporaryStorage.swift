@@ -1,6 +1,6 @@
 //
 //  TemporaryStorage.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 //  Created by 秋星桥 on 1/17/25.
 //
@@ -12,7 +12,7 @@ final class TemporaryStorage {
 
     init(id: String) {
         storageDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LanguageModelChatUI.TemporaryStorage")
+            .appendingPathComponent("ChatUI.TemporaryStorage")
             .appendingPathComponent(id)
         try? FileManager.default.createDirectory(
             at: storageDir,

@@ -1,6 +1,6 @@
 //
 //  SimpleSpeechController.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Speech

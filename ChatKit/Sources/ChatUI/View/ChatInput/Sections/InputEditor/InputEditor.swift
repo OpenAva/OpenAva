@@ -1,6 +1,6 @@
 //
 //  InputEditor.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Combine
@@ -36,11 +36,21 @@ final class InputEditor: EditorSectionView {
         didSet { moreButton.change(icon: isControlPanelOpened ? "x.circle" : "plus.circle") }
     }
 
+    var isExecuting = false {
+        didSet {
+            guard oldValue != isExecuting else { return }
+            sendButton.change(icon: isExecuting ? "stop" : "send")
+            textView.returnKeyType = isExecuting ? .default : .send
+            switchToRequiredStatus()
+        }
+    }
+
     enum LayoutStatus {
         case standard
         case preFocusText
         case editingText
         case voiceRecording
+        case executing
     }
 
     var layoutStatus: LayoutStatus = .standard {
@@ -92,12 +102,14 @@ final class InputEditor: EditorSectionView {
         textView.isSelectable = true
         textView.isScrollEnabled = true
         textView.isEditable = true
+        textView.returnKeyType = .send
         textView.onReturnKeyPressed = { [weak self] in
             guard let self else { return }
             textView.insertText("\n")
         }
         textView.onCommandReturnKeyPressed = { [weak self] in
-            self?.sendButton.tapAction()
+            guard let self, !self.isExecuting else { return }
+            self.sendButton.tapAction()
         }
         textView.onImagePasted = { [weak self] image in
             self?.delegate?.onInputEditorPastingImage(image: image)
@@ -129,7 +141,12 @@ final class InputEditor: EditorSectionView {
         }
         elementClipper.addSubview(moreButton)
         sendButton.tapAction = { [weak self] in
-            self?.delegate?.onInputEditorSubmitButtonTapped()
+            guard let self else { return }
+            if isExecuting {
+                delegate?.onInputEditorStopButtonTapped()
+            } else {
+                delegate?.onInputEditorSubmitButtonTapped()
+            }
         }
         elementClipper.addSubview(sendButton)
 
@@ -159,6 +176,8 @@ final class InputEditor: EditorSectionView {
             layoutAsEditingText()
         case .voiceRecording:
             layoutAsVoiceRecording()
+        case .executing:
+            layoutAsExecuting()
         }
 
         updatePlaceholderAlpha()

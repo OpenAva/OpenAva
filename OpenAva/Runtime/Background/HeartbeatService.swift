@@ -270,7 +270,8 @@ final class HeartbeatService {
         let controller = ChatViewController(
             sessionID: mainSessionID,
             models: models,
-            sessionConfiguration: sessionConfiguration
+            sessionConfiguration: sessionConfiguration,
+            configuration: .default()
         )
         controller.loadViewIfNeeded()
 

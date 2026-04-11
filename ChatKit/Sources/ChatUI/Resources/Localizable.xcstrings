@@ -32,6 +32,7 @@
       }
     },
     "Calculating context window..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -72,6 +73,7 @@
       }
     },
     "Chat" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -82,6 +84,7 @@
       }
     },
     "Context --%" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -92,6 +95,7 @@
       }
     },
     "Context %lld%%" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -132,6 +136,7 @@
       }
     },
     "Error" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -233,6 +238,7 @@
       }
     },
     "Inference was cancelled." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -279,6 +285,7 @@
       }
     },
     "No response from model." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -289,6 +296,7 @@
       }
     },
     "OK" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -299,6 +307,7 @@
       }
     },
     "Output truncated." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -358,13 +367,7 @@
         }
       }
     },
-    "Query execution failed." : {
-
-    },
     "Range" : {
-
-    },
-    "Reached maximum number of turns." : {
 
     },
     "Rollback" : {
@@ -418,6 +421,7 @@
 
     },
     "Some messages have been removed to fit the model context length." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -511,6 +515,7 @@
       }
     },
     "Tool %@ failed: %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -557,6 +562,7 @@
       }
     },
     "Tool executed successfully with no output" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -567,6 +573,7 @@
       }
     },
     "Tool execution failed: %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -575,12 +582,6 @@
           }
         }
       }
-    },
-    "Tool execution requires approval." : {
-
-    },
-    "Tool execution was denied." : {
-
     },
     "Transcript Stopped" : {
       "localizations" : {
@@ -603,6 +604,7 @@
       }
     },
     "Unable to find tool: %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -611,12 +613,6 @@
           }
         }
       }
-    },
-    "Unsupported command" : {
-
-    },
-    "Unsupported command: %@" : {
-
     },
     "Unsupported format." : {
       "localizations" : {
@@ -629,6 +625,7 @@
       }
     },
     "Utilizing tool call" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

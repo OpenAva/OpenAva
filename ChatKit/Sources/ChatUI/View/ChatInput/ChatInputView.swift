@@ -1,6 +1,6 @@
 //
 //  ChatInputView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Combine
@@ -9,7 +9,7 @@ import UIKit
 @MainActor
 open class ChatInputView: EditorSectionView {
     var storage: TemporaryStorage = .init(id: "-1")
-    var usesAutoLayoutHeightConstraint = true {
+    public var usesAutoLayoutHeightConstraint = true {
         didSet {
             guard !usesAutoLayoutHeightConstraint, heightContraints.isActive else { return }
             heightContraints.isActive = false
@@ -70,7 +70,7 @@ open class ChatInputView: EditorSectionView {
         didSet { setNeedsLayout() }
     }
 
-    var bottomBackgroundExtension: CGFloat = 0 {
+    public var bottomBackgroundExtension: CGFloat = 0 {
         didSet {
             guard oldValue != bottomBackgroundExtension else { return }
             setNeedsLayout()
@@ -229,6 +229,28 @@ open class ChatInputView: EditorSectionView {
         dropColorView.frame = dropContainer.bounds
 
         heightPublisher.send(finalHeight + keyboardAdditionalHeight + spacing)
+    }
+
+    public func quickSettingButton(forCommand command: String) -> UIView? {
+        quickSettingBar.button(forCommand: command)
+    }
+
+    public func updateQuickSettingCommand(command: String, title: String, icon: String? = nil) {
+        quickSettingBar.updateCommand(command: command, title: title, icon: icon)
+    }
+
+    public func clearTemporaryStorage() {
+        storage.removeAll()
+    }
+
+    public func setExecuting(_ executing: Bool) {
+        guard inputEditor.isExecuting != executing else { return }
+        inputEditor.isExecuting = executing
+        if executing {
+            controlPanel.close()
+        }
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     func updateHeightConstraint(_ height: CGFloat) {

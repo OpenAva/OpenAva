@@ -10,6 +10,7 @@ import ChatUI
 import Foundation
 import OpenClawKit
 import SwiftUI
+import UserNotifications
 #if targetEnvironment(macCatalyst)
     import UIKit
 #endif
@@ -166,10 +167,13 @@ struct ChatRootView: View {
             onToggleAutoCompact: toggleAutoCompact
         )
         .id(containerAgent)
-        // Keep the host NavigationStack bar hidden to avoid duplicating
-        // ChatViewController's own header on both iOS and macCatalyst.
-        .toolbar(.hidden, for: .navigationBar)
-        .ignoresSafeArea()
+        #if targetEnvironment(macCatalyst)
+            .toolbar(.hidden, for: .navigationBar)
+        #else
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
+            .ignoresSafeArea(edges: .top)
     }
 
     /// Recreate the chat screen when runtime config changes.
@@ -577,6 +581,8 @@ private struct ChatScreen: View {
             onToggleAutoCompact: onToggleAutoCompact
         )
         .id(scopedSessionID)
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

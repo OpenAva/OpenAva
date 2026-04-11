@@ -1,6 +1,6 @@
 //
 //  ChatTitleView.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import GlyphixTextFx

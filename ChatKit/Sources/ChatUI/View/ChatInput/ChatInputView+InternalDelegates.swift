@@ -1,6 +1,6 @@
 //
 //  ChatInputView+InternalDelegates.swift
-//  LanguageModelChatUI
+//  ChatUI
 //
 
 import Foundation
@@ -46,6 +46,10 @@ extension ChatInputView: InputEditor.Delegate {
 
     func onInputEditorSubmitButtonTapped() {
         submitValues()
+    }
+
+    func onInputEditorStopButtonTapped() {
+        delegate?.chatInputDidRequestStop(self)
     }
 
     func onInputEditorBeginEditing() {
