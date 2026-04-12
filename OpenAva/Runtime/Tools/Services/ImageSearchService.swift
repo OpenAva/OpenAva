@@ -104,6 +104,10 @@ actor ImageSearchService {
         session = URLSession(configuration: config)
     }
 
+    init(session: URLSession) {
+        self.session = session
+    }
+
     func search(
         query: String,
         topK: Int = 8,
@@ -310,6 +314,27 @@ actor ImageSearchService {
                     struct ImageInfo: Decodable {
                         struct MetaValue: Decodable {
                             let value: String?
+
+                            private enum CodingKeys: String, CodingKey {
+                                case value
+                            }
+
+                            init(from decoder: Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                if try container.decodeNil(forKey: .value) {
+                                    value = nil
+                                } else if let string = try? container.decode(String.self, forKey: .value) {
+                                    value = string
+                                } else if let int = try? container.decode(Int.self, forKey: .value) {
+                                    value = String(int)
+                                } else if let double = try? container.decode(Double.self, forKey: .value) {
+                                    value = String(double)
+                                } else if let bool = try? container.decode(Bool.self, forKey: .value) {
+                                    value = bool ? "true" : "false"
+                                } else {
+                                    value = nil
+                                }
+                            }
                         }
 
                         let url: String?
@@ -574,12 +599,32 @@ actor ImageSearchService {
 
     private static func composeLicenseName(license: String?, version: String?) -> String {
         let base = normalizeWhitespace(license ?? "")
-        let normalizedBase = base.isEmpty ? "unknown" : base.uppercased()
+        let normalizedBase = normalizedLicenseDisplayName(base)
         let versionText = normalizeWhitespace(version ?? "")
         if versionText.isEmpty {
             return normalizedBase
         }
         return "\(normalizedBase) \(versionText)"
+    }
+
+    private static func normalizedLicenseDisplayName(_ base: String) -> String {
+        let normalized = normalizeWhitespace(base)
+        guard !normalized.isEmpty else {
+            return "unknown"
+        }
+
+        switch normalized.lowercased() {
+        case "by":
+            return "CC BY"
+        case "by-sa":
+            return "CC BY-SA"
+        case "cc0":
+            return "CC0"
+        case "pdm", "public domain", "publicdomain":
+            return "Public Domain"
+        default:
+            return normalized.uppercased()
+        }
     }
 
     private static func requiresAttribution(license: String, explicitValue: String?) -> Bool {
