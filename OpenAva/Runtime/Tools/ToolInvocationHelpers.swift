@@ -102,4 +102,11 @@ enum ToolInvocationHelpers {
             .replacingOccurrences(of: "\"", with: "&quot;")
             .replacingOccurrences(of: "'", with: "&apos;")
     }
+
+    // MARK: - File Extension Helpers
+
+    static func normalizedFileExtension(_ raw: String) -> String {
+        let filtered = raw.lowercased().filter { $0.isLetter || $0.isNumber }
+        return filtered.isEmpty ? "bin" : filtered
+    }
 }

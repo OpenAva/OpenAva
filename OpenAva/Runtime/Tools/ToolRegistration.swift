@@ -9,39 +9,10 @@ private var didRegisterAllTools = false
 func registerAllTools() async {
     guard !didRegisterAllTools else { return }
     didRegisterAllTools = true
-    let registry = ToolRegistry.shared
-
-    // Register device tools with platform-aware filtering (e.g. Catalyst limitations).
-    await registry.register(provider: DeviceToolDefinitions(platform: .current))
-
-    // Register web tools
-    await registry.register(provider: WebFetchService())
-    await registry.register(provider: WebSearchService())
-    await registry.register(provider: ImageSearchService())
-    await registry.register(provider: YouTubeTranscriptService())
-    await registry.register(provider: WebViewService.shared)
-    await registry.register(provider: JavaScriptService())
-    await registry.register(provider: TextImageRenderService())
-
-    // Register file system tools
-    await registry.register(provider: FileSystemService())
-
-    // Register memory tools
-    await registry.register(provider: MemoryToolDefinitions())
-
-    // Register sub agent and multi-agent team tools
-    await registry.register(provider: SubAgentToolDefinitions())
-    await registry.register(provider: TeamToolDefinitions())
-
-    // Register skill tools
-    await registry.register(provider: SkillToolDefinitions())
-
-    // Register weather tool
-    await registry.register(provider: WeatherService())
-
-    // Register Yahoo Finance tool
-    await registry.register(provider: YahooFinanceService())
-
-    // Register A-share market tool
-    await registry.register(provider: AShareMarketService())
+    // Tool registration is now driven by LocalToolInvokeService.registerProvidersWithRegistry()
+    // which has access to all service instances. The old per-provider registration here
+    // has been replaced by that centralized method.
+    //
+    // This function is kept as a gateway called from LocalToolInvokeService.makeDefault().
+    // Actual registration happens via LocalToolInvokeService.registerProvidersWithRegistry().
 }
