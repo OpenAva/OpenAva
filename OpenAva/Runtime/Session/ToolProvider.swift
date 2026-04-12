@@ -108,5 +108,4 @@ public protocol ToolProvider: AnyObject, Sendable {
         _ tool: ToolExecutor,
         parameters: String
     ) async throws -> ToolResult
-
 }

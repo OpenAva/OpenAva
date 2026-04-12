@@ -8,9 +8,8 @@ extension SubAgentTools {
         context: ToolHandlerRegistrationContext
     ) {
         for command in ["subagent.run", "subagent.status", "subagent.cancel"] {
-            handlers[command] = { [weak self] request in
-                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
-                return try await Self.handleSubAgentInvoke(
+            handlers[command] = { request in
+                try await Self.handleSubAgentInvoke(
                     request,
                     workspaceRootURL: context.workspaceRootURL,
                     modelConfig: context.modelConfig,

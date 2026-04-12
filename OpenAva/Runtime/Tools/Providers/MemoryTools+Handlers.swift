@@ -8,9 +8,8 @@ extension MemoryTools {
         context: ToolHandlerRegistrationContext
     ) {
         for command in ["memory.recall", "memory.upsert", "memory.forget", "memory.transcript_search"] {
-            handlers[command] = { [weak self] request in
-                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
-                return try await Self.handleMemoryInvoke(
+            handlers[command] = { request in
+                try await Self.handleMemoryInvoke(
                     request,
                     activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider
                 )

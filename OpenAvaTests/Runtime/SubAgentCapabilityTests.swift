@@ -3,7 +3,7 @@ import XCTest
 
 final class SubAgentCapabilityTests: XCTestCase {
     func testSubAgentToolDefinitionsExposeRunStatusAndCancel() {
-        let definitions = SubAgentToolDefinitions().toolDefinitions()
+        let definitions = SubAgentTools().toolDefinitions()
         let functionNames = Set(definitions.map(\.functionName))
 
         XCTAssertEqual(functionNames, ["subagent_run", "subagent_status", "subagent_cancel"])

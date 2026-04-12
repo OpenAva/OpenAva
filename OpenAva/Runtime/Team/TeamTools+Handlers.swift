@@ -10,9 +10,8 @@ extension TeamTools {
         for command in ["team.status", "team.message.send", "team.plan.approve",
                         "team.task.create", "team.task.list", "team.task.get", "team.task.update"]
         {
-            handlers[command] = { [weak self] request in
-                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
-                return try await Self.handleTeamInvoke(
+            handlers[command] = { request in
+                try await Self.handleTeamInvoke(
                     request,
                     toolContextProvider: context.teamToolContextProvider
                 )

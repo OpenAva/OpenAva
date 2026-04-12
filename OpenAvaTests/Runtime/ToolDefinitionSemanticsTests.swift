@@ -1,3 +1,5 @@
+import CoreLocation
+import OpenClawKit
 import XCTest
 @testable import OpenAva
 
@@ -47,7 +49,7 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
     }
 
     func testMemoryDefinitionsExposeClaudeStyleSemantics() {
-        let definitions = MemoryToolDefinitions().toolDefinitions()
+        let definitions = MemoryTools().toolDefinitions()
         let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
 
         XCTAssertEqual(byName["memory_recall"]?.isReadOnly, true)
@@ -91,4 +93,253 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
 
         await registry.clear()
     }
+
+    func testSkillHandlerWorksWithoutRetainingProviderInstance() async throws {
+        let workspaceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tool-registry-skill-tests")
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillDirectory = workspaceURL
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("alpha", isDirectory: true)
+        let skillFileURL = skillDirectory.appendingPathComponent("SKILL.md", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "Use this skill to help with alpha tasks.".write(to: skillFileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: workspaceURL) }
+
+        let registry = ToolRegistry.shared
+        await registry.clear()
+        await registry.register(provider: SkillTools(), context: ToolHandlerRegistrationContext(workspaceRootURL: workspaceURL))
+
+        guard let handler = await registry.handler(forCommand: "skill.invoke") else {
+            XCTFail("Expected skill.invoke handler to be registered")
+            return
+        }
+
+        let response = try await handler(
+            BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: "skill.invoke",
+                paramsJSON: #"{"name":"alpha"}"#
+            )
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertTrue(response.payload?.contains("## Skill Invocation") == true)
+
+        await registry.clear()
+    }
+
+    @MainActor
+    func testCurrentTimeToolWorksThroughLocalToolRuntime() async {
+        let runtime = LocalToolRuntime(
+            cameraService: StubCameraService(),
+            screenRecordingService: StubScreenRecordingService(),
+            locationService: StubLocationService(),
+            deviceStatusService: StubDeviceStatusService(),
+            watchMessagingService: StubWatchMessagingService(),
+            photosService: StubPhotosService(),
+            imageBackgroundRemovalService: StubImageBackgroundRemovalService(),
+            contactsService: StubContactsService(),
+            calendarService: StubCalendarService(),
+            remindersService: StubRemindersService(),
+            motionService: StubMotionService(),
+            userNotifyService: StubUserNotifyService(),
+            speechService: StubSpeechService(),
+            cronService: StubCronService(),
+            notificationCenter: StubNotificationCenter(),
+            webFetchService: WebFetchService(),
+            webSearchService: WebSearchService(),
+            imageSearchService: ImageSearchService(),
+            youTubeTranscriptService: YouTubeTranscriptService(),
+            webViewToolService: WebViewService.shared,
+            javaScriptService: JavaScriptService(),
+            textImageRenderService: TextImageRenderService(),
+            fileSystemService: FileSystemService()
+        )
+        let response = await runtime.handle(
+            BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: "current.time",
+                paramsJSON: nil
+            )
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertTrue(response.payload?.contains("## Runtime Time") == true)
+        XCTAssertTrue(response.payload?.contains("- timezone:") == true)
+    }
+}
+
+private enum StubToolError: Error {
+    case unexpectedCall
+}
+
+private struct StubCameraService: CameraServicing {
+    func listDevices() async -> [CameraController.CameraDeviceInfo] {
+        []
+    }
+
+    func snap(params _: OpenClawCameraSnapParams) async throws -> CameraSnapMediaResult {
+        throw StubToolError.unexpectedCall
+    }
+
+    func clip(params _: OpenClawCameraClipParams) async throws -> CameraClipMediaResult {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubScreenRecordingService: ScreenRecordingServicing {
+    func record(screenIndex _: Int?, durationMs _: Int?, fps _: Double?, includeAudio _: Bool?, outPath _: String?) async throws -> String {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+@MainActor
+private final class StubLocationService: LocationServicing {
+    func authorizationStatus() -> CLAuthorizationStatus {
+        .authorizedWhenInUse
+    }
+
+    func accuracyAuthorization() -> CLAccuracyAuthorization {
+        .fullAccuracy
+    }
+
+    func ensureAuthorization(mode _: OpenClawLocationMode) async -> CLAuthorizationStatus {
+        .authorizedWhenInUse
+    }
+
+    func currentLocation(params _: OpenClawLocationGetParams, desiredAccuracy _: OpenClawLocationAccuracy, maxAgeMs _: Int?, timeoutMs _: Int?) async throws -> CLLocation {
+        CLLocation(latitude: 0, longitude: 0)
+    }
+
+    func startLocationUpdates(desiredAccuracy _: OpenClawLocationAccuracy, significantChangesOnly _: Bool) -> AsyncStream<CLLocation> {
+        AsyncStream { continuation in continuation.finish() }
+    }
+
+    func stopLocationUpdates() {}
+    func startMonitoringSignificantLocationChanges(onUpdate _: @escaping @Sendable (CLLocation) -> Void) {}
+    func stopMonitoringSignificantLocationChanges() {}
+}
+
+@MainActor
+private final class StubDeviceStatusService: DeviceStatusServicing {
+    func status() async throws -> OpenClawDeviceStatusPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func info() -> OpenClawDeviceInfoPayload {
+        OpenClawDeviceInfoPayload(
+            deviceName: "Test Device",
+            modelIdentifier: "test-model",
+            systemName: "iOS",
+            systemVersion: "1.0",
+            appVersion: "1.0",
+            appBuild: "1",
+            locale: "en_US"
+        )
+    }
+}
+
+private final class StubWatchMessagingService: WatchMessagingServicing {
+    func status() async -> WatchMessagingStatus {
+        WatchMessagingStatus(supported: false, paired: false, appInstalled: false, reachable: false, activationState: "inactive")
+    }
+
+    func setReplyHandler(_: (@Sendable (WatchQuickReplyEvent) -> Void)?) {}
+    func sendNotification(id _: String, params _: OpenClawWatchNotifyParams) async throws -> WatchNotificationSendResult {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubPhotosService: PhotosServicing {
+    func latest(params _: OpenClawPhotosLatestParams) async throws -> PhotosLatestMediaPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubImageBackgroundRemovalService: ImageBackgroundRemoving {
+    func removeBackground(params _: OpenClawImageRemoveBackgroundParams, fileSystemService _: FileSystemService) async throws -> OpenClawImageRemoveBackgroundPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubContactsService: ContactsServicing {
+    func search(params _: OpenClawContactsSearchParams) async throws -> OpenClawContactsSearchPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func add(params _: OpenClawContactsAddParams) async throws -> OpenClawContactsAddPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubCalendarService: CalendarServicing {
+    func events(params _: OpenClawCalendarEventsParams) async throws -> OpenClawCalendarEventsPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func add(params _: OpenClawCalendarAddParams) async throws -> OpenClawCalendarAddPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubRemindersService: RemindersServicing {
+    func list(params _: OpenClawRemindersListParams) async throws -> OpenClawRemindersListPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func add(params _: OpenClawRemindersAddParams) async throws -> OpenClawRemindersAddPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubMotionService: MotionServicing {
+    func activities(params _: OpenClawMotionActivityParams) async throws -> OpenClawMotionActivityPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func pedometer(params _: OpenClawPedometerParams) async throws -> OpenClawPedometerPayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+@MainActor
+private final class StubUserNotifyService: UserNotifyServicing {
+    func notify(params _: UserNotifyParams) async throws -> UserNotifyExecutionResult {
+        UserNotifyExecutionResult(messageId: "test", spoke: false)
+    }
+}
+
+@MainActor
+private final class StubSpeechService: SpeechServicing {
+    func transcribe(params _: OpenClawSpeechTranscribeParams) async throws -> OpenClawSpeechTranscribePayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubCronService: CronServicing {
+    func add(message _: String, atISO _: String?, everySeconds _: Int?, kind _: CronJobKind, agentID _: String?) async throws -> CronJobPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func list() async throws -> CronListPayload {
+        throw StubToolError.unexpectedCall
+    }
+
+    func remove(id _: String) async throws -> CronRemovePayload {
+        throw StubToolError.unexpectedCall
+    }
+}
+
+private struct StubNotificationCenter: NotificationCentering {
+    func authorizationStatus() async -> NotificationAuthorizationStatus {
+        .authorized
+    }
+
+    func requestAuthorization(options _: UNAuthorizationOptions) async throws -> Bool {
+        true
+    }
+
+    func add(_: UNNotificationRequest) async throws {}
 }

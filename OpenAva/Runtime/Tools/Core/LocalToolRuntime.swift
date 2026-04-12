@@ -48,6 +48,41 @@ final class LocalToolRuntime: @unchecked Sendable {
     private let yahooFinanceService: YahooFinanceService
     private let aShareMarketService: AShareMarketService
     private var registryRegistrationTask: Task<Void, Never>?
+    private lazy var deviceProvider: DeviceTools = .init(
+        cameraService: cameraService,
+        screenRecordingService: screenRecordingService,
+        locationService: locationService,
+        deviceStatusService: deviceStatusService,
+        watchMessagingService: watchMessagingService,
+        photosService: photosService,
+        imageBackgroundRemovalService: imageBackgroundRemovalService,
+        contactsService: contactsService,
+        calendarService: calendarService,
+        remindersService: remindersService,
+        motionService: motionService,
+        userNotifyService: userNotifyService,
+        speechService: speechService,
+        cronService: cronService,
+        notificationCenter: notificationCenter,
+        fileSystemService: fileSystemService,
+        persistMediaData: { [weak self] data, ext, prefix in
+            guard let self else {
+                throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
+                ])
+            }
+            let file = try self.persistMediaData(data, suggestedExtension: ext, prefix: prefix)
+            return DeviceTools.MediaFile(path: file.path, sizeBytes: file.sizeBytes)
+        },
+        activeAgentWorkspaceURL: { [weak self] in
+            self?.activeAgentWorkspaceURL()
+        }
+    )
+
+    private lazy var memoryProvider = MemoryTools()
+    private lazy var subAgentProvider = SubAgentTools()
+    private lazy var teamProvider = TeamTools()
+    private lazy var skillProvider = SkillTools()
 
     static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolRuntime {
         let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
@@ -71,7 +106,7 @@ final class LocalToolRuntime: @unchecked Sendable {
             additionalReadableRootURLs: builtInSkillRoots
         )
 
-        let service = LocalToolRuntime(
+        return LocalToolRuntime(
             cameraService: cameraService,
             screenRecordingService: screenRecordingService,
             locationService: locationService,
@@ -102,8 +137,6 @@ final class LocalToolRuntime: @unchecked Sendable {
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL
         )
-
-        return service
     }
 
     init(
@@ -238,43 +271,6 @@ final class LocalToolRuntime: @unchecked Sendable {
     private func registerProvidersWithRegistry() async {
         let registry = ToolRegistry.shared
         let context = makeToolHandlerRegistrationContext()
-
-        // Device tools (location, camera, screen, notify, device, watch, photos, image,
-        // contacts, calendar, reminders, cron, motion, speech)
-        let deviceProvider = DeviceTools(
-            cameraService: cameraService,
-            screenRecordingService: screenRecordingService,
-            locationService: locationService,
-            deviceStatusService: deviceStatusService,
-            watchMessagingService: watchMessagingService,
-            photosService: photosService,
-            imageBackgroundRemovalService: imageBackgroundRemovalService,
-            contactsService: contactsService,
-            calendarService: calendarService,
-            remindersService: remindersService,
-            motionService: motionService,
-            userNotifyService: userNotifyService,
-            speechService: speechService,
-            cronService: cronService,
-            notificationCenter: notificationCenter,
-            fileSystemService: fileSystemService,
-            persistMediaData: { [weak self] data, ext, prefix in
-                guard let self else {
-                    throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
-                    ])
-                }
-                let file = try self.persistMediaData(data, suggestedExtension: ext, prefix: prefix)
-                return DeviceTools.MediaFile(path: file.path, sizeBytes: file.sizeBytes)
-            },
-            activeAgentWorkspaceURL: { [weak self] in
-                self?.activeAgentWorkspaceURL()
-            }
-        )
-        let memoryProvider = MemoryTools()
-        let subAgentProvider = SubAgentTools()
-        let teamProvider = TeamTools()
-        let skillProvider = SkillTools()
 
         let providers: [any ToolDefinitionProvider] = [
             deviceProvider,

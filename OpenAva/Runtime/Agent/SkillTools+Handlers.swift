@@ -7,9 +7,8 @@ extension SkillTools {
         into handlers: inout [String: ToolHandler],
         context: ToolHandlerRegistrationContext
     ) {
-        handlers["skill.invoke"] = { [weak self] request in
-            guard self != nil else { throw ToolHandlerError.handlerUnavailable }
-            return try await Self.handleSkillInvoke(
+        handlers["skill.invoke"] = { request in
+            try await Self.handleSkillInvoke(
                 request,
                 workspaceRootURL: context.workspaceRootURL,
                 modelConfig: context.modelConfig,

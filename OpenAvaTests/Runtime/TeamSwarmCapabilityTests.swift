@@ -3,7 +3,7 @@ import XCTest
 
 final class TeamSwarmCapabilityTests: XCTestCase {
     func testTeamToolDefinitionsExposeCoreSwarmTools() {
-        let definitions = TeamToolDefinitions().toolDefinitions()
+        let definitions = TeamTools().toolDefinitions()
         let functionNames = Set(definitions.map(\.functionName))
 
         XCTAssertTrue(functionNames.contains("team_status"))
