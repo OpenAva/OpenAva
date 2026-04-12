@@ -33,6 +33,7 @@ enum JavaScriptServiceError: LocalizedError {
 final class JavaScriptService {
     struct Request {
         let code: String
+        let sourceURL: URL?
         let input: AnyCodable?
         let allowedTools: Set<String>
         let sessionID: String?
@@ -374,7 +375,11 @@ final class JavaScriptService {
         }
 
         let wrappedCode = Self.wrappedExecutionJavaScript(for: request.code)
-        _ = context.evaluateScript(wrappedCode)
+        if let sourceURL = request.sourceURL {
+            _ = context.evaluateScript(wrappedCode, withSourceURL: sourceURL)
+        } else {
+            _ = context.evaluateScript(wrappedCode)
+        }
         if let exception = context.exception {
             context.exception = nil
             throw JavaScriptServiceError.executionFailed(Self.describeJavaScriptException(exception))

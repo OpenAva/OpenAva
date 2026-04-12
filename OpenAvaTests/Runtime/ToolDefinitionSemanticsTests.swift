@@ -69,6 +69,24 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
         XCTAssertEqual(byName["memory_forget"]?.isDestructive, true)
     }
 
+    @MainActor
+    func testJavaScriptDefinitionExposesScriptPathSchema() throws {
+        let definitions = JavaScriptService().toolDefinitions()
+        let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
+
+        let definition = try XCTUnwrap(byName["javascript_execute"])
+        XCTAssertEqual(definition.isReadOnly, false)
+        XCTAssertEqual(definition.isDestructive, false)
+        XCTAssertEqual(definition.isConcurrencySafe, false)
+
+        let schema = try XCTUnwrap(definition.parametersSchema.value as? [String: Any])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        XCTAssertNotNil(properties["script_path"])
+
+        let variants = try XCTUnwrap(schema["oneOf"] as? [[String: Any]])
+        XCTAssertEqual(variants.count, 2)
+    }
+
     func testToolRegistryDefinitionLookupPreservesMetadata() async {
         final class TestProvider: ToolDefinitionProvider {
             func toolDefinitions() -> [ToolDefinition] {

@@ -1,6 +1,6 @@
 ---
 name: javascript-runtime
-description: Execute JavaScript in the built-in JavaScript runtime, with support for async code, persistent sessions, and tool calls.
+description: Execute JavaScript in the built-in JavaScript runtime, with support for inline code, single-file scripts, async code, persistent sessions, and tool calls.
 when_to_use: Use when the solution should be carried out by executing JavaScript, so the result comes from code execution rather than only natural-language reasoning.
 user-invocable: false
 allowed-tools:
@@ -12,7 +12,7 @@ metadata:
 
 # JavaScript Runtime
 
-Use this skill when the task is better solved by executing short, deterministic JavaScript inside OpenAva's built-in JavaScript runtime instead of reasoning everything manually. When later steps need to keep variables, helper functions, or intermediate state, reuse the same `session_id`.
+Use this skill when the task is better solved by executing short, deterministic JavaScript inside OpenAva's built-in JavaScript runtime instead of reasoning everything manually. You can either pass inline `code` directly or run a single workspace script through `script_path`. When later steps need to keep variables, helper functions, or intermediate state, reuse the same `session_id`.
 
 Typical fits:
 
@@ -20,6 +20,7 @@ Typical fits:
 - String parsing, normalization, templating, and report generation
 - Small deterministic calculations with multiple intermediate steps
 - Calling one or more read-only tools from JavaScript and combining the results
+- Running a small reusable workspace script file without introducing a separate sub-agent
 - Producing stable structured output that should be derived from code, not guesswork
 
 Avoid using this skill when:
@@ -35,6 +36,8 @@ The `javascript_execute` tool runs code inside Apple system `JavaScriptCore`.
 
 Important runtime rules:
 
+- Provide exactly one of `code` or `script_path`
+- `script_path` must point to a single file inside the active workspace
 - Your `code` is executed as the **body of an async function**
 - Use `return` for the final result
 - You may use `await`
@@ -43,14 +46,16 @@ Important runtime rules:
 - Shared cross-call state is available through `openava.session`
 - Tool calls are available through `await openava.tools.call(functionName, args)`
 - `console.log/info/warn/error` are captured and returned in the tool result
+- Single-file execution does **not** imply a Node.js module system; do not assume `require`, `import`, `process`, or Node standard libraries are available
 
 ## Preferred Workflow
 
 1. Decide whether JavaScript meaningfully reduces ambiguity or repetitive reasoning.
-2. Prepare a compact `input` object for the script when the task has non-trivial data; only provide `session_id` when state reuse is genuinely useful.
-3. Write the smallest clear script that produces the final answer deterministically.
-4. If external data is needed, call tools from inside JavaScript and combine their outputs there.
-5. Return a structured result first; convert it into prose only after execution if needed.
+2. Decide whether inline `code` or a reusable `script_path` is clearer; prefer `script_path` only when the script already belongs in the workspace.
+3. Prepare a compact `input` object for the script when the task has non-trivial data; only provide `session_id` when state reuse is genuinely useful.
+4. Write the smallest clear script that produces the final answer deterministically.
+5. If external data is needed, call tools from inside JavaScript and combine their outputs there.
+6. Return a structured result first; convert it into prose only after execution if needed.
 
 ## Calling Other Tools from JavaScript
 
@@ -81,6 +86,20 @@ return { counter: openava.session.counter };
 ```
 
 As long as later calls keep using the same `session_id`, `openava.session.counter` will persist.
+
+### Single-file script example
+
+```json
+{
+  "script_path": "scripts/summarize.js",
+  "input": {
+    "path": "notes/today.txt"
+  },
+  "session_id": "js-summary"
+}
+```
+
+Use this mode when the logic is already stored in the workspace as a single script file and should run in the same runtime/session model as inline JavaScript.
 
 ## Output Discipline
 

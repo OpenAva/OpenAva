@@ -1,6 +1,6 @@
 ---
 name: javascript-runtime
-description: 在内置的 JavaScript 运行时中执行代码，支持 async、持久会话和 Tool 调用。
+description: 在内置的 JavaScript 运行时中执行代码，支持内联代码、单文件脚本、async、持久会话和 Tool 调用。
 when_to_use: 当这个任务更适合通过实际执行 JavaScript 来完成，并希望结果来自代码执行而不只是自然语言推理时，可使用此技能。
 user-invocable: false
 allowed-tools:
@@ -12,7 +12,7 @@ metadata:
 
 # JavaScript 运行时
 
-当一个任务更适合通过 OpenAva 内置 JavaScript 运行时执行短小、确定性的脚本来完成，而不是完全依赖自然语言推理时，使用这个技能。若后续步骤需要延续变量、函数或中间状态，可主动复用同一个 `session_id`。
+当一个任务更适合通过 OpenAva 内置 JavaScript 运行时执行短小、确定性的脚本来完成，而不是完全依赖自然语言推理时，使用这个技能。你既可以直接传入内联 `code`，也可以通过 `script_path` 执行工作区中的单文件脚本。若后续步骤需要延续变量、函数或中间状态，可主动复用同一个 `session_id`。
 
 典型适用场景：
 
@@ -20,6 +20,7 @@ metadata:
 - 字符串解析、规范化、模板生成、报告整理
 - 具有多个中间步骤的小型确定性计算
 - 在 JavaScript 中调用一个或多个只读 Tool 并合并结果
+- 执行工作区里已经存在的小型可复用脚本文件，而不必额外启用 sub-agent
 - 需要通过代码而不是猜测来生成稳定的结构化输出
 
 避免在以下场景使用：
@@ -35,6 +36,8 @@ metadata:
 
 重要规则：
 
+- `code` 与 `script_path` 必须二选一
+- `script_path` 必须指向当前工作区内的单个文件
 - 你的 `code` 会作为 **async 函数体** 执行
 - 用 `return` 返回最终结果
 - 可以直接使用 `await`
@@ -43,14 +46,16 @@ metadata:
 - 同一 `session_id` 下可通过 `openava.session` 共享变量与状态
 - 可通过 `await openava.tools.call(functionName, args)` 调用 Tool
 - `console.log/info/warn/error` 会被捕获并包含在工具返回中
+- 单文件脚本执行并不等于 Node.js 模块运行时；不要假设存在 `require`、`import`、`process` 或 Node 标准库
 
 ## 推荐工作流
 
 1. 先判断 JavaScript 是否确实能减少歧义或重复推理。
-2. 如果任务数据较复杂，先整理一个紧凑的 `input` 对象；只有确实需要延续状态时再提供 `session_id`。
-3. 编写最小且清晰的脚本，确保结果可确定复现。
-4. 如果需要外部数据，在 JavaScript 内调用 Tool 并在那里合并结果。
-5. 优先返回结构化结果；如需要自然语言总结，再在执行后整理。
+2. 先判断是直接传内联 `code` 更清晰，还是复用工作区里的 `script_path` 更合适；只有脚本本来就应保存在工作区时才优先用 `script_path`。
+3. 如果任务数据较复杂，先整理一个紧凑的 `input` 对象；只有确实需要延续状态时再提供 `session_id`。
+4. 编写最小且清晰的脚本，确保结果可确定复现。
+5. 如果需要外部数据，在 JavaScript 内调用 Tool 并在那里合并结果。
+6. 优先返回结构化结果；如需要自然语言总结，再在执行后整理。
 
 ## 在 JavaScript 中调用 Tool
 
@@ -81,6 +86,20 @@ return { counter: openava.session.counter };
 ```
 
 后续调用只要继续传入同一个 `session_id`，`openava.session.counter` 就会保留。
+
+### 单文件脚本示例
+
+```json
+{
+  "script_path": "scripts/summarize.js",
+  "input": {
+    "path": "notes/today.txt"
+  },
+  "session_id": "js-summary"
+}
+```
+
+当逻辑已经以单个脚本文件形式保存在工作区中，并且希望继续复用同一套 runtime / session 行为时，优先使用这种方式。
 
 ## 输出约束
 
