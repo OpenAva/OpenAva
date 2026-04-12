@@ -26,7 +26,7 @@ extension JavaScriptService: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "javascript_execute",
                 command: "javascript.execute",
-                description: "Execute JavaScript with Apple system JavaScriptCore. Provide either inline code or a script path. The code runs as the body of an async function and can use openava.input, openava.session, and await openava.tools.call(functionName, args) for allowed tools.",
+                description: "Execute JavaScript with Apple system JavaScriptCore. Provide either inline code or a script path. Inline code runs as the body of an async function. Script files additionally support minimal CommonJS require/module.exports plus a minimal process object, while still supporting openava.input, openava.session, and await openava.tools.call(functionName, args) for allowed tools.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -36,7 +36,7 @@ extension JavaScriptService: ToolDefinitionProvider {
                         ],
                         "script_path": [
                             "type": "string",
-                            "description": "Optional workspace-relative or absolute script file path to execute. Mutually exclusive with code.",
+                            "description": "Optional workspace-relative or absolute script file path to execute. Mutually exclusive with code. Script mode additionally enables minimal CommonJS require/module.exports and a minimal process object.",
                         ],
                         "input": [
                             "description": "Optional JSON-serializable value exposed as openava.input in the JavaScript runtime.",
@@ -102,6 +102,7 @@ extension JavaScriptService: ToolDefinitionProvider {
             request: .init(
                 code: source.code,
                 sourceURL: source.sourceURL,
+                workspaceRootURL: workspaceRootURL,
                 input: params.input,
                 allowedTools: allowedTools,
                 sessionID: params.sessionID,
@@ -208,7 +209,7 @@ extension JavaScriptService: ToolDefinitionProvider {
         return scriptURL
     }
 
-    private static func normalizedScriptCode(at url: URL) throws -> String {
+    static func normalizedScriptCode(at url: URL) throws -> String {
         let raw = try String(contentsOf: url, encoding: .utf8)
         guard raw.hasPrefix("#!") else {
             return raw

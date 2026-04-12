@@ -1,6 +1,6 @@
 ---
 name: javascript-runtime
-description: 在内置的 JavaScript 运行时中执行代码，支持内联代码、单文件脚本、async、持久会话和 Tool 调用。
+description: 在内置的 JavaScript 运行时中执行代码，支持内联代码、单文件脚本、最小 CommonJS、async、持久会话和 Tool 调用。
 when_to_use: 当这个任务更适合通过实际执行 JavaScript 来完成，并希望结果来自代码执行而不只是自然语言推理时，可使用此技能。
 user-invocable: false
 allowed-tools:
@@ -12,7 +12,7 @@ metadata:
 
 # JavaScript 运行时
 
-当一个任务更适合通过 OpenAva 内置 JavaScript 运行时执行短小、确定性的脚本来完成，而不是完全依赖自然语言推理时，使用这个技能。你既可以直接传入内联 `code`，也可以通过 `script_path` 执行工作区中的单文件脚本。若后续步骤需要延续变量、函数或中间状态，可主动复用同一个 `session_id`。
+当一个任务更适合通过 OpenAva 内置 JavaScript 运行时执行短小、确定性的脚本来完成，而不是完全依赖自然语言推理时，使用这个技能。你既可以直接传入内联 `code`，也可以通过 `script_path` 执行工作区中的单文件脚本；两种入口会共享同一套最小 CommonJS 形态：`require`、`module.exports`、`exports`、`__filename`、`__dirname`，以及最小 `process`。若后续步骤需要延续变量、函数或中间状态，可主动复用同一个 `session_id`。
 
 典型适用场景：
 
@@ -46,7 +46,11 @@ metadata:
 - 同一 `session_id` 下可通过 `openava.session` 共享变量与状态
 - 可通过 `await openava.tools.call(functionName, args)` 调用 Tool
 - `console.log/info/warn/error` 会被捕获并包含在工具返回中
-- 单文件脚本执行并不等于 Node.js 模块运行时；不要假设存在 `require`、`import`、`process` 或 Node 标准库
+- `code` 与 `script_path` 共享同一套**最小 CommonJS**：`require`、`module.exports`、`exports`、`__filename`、`__dirname`
+- 两种入口都会暴露一个**最小 `process`** 对象，包含 `argv`、`cwd()`、`env`、`platform`、`versions`
+- 可通过 `require("path")` 或 `require("node:path")` 使用内建的**最小 `path` 模块**
+- 使用内联 `code` 时，相对 `require()` 会以当前工作区根目录为基准解析
+- 不要假设支持 ESM `import`、包名解析、Node 内建模块、timer、`Buffer`、`child_process` 或其他 Node 标准库
 
 ## 推荐工作流
 
@@ -100,6 +104,34 @@ return { counter: openava.session.counter };
 ```
 
 当逻辑已经以单个脚本文件形式保存在工作区中，并且希望继续复用同一套 runtime / session 行为时，优先使用这种方式。
+
+### 最小 CommonJS 示例
+
+`scripts/main.js`:
+
+```js
+const helper = require("./lib/helper");
+
+module.exports = {
+  answer: helper.answer,
+  cwd: process.cwd(),
+  entry: __filename,
+};
+```
+
+`scripts/lib/helper.js`:
+
+```js
+exports.answer = 42;
+```
+
+说明：
+
+- 支持通过 `require("path")` / `require("node:path")` 使用最小内建 `path` 模块
+- `require()` 只支持 `./x`、`../x` 这类相对路径，或当前工作区内的绝对路径
+- CommonJS 加载只面向工作区文件，并支持 `.js`、`.cjs`、`index.js` / `index.cjs` 兜底
+- 内联 `code` 会使用一个挂在当前工作区根目录下的虚拟入口文件 `__openava_inline__.js`，用于 `__filename`、`__dirname`、`process.argv` 和相对 `require()` 的基准
+- 当前最小版本**不支持** `require("lodash")` 这类裸包名解析，内建 `path` 除外
 
 ## 输出约束
 

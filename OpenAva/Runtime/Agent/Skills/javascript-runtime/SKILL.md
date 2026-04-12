@@ -1,6 +1,6 @@
 ---
 name: javascript-runtime
-description: Execute JavaScript in the built-in JavaScript runtime, with support for inline code, single-file scripts, async code, persistent sessions, and tool calls.
+description: Execute JavaScript in the built-in JavaScript runtime, with support for inline code, single-file scripts, minimal CommonJS, async code, persistent sessions, and tool calls.
 when_to_use: Use when the solution should be carried out by executing JavaScript, so the result comes from code execution rather than only natural-language reasoning.
 user-invocable: false
 allowed-tools:
@@ -12,7 +12,7 @@ metadata:
 
 # JavaScript Runtime
 
-Use this skill when the task is better solved by executing short, deterministic JavaScript inside OpenAva's built-in JavaScript runtime instead of reasoning everything manually. You can either pass inline `code` directly or run a single workspace script through `script_path`. When later steps need to keep variables, helper functions, or intermediate state, reuse the same `session_id`.
+Use this skill when the task is better solved by executing short, deterministic JavaScript inside OpenAva's built-in JavaScript runtime instead of reasoning everything manually. You can either pass inline `code` directly or run a single workspace script through `script_path`, and both entry modes share the same minimal CommonJS shape with `require`, `module.exports`, `exports`, `__filename`, `__dirname`, and a minimal `process`. When later steps need to keep variables, helper functions, or intermediate state, reuse the same `session_id`.
 
 Typical fits:
 
@@ -46,7 +46,11 @@ Important runtime rules:
 - Shared cross-call state is available through `openava.session`
 - Tool calls are available through `await openava.tools.call(functionName, args)`
 - `console.log/info/warn/error` are captured and returned in the tool result
-- Single-file execution does **not** imply a Node.js module system; do not assume `require`, `import`, `process`, or Node standard libraries are available
+- `code` and `script_path` share the same **minimal CommonJS** surface: `require`, `module.exports`, `exports`, `__filename`, `__dirname`
+- Both entry modes also expose a **minimal `process`** object with `argv`, `cwd()`, `env`, `platform`, and `versions`
+- A built-in **`path`** module is available through `require("path")` or `require("node:path")`
+- When using inline `code`, relative `require()` resolves from the active workspace root
+- Do not assume ESM `import`, package resolution, built-in Node modules, timers, `Buffer`, `child_process`, or other Node standard libraries are available
 
 ## Preferred Workflow
 
@@ -100,6 +104,34 @@ As long as later calls keep using the same `session_id`, `openava.session.counte
 ```
 
 Use this mode when the logic is already stored in the workspace as a single script file and should run in the same runtime/session model as inline JavaScript.
+
+### Minimal CommonJS example
+
+`scripts/main.js`:
+
+```js
+const helper = require("./lib/helper");
+
+module.exports = {
+  answer: helper.answer,
+  cwd: process.cwd(),
+  entry: __filename,
+};
+```
+
+`scripts/lib/helper.js`:
+
+```js
+exports.answer = 42;
+```
+
+Notes:
+
+- `require("path")` / `require("node:path")` is supported as a minimal built-in module
+- `require()` only supports relative paths like `./x` and `../x`, or absolute paths inside the active workspace
+- CommonJS loading is limited to workspace files, with `.js`, `.cjs`, and `index.js` / `index.cjs` fallback
+- Inline `code` uses a synthetic entry file named `__openava_inline__.js` rooted at the active workspace for `__filename`, `__dirname`, `process.argv`, and relative `require()`
+- Bare package specifiers such as `require("lodash")` are not supported in this minimal version, except for the built-in `path`
 
 ## Output Discipline
 

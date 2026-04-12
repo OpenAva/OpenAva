@@ -34,6 +34,7 @@ final class JavaScriptService {
     struct Request {
         let code: String
         let sourceURL: URL?
+        let workspaceRootURL: URL?
         let input: AnyCodable?
         let allowedTools: Set<String>
         let sessionID: String?
@@ -77,6 +78,24 @@ final class JavaScriptService {
         let error: ToolBridgeError?
     }
 
+    private struct CommonJSModuleDescriptor: Codable {
+        let filename: String
+        let dirname: String
+        let code: String
+    }
+
+    private struct CommonJSModuleEnvelope: Codable {
+        let ok: Bool
+        let value: CommonJSModuleDescriptor?
+        let error: ToolBridgeError?
+    }
+
+    private struct ExecutionEntry {
+        let filename: String
+        let dirname: String
+        let sourceURL: URL?
+    }
+
     private struct JavaScriptErrorPayload: Decodable {
         let name: String?
         let message: String?
@@ -99,6 +118,7 @@ final class JavaScriptService {
         .union(["javascript_execute"])
     private static let persistentSessionIdleTimeout: TimeInterval = 10 * 60
     private static let maxPersistentSessionCount = 8
+    private static let inlineEntryFilename = "__openava_inline__.js"
 
     static let defaultAllowedTools: Set<String> = SubAgentDefinition.readOnlyFunctionNames
         .subtracting(blockedFunctionNames)
@@ -194,6 +214,284 @@ final class JavaScriptService {
         ? globalThis.__openavaPersistentSession
         : Object.create(null);
       globalThis.__openavaPersistentSession = session;
+
+      const workspaceRoot = typeof globalThis.__openavaWorkspaceRoot === "string" && globalThis.__openavaWorkspaceRoot.length > 0
+        ? globalThis.__openavaWorkspaceRoot
+        : null;
+      const entryFilename = typeof globalThis.__openavaEntryFilename === "string" && globalThis.__openavaEntryFilename.length > 0
+        ? globalThis.__openavaEntryFilename
+        : null;
+      const entryDirname = typeof globalThis.__openavaEntryDirname === "string" && globalThis.__openavaEntryDirname.length > 0
+        ? globalThis.__openavaEntryDirname
+        : null;
+
+      const moduleCache = (typeof globalThis.__openavaModuleCache === "object" && globalThis.__openavaModuleCache !== null)
+        ? globalThis.__openavaModuleCache
+        : Object.create(null);
+      globalThis.__openavaModuleCache = moduleCache;
+
+      const restoreGlobal = (key, previousValue) => {
+        if (previousValue === undefined) {
+          delete globalThis[key];
+        } else {
+          globalThis[key] = previousValue;
+        }
+      };
+
+      const parseModuleEnvelope = (envelopeJSON) => {
+        let envelope;
+        try {
+          envelope = JSON.parse(envelopeJSON);
+        } catch (_error) {
+          throw new Error("Failed to parse CommonJS module metadata");
+        }
+
+        if (envelope && envelope.ok && envelope.value) {
+          return envelope.value;
+        }
+
+        throw new Error(envelope && envelope.error && envelope.error.message
+          ? envelope.error.message
+          : "Failed to load CommonJS module");
+      };
+
+      const processObject = {
+        argv: entryFilename ? ["openava", entryFilename] : ["openava"],
+        env: Object.create(null),
+        platform: "darwin",
+        versions: Object.freeze({
+          openava: "1",
+          javascriptcore: "JavaScriptCore",
+        }),
+        cwd() {
+          return workspaceRoot ?? entryDirname ?? "";
+        },
+        exit(code = 0) {
+          throw new Error(`process.exit(${code}) is not supported in OpenAva JavaScript runtime`);
+        },
+      };
+      globalThis.process = processObject;
+
+      const builtInModules = Object.create(null);
+      const createPathModule = () => {
+        const assertPathString = (value, name = "path") => {
+          if (typeof value !== "string") {
+            throw new TypeError(`${name} must be a string`);
+          }
+          return value;
+        };
+
+        const slashNormalized = (value) => assertPathString(value).replace(/\\/g, "/");
+        const normalize = (value) => {
+          const input = slashNormalized(value);
+          if (input.length === 0) {
+            return ".";
+          }
+
+          const isAbsolute = input.startsWith("/");
+          const segments = input.split("/");
+          const output = [];
+
+          for (const segment of segments) {
+            if (!segment || segment === ".") {
+              continue;
+            }
+            if (segment === "..") {
+              if (output.length > 0 && output[output.length - 1] !== "..") {
+                output.pop();
+              } else if (!isAbsolute) {
+                output.push("..");
+              }
+            } else {
+              output.push(segment);
+            }
+          }
+
+          let normalized = `${isAbsolute ? "/" : ""}${output.join("/")}`;
+          if (!normalized) {
+            normalized = isAbsolute ? "/" : ".";
+          }
+          return normalized;
+        };
+
+        const dirname = (value) => {
+          const normalized = normalize(value);
+          if (normalized === "/") {
+            return "/";
+          }
+          if (normalized === ".") {
+            return ".";
+          }
+          const trimmed = normalized.endsWith("/") && normalized.length > 1
+            ? normalized.slice(0, -1)
+            : normalized;
+          const index = trimmed.lastIndexOf("/");
+          if (index < 0) {
+            return ".";
+          }
+          if (index === 0) {
+            return "/";
+          }
+          return trimmed.slice(0, index);
+        };
+
+        const basename = (value, suffix) => {
+          const input = slashNormalized(value);
+          const trimmed = input.endsWith("/") && input.length > 1
+            ? input.slice(0, -1)
+            : input;
+          const index = trimmed.lastIndexOf("/");
+          let base = index >= 0 ? trimmed.slice(index + 1) : trimmed;
+          if (typeof suffix === "string" && suffix.length > 0 && base.endsWith(suffix) && base !== suffix) {
+            base = base.slice(0, -suffix.length);
+          }
+          return base;
+        };
+
+        const extname = (value) => {
+          const base = basename(value);
+          if (base === "." || base === "..") {
+            return "";
+          }
+          const index = base.lastIndexOf(".");
+          return index <= 0 ? "" : base.slice(index);
+        };
+
+        const isAbsolute = (value) => slashNormalized(value).startsWith("/");
+        const join = (...parts) => {
+          if (parts.length === 0) {
+            return ".";
+          }
+          const filtered = parts
+            .map((part, index) => assertPathString(part, `path segment ${index}`))
+            .filter(part => part.length > 0);
+          if (filtered.length === 0) {
+            return ".";
+          }
+          return normalize(filtered.join("/"));
+        };
+
+        const resolve = (...parts) => {
+          const inputs = parts.map((part, index) => assertPathString(part, `path segment ${index}`));
+          let resolved = "";
+          let resolvedFromAbsolute = false;
+
+          for (let index = inputs.length - 1; index >= 0; index -= 1) {
+            const source = inputs[index];
+            const segment = slashNormalized(source);
+            if (!segment) {
+              continue;
+            }
+            resolved = `${segment}/${resolved}`;
+            if (segment.startsWith("/")) {
+              resolvedFromAbsolute = true;
+              break;
+            }
+          }
+
+          if (!resolvedFromAbsolute) {
+            const cwd = slashNormalized(processObject.cwd());
+            resolved = `${cwd}/${resolved}`;
+          }
+
+          const normalized = normalize(resolved);
+          return normalized.startsWith("/") ? normalized : `/${normalized}`;
+        };
+
+        const api = {
+          sep: "/",
+          delimiter: ":",
+          normalize,
+          dirname,
+          basename,
+          extname,
+          isAbsolute,
+          join,
+          resolve,
+        };
+        api.posix = api;
+        return Object.freeze(api);
+      };
+
+      const pathModule = createPathModule();
+      builtInModules.path = pathModule;
+      builtInModules["node:path"] = pathModule;
+      moduleCache["__openava_builtin__/path"] = {
+        id: "__openava_builtin__/path",
+        filename: "__openava_builtin__/path",
+        loaded: true,
+        exports: pathModule,
+      };
+
+      const makeRequire = (parentFilename) => {
+        const require = (specifier) => {
+          if (typeof specifier !== "string" || specifier.trim().length === 0) {
+            throw new Error("require() specifier must be a non-empty string");
+          }
+          const normalizedSpecifier = specifier.trim();
+          if (Object.prototype.hasOwnProperty.call(builtInModules, normalizedSpecifier)) {
+            return builtInModules[normalizedSpecifier];
+          }
+          if (typeof globalThis.__openavaLoadCommonJSModule !== "function") {
+            throw new Error("require() is unavailable in this JavaScript execution");
+          }
+
+          const descriptor = parseModuleEnvelope(
+            globalThis.__openavaLoadCommonJSModule(normalizedSpecifier, typeof parentFilename === "string" ? parentFilename : "")
+          );
+          if (moduleCache[descriptor.filename]) {
+            return moduleCache[descriptor.filename].exports;
+          }
+
+          const module = {
+            id: descriptor.filename,
+            filename: descriptor.filename,
+            loaded: false,
+            exports: {},
+          };
+          const localRequire = makeRequire(descriptor.filename);
+          module.require = localRequire;
+          moduleCache[descriptor.filename] = module;
+
+          const previousModule = globalThis.module;
+          const previousExports = globalThis.exports;
+          const previousFilename = globalThis.__filename;
+          const previousDirname = globalThis.__dirname;
+          const previousRequire = globalThis.require;
+
+          try {
+            globalThis.module = module;
+            globalThis.exports = module.exports;
+            globalThis.__filename = descriptor.filename;
+            globalThis.__dirname = descriptor.dirname;
+            globalThis.require = localRequire;
+
+            const factory = globalThis.eval(
+              "(function (exports, require, module, __filename, __dirname, process) {\n"
+              + descriptor.code
+              + "\n})\n//# sourceURL="
+              + descriptor.filename
+            );
+            factory(module.exports, localRequire, module, descriptor.filename, descriptor.dirname, globalThis.process);
+            module.loaded = true;
+            return module.exports;
+          } catch (error) {
+            delete moduleCache[descriptor.filename];
+            throw error;
+          } finally {
+            restoreGlobal("module", previousModule);
+            restoreGlobal("exports", previousExports);
+            restoreGlobal("__filename", previousFilename);
+            restoreGlobal("__dirname", previousDirname);
+            restoreGlobal("require", previousRequire);
+          }
+        };
+
+        require.cache = moduleCache;
+        return require;
+      };
+
+      globalThis.__openavaMakeRequire = makeRequire;
 
       globalThis.openava = Object.freeze({
         input,
@@ -365,8 +663,23 @@ final class JavaScriptService {
         }
         context.setObject(unsafeBitCast(callToolBlock, to: AnyObject.self), forKeyedSubscript: "__openavaCallTool" as NSString)
 
+        let executionEntry = Self.executionEntry(for: request)
+
+        let loadCommonJSModuleBlock: @convention(block) (String, String) -> String = { specifier, parentFilename in
+            Self.loadCommonJSModuleEnvelope(
+                specifier: specifier,
+                parentFilename: parentFilename,
+                workspaceRootURL: request.workspaceRootURL,
+                entryFilename: executionEntry.filename
+            )
+        }
+        context.setObject(unsafeBitCast(loadCommonJSModuleBlock, to: AnyObject.self), forKeyedSubscript: "__openavaLoadCommonJSModule" as NSString)
+
         let inputJSON = try Self.jsonString(from: request.input ?? AnyCodable(NSNull()))
         context.setObject(inputJSON, forKeyedSubscript: "__openavaInputJSON" as NSString)
+        context.setObject(request.workspaceRootURL?.path ?? "", forKeyedSubscript: "__openavaWorkspaceRoot" as NSString)
+        context.setObject(executionEntry.filename, forKeyedSubscript: "__openavaEntryFilename" as NSString)
+        context.setObject(executionEntry.dirname, forKeyedSubscript: "__openavaEntryDirname" as NSString)
 
         _ = context.evaluateScript(Self.bootstrapJavaScript)
         if let exception = context.exception {
@@ -374,8 +687,8 @@ final class JavaScriptService {
             throw JavaScriptServiceError.executionFailed(Self.describeJavaScriptException(exception))
         }
 
-        let wrappedCode = Self.wrappedExecutionJavaScript(for: request.code)
-        if let sourceURL = request.sourceURL {
+        let wrappedCode = try Self.wrappedExecutionJavaScript(for: request, entry: executionEntry)
+        if let sourceURL = executionEntry.sourceURL {
             _ = context.evaluateScript(wrappedCode, withSourceURL: sourceURL)
         } else {
             _ = context.evaluateScript(wrappedCode)
@@ -463,14 +776,206 @@ final class JavaScriptService {
         return Self.encodedToolBridgeEnvelope(envelope)
     }
 
-    private static func wrappedExecutionJavaScript(for code: String) -> String {
-        """
+    private static func executionEntry(for request: Request) -> ExecutionEntry {
+        if let sourceURL = request.sourceURL?.standardizedFileURL {
+            return ExecutionEntry(
+                filename: sourceURL.path,
+                dirname: sourceURL.deletingLastPathComponent().path,
+                sourceURL: sourceURL
+            )
+        }
+
+        if let workspaceRootURL = request.workspaceRootURL?.standardizedFileURL {
+            let inlineURL = workspaceRootURL.appendingPathComponent(inlineEntryFilename, isDirectory: false).standardizedFileURL
+            return ExecutionEntry(
+                filename: inlineURL.path,
+                dirname: workspaceRootURL.path,
+                sourceURL: nil
+            )
+        }
+
+        return ExecutionEntry(
+            filename: inlineEntryFilename,
+            dirname: "",
+            sourceURL: nil
+        )
+    }
+
+    private static func wrappedExecutionJavaScript(for request: Request, entry: ExecutionEntry) throws -> String {
+        try wrappedCommonJSEntryJavaScript(for: request.code, entry: entry)
+    }
+
+    private static func wrappedCommonJSEntryJavaScript(for code: String, entry: ExecutionEntry) throws -> String {
+        let filenameLiteral = try javaScriptStringLiteral(entry.filename)
+        let dirnameLiteral = try javaScriptStringLiteral(entry.dirname)
+
+        return """
         (async () => {
+          const __openavaFilename = \(filenameLiteral);
+          const __openavaDirname = \(dirnameLiteral);
+          const module = { id: __openavaFilename, filename: __openavaFilename, loaded: false, exports: {} };
+          const exports = module.exports;
+          const require = globalThis.__openavaMakeRequire(__openavaFilename);
+          const previousModule = globalThis.module;
+          const previousExports = globalThis.exports;
+          const previousFilename = globalThis.__filename;
+          const previousDirname = globalThis.__dirname;
+          const previousRequire = globalThis.require;
+          globalThis.module = module;
+          globalThis.exports = exports;
+          globalThis.__filename = __openavaFilename;
+          globalThis.__dirname = __openavaDirname;
+          globalThis.require = require;
+          try {
+            const __openavaResult = await (async function (exports, require, module, __filename, __dirname, process) {
         \(code)
+            })(exports, require, module, __openavaFilename, __openavaDirname, globalThis.process);
+            module.loaded = true;
+            return __openavaResult === undefined ? module.exports : __openavaResult;
+          } finally {
+            if (previousModule === undefined) { delete globalThis.module; } else { globalThis.module = previousModule; }
+            if (previousExports === undefined) { delete globalThis.exports; } else { globalThis.exports = previousExports; }
+            if (previousFilename === undefined) { delete globalThis.__filename; } else { globalThis.__filename = previousFilename; }
+            if (previousDirname === undefined) { delete globalThis.__dirname; } else { globalThis.__dirname = previousDirname; }
+            if (previousRequire === undefined) { delete globalThis.require; } else { globalThis.require = previousRequire; }
+          }
         })()
         .then(value => globalThis.__openavaComplete(true, globalThis.__openavaSerialize(value)))
         .catch(error => globalThis.__openavaComplete(false, globalThis.__openavaSerializeError(error)));
         """
+    }
+
+    private static func loadCommonJSModuleEnvelope(
+        specifier: String,
+        parentFilename: String,
+        workspaceRootURL: URL?,
+        entryFilename: String
+    ) -> String {
+        do {
+            let descriptor = try resolveCommonJSModule(
+                specifier: specifier,
+                parentFilename: parentFilename,
+                workspaceRootURL: workspaceRootURL,
+                entryFilename: entryFilename
+            )
+            return try jsonString(
+                from: CommonJSModuleEnvelope(
+                    ok: true,
+                    value: descriptor,
+                    error: nil
+                )
+            )
+        } catch let error as CommonJSModuleResolutionError {
+            return (try? jsonString(
+                from: CommonJSModuleEnvelope(
+                    ok: false,
+                    value: nil,
+                    error: ToolBridgeError(
+                        code: OpenClawNodeErrorCode.invalidRequest.rawValue,
+                        message: error.localizedDescription,
+                        retryable: nil,
+                        retryAfterMs: nil
+                    )
+                )
+            )) ?? "{\"ok\":false,\"error\":{\"code\":\"invalid_request\",\"message\":\"Failed to encode CommonJS module error\"}}"
+        } catch {
+            return (try? jsonString(
+                from: CommonJSModuleEnvelope(
+                    ok: false,
+                    value: nil,
+                    error: ToolBridgeError(
+                        code: OpenClawNodeErrorCode.unavailable.rawValue,
+                        message: error.localizedDescription,
+                        retryable: nil,
+                        retryAfterMs: nil
+                    )
+                )
+            )) ?? "{\"ok\":false,\"error\":{\"code\":\"unavailable\",\"message\":\"Failed to encode CommonJS module error\"}}"
+        }
+    }
+
+    private static func resolveCommonJSModule(
+        specifier: String,
+        parentFilename: String,
+        workspaceRootURL: URL?,
+        entryFilename: String
+    ) throws -> CommonJSModuleDescriptor {
+        let trimmedSpecifier = specifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSpecifier.isEmpty else {
+            throw CommonJSModuleResolutionError.invalidSpecifier("require() specifier must be a non-empty string")
+        }
+        guard let workspaceRootURL else {
+            throw CommonJSModuleResolutionError.unavailable("require() requires an active workspace")
+        }
+
+        let workspaceURL = workspaceRootURL.standardizedFileURL
+        let baseURL: URL
+        if trimmedSpecifier.hasPrefix("/") {
+            baseURL = URL(fileURLWithPath: trimmedSpecifier).standardizedFileURL
+        } else if Self.isCommonJSRelativeSpecifier(trimmedSpecifier) {
+            let parentURL: URL
+            if !parentFilename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parentURL = URL(fileURLWithPath: parentFilename).standardizedFileURL
+            } else {
+                parentURL = URL(fileURLWithPath: entryFilename).standardizedFileURL
+            }
+            baseURL = parentURL.deletingLastPathComponent().appendingPathComponent(trimmedSpecifier).standardizedFileURL
+        } else {
+            throw CommonJSModuleResolutionError.unsupportedSpecifier(trimmedSpecifier)
+        }
+
+        for candidate in commonJSCandidateURLs(for: baseURL) {
+            if let moduleURL = try validatedCommonJSModuleURL(candidate, workspaceRootURL: workspaceURL) {
+                let code = try normalizedScriptCode(at: moduleURL)
+                return CommonJSModuleDescriptor(
+                    filename: moduleURL.path,
+                    dirname: moduleURL.deletingLastPathComponent().path,
+                    code: code
+                )
+            }
+        }
+
+        throw CommonJSModuleResolutionError.notFound(trimmedSpecifier)
+    }
+
+    private static func isCommonJSRelativeSpecifier(_ specifier: String) -> Bool {
+        specifier == "." || specifier == ".." || specifier.hasPrefix("./") || specifier.hasPrefix("../")
+    }
+
+    private static func commonJSCandidateURLs(for baseURL: URL) -> [URL] {
+        var candidates: [URL] = [baseURL.standardizedFileURL]
+        if baseURL.pathExtension.isEmpty {
+            candidates.append(baseURL.appendingPathExtension("js").standardizedFileURL)
+            candidates.append(baseURL.appendingPathExtension("cjs").standardizedFileURL)
+        }
+
+        let directoryBase = baseURL.standardizedFileURL
+        candidates.append(directoryBase.appendingPathComponent("index.js", isDirectory: false).standardizedFileURL)
+        candidates.append(directoryBase.appendingPathComponent("index.cjs", isDirectory: false).standardizedFileURL)
+
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.path).inserted }
+    }
+
+    private static func validatedCommonJSModuleURL(_ candidate: URL, workspaceRootURL: URL) throws -> URL? {
+        let normalizedURL = candidate.standardizedFileURL
+        let workspacePath = workspaceRootURL.path
+        let candidatePath = normalizedURL.path
+        let isWithinWorkspace = candidatePath == workspacePath || candidatePath.hasPrefix(workspacePath + "/")
+        guard isWithinWorkspace else {
+            throw CommonJSModuleResolutionError.outsideWorkspace(candidatePath)
+        }
+
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: candidatePath, isDirectory: &isDirectory) else {
+            return nil
+        }
+
+        guard !isDirectory.boolValue else {
+            return nil
+        }
+
+        return normalizedURL
     }
 
     fileprivate static func describeJavaScriptException(_ exception: JSValue?) -> String {
@@ -494,6 +999,22 @@ final class JavaScriptService {
         let data = try JSONEncoder().encode(value)
         guard let json = String(data: data, encoding: .utf8) else {
             throw JavaScriptServiceError.executionFailed("Failed to encode JavaScript payload as UTF-8")
+        }
+        return json
+    }
+
+    private static func jsonString<T: Encodable>(from value: T) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw JavaScriptServiceError.executionFailed("Failed to encode JavaScript payload as UTF-8")
+        }
+        return json
+    }
+
+    private static func javaScriptStringLiteral(_ value: String) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw JavaScriptServiceError.executionFailed("Failed to encode JavaScript string literal as UTF-8")
         }
         return json
     }
@@ -730,6 +1251,29 @@ private final class JavaScriptExecutionLatch {
             return payload
         case let .failure(error):
             throw error
+        }
+    }
+}
+
+private enum CommonJSModuleResolutionError: LocalizedError {
+    case invalidSpecifier(String)
+    case unsupportedSpecifier(String)
+    case notFound(String)
+    case outsideWorkspace(String)
+    case unavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidSpecifier(message):
+            return message
+        case let .unsupportedSpecifier(specifier):
+            return "Unsupported CommonJS specifier '\(specifier)'. Only relative or absolute workspace paths are supported"
+        case let .notFound(specifier):
+            return "CommonJS module not found for '\(specifier)'"
+        case let .outsideWorkspace(path):
+            return "CommonJS module path must stay within the active workspace: '\(path)'"
+        case let .unavailable(message):
+            return message
         }
     }
 }
