@@ -3,9 +3,14 @@ import XCTest
 @testable import OpenAva
 
 final class TeamRuntimePersistenceTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        removeTeamStoreFile()
+    }
+
     override func tearDown() {
+        removeTeamStoreFile()
         super.tearDown()
-        UserDefaults.standard.removeObject(forKey: "team.profile.state.v1")
     }
 
     func testMailboxAppendReadAndMarkRead() throws {
@@ -72,20 +77,23 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
         let created = TeamStore.createTeam(
             name: "Default Team",
-            emoji: "🛰️",
-            defaults: .standard
+            emoji: "🛰️"
         )
 
         XCTAssertNotNil(created)
         XCTAssertEqual(created?.emoji, "🛰️")
-        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [])
+        XCTAssertEqual(TeamStore.load().teams.first?.agentPoolIDs, [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: teamStoreFileURL().path))
 
-        _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id), defaults: .standard)
-        XCTAssertEqual(TeamStore.load(defaults: .standard).teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
+        let rawContent = try String(contentsOf: teamStoreFileURL(), encoding: .utf8)
+        XCTAssertTrue(rawContent.contains("Default Team"))
 
-        _ = try TeamStore.removeAgent(firstAgentID, from: XCTUnwrap(created?.id), defaults: .standard)
+        _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id))
+        XCTAssertEqual(TeamStore.load().teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
 
-        let remaining = TeamStore.load(defaults: .standard).teams.first
+        _ = try TeamStore.removeAgent(firstAgentID, from: XCTUnwrap(created?.id))
+
+        let remaining = TeamStore.load().teams.first
         XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])
     }
 
@@ -93,5 +101,14 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func removeTeamStoreFile() {
+        try? FileManager.default.removeItem(at: teamStoreFileURL())
+    }
+
+    private func teamStoreFileURL() -> URL {
+        let rootURL = TeamStore.storageDirectoryURL(fileManager: .default)
+        return rootURL?.appendingPathComponent("teams.json", isDirectory: false) ?? FileManager.default.temporaryDirectory.appendingPathComponent("teams.json", isDirectory: false)
     }
 }
