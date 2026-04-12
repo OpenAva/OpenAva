@@ -6,7 +6,7 @@ final class CalendarService: CalendarServicing {
     func events(params: OpenClawCalendarEventsParams) async throws -> OpenClawCalendarEventsPayload {
         // Request permission using a temporary store, then create a fresh store after authorization
         let tempStore = EKEventStore()
-        let status = await EventKitAuthorization.requestAccessIfNeeded(
+        let status = try await EventKitAuthorization.requestAccessIfNeeded(
             store: tempStore,
             entityType: .event,
             accessLevel: .readOnly
@@ -49,7 +49,7 @@ final class CalendarService: CalendarServicing {
     func add(params: OpenClawCalendarAddParams) async throws -> OpenClawCalendarAddPayload {
         // Request permission using a temporary store, then create a fresh store after authorization
         let tempStore = EKEventStore()
-        let status = await EventKitAuthorization.requestAccessIfNeeded(
+        let status = try await EventKitAuthorization.requestAccessIfNeeded(
             store: tempStore,
             entityType: .event,
             accessLevel: .writeOnly

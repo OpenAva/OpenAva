@@ -14,10 +14,16 @@
 	<true/>
 	<key>com.apple.security.device.camera</key>
 	<true/>
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.ai.openava.shared</string>
 	</array>
+	<key>com.apple.security.personal-information.reminders</key>
+	<true/>
 	<key>com.apple.security.personal-information.speech-recognition</key>
 	<true/>
 </dict>

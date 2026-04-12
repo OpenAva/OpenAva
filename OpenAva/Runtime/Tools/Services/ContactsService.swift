@@ -123,7 +123,7 @@ final class ContactsService: ContactsServicing {
         let authorized = await Self.ensureAuthorization(store: store, status: status)
         guard authorized else {
             throw NSError(domain: "Contacts", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "CONTACTS_PERMISSION_REQUIRED: grant Contacts permission",
+                NSLocalizedDescriptionKey: "CONTACTS_PERMISSION_REQUIRED: enable Contacts access for OpenAva in System Settings",
             ])
         }
         return store

@@ -6,7 +6,7 @@ final class RemindersService: RemindersServicing {
     func list(params: OpenClawRemindersListParams) async throws -> OpenClawRemindersListPayload {
         // Request permission using a temporary store, then create a fresh store after authorization
         let tempStore = EKEventStore()
-        let status = await EventKitAuthorization.requestAccessIfNeeded(
+        let status = try await EventKitAuthorization.requestAccessIfNeeded(
             store: tempStore,
             entityType: .reminder,
             accessLevel: .readOnly
@@ -59,7 +59,7 @@ final class RemindersService: RemindersServicing {
     func add(params: OpenClawRemindersAddParams) async throws -> OpenClawRemindersAddPayload {
         // Request permission using a temporary store, then create a fresh store after authorization
         let tempStore = EKEventStore()
-        let status = await EventKitAuthorization.requestAccessIfNeeded(
+        let status = try await EventKitAuthorization.requestAccessIfNeeded(
             store: tempStore,
             entityType: .reminder,
             accessLevel: .writeOnly
