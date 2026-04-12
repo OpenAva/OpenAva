@@ -47,4 +47,41 @@ extension WebSearchService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        handlers["web.search"] = { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWebSearchInvoke(request)
+        }
+    }
+
+    private func handleWebSearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let query: String
+            let topK: Int?
+            let fetchTopK: Int?
+            let lang: String?
+            let safeSearch: String?
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+        let query = params.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "query is required")
+        }
+
+        let result = try await search(
+            query: query,
+            topK: params.topK ?? 8,
+            fetchTopK: params.fetchTopK ?? 3,
+            lang: params.lang ?? "zh-CN",
+            safeSearch: params.safeSearch ?? "moderate"
+        )
+        let lines = result.results.map { item in
+            "\(item.rank). [\(item.title)](\(item.link)) — \(item.summary)"
+        }
+        let sourceLine = result.sourceStatus.map { "\($0.source):\($0.count)" }.joined(separator: ", ")
+        let text = "## Web Search\n- query: \(result.query)\n- total: \(result.total)\n- sources: \(sourceLine)\n\n\(lines.joined(separator: "\n"))"
+        return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+    }
 }

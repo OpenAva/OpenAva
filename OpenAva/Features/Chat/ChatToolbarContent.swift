@@ -31,7 +31,11 @@ struct ChatToolbarContent: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            leadingMenu
+            // Use HStack to force SwiftUI to render a custom UIView for the item,
+            // preventing iOS 16+ from adding a default grey circular/square background to the menu button.
+            HStack {
+                leadingMenu
+            }
         }
 
         ToolbarItem(placement: .principal) {
@@ -55,7 +59,9 @@ struct ChatToolbarContent: ToolbarContent {
         }
 
         ToolbarItem(placement: .topBarTrailing) {
-            trailingMenu
+            HStack {
+                trailingMenu
+            }
         }
     }
 
@@ -137,16 +143,19 @@ struct ChatToolbarContent: ToolbarContent {
     @ViewBuilder
     private func agentButton(for agent: AgentProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot? = nil) -> some View {
         let isActive = agent.id == activeAgentID
-        Button(action: { onAgentSwitch?(agent.id) }) {
-            HStack {
-                if !agent.emoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(agent.emoji)
+        Toggle(isOn: Binding(
+            get: { isActive },
+            set: { newValue in if newValue { onAgentSwitch?(agent.id) } }
+        )) {
+            let title = agentMenuTitle(for: agent, snapshot: snapshot)
+            if let image = makeEmojiImage(from: agent.emoji, snapshot: snapshot) {
+                Label {
+                    Text(title)
+                } icon: {
+                    image
                 }
-                Text(agentMenuTitle(for: agent, snapshot: snapshot))
-                if isActive {
-                    Spacer()
-                    Image(systemName: "checkmark")
-                }
+            } else {
+                Text(title)
             }
         }
     }
@@ -275,6 +284,35 @@ struct ChatToolbarContent: ToolbarContent {
         }
         if parts.isEmpty { return team.name }
         return "\(team.name) · \(parts.joined(separator: " · "))"
+    }
+
+    private func makeEmojiImage(from emoji: String, snapshot _: TeamSwarmCoordinator.TeamMenuSnapshot?) -> Image? {
+        let trimmed = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+
+        let size = CGSize(width: 20, height: 20)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let uiImage = renderer.image { _ in
+            let text = trimmed as NSString
+            let font = UIFont.systemFont(ofSize: 16)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .paragraphStyle: {
+                    let p = NSMutableParagraphStyle()
+                    p.alignment = .center
+                    return p
+                }(),
+            ]
+            let textSize = text.size(withAttributes: attributes)
+            let rect = CGRect(
+                x: (size.width - textSize.width) / 2,
+                y: (size.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            text.draw(in: rect, withAttributes: attributes)
+        }
+        return Image(uiImage: uiImage.withRenderingMode(.alwaysOriginal))
     }
 }
 

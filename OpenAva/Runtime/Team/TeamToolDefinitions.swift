@@ -2,7 +2,7 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-struct TeamToolDefinitions: ToolDefinitionProvider {
+final class TeamToolDefinitions: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(

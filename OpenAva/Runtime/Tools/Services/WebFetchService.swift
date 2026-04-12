@@ -42,6 +42,15 @@ actor WebFetchService {
     private let userAgent: String
     private var cache: [String: CacheEntry] = [:]
 
+    /// Injected prompt processor for applying LLM-based processing to fetched content.
+    /// Set by LocalToolInvokeService during initialization.
+    var promptProcessor: (@Sendable (WebFetchResult, String) async throws -> String)?
+
+    /// Allows external callers to set `promptProcessor` from an isolated context.
+    func setPromptProcessor(_ processor: @Sendable @escaping (WebFetchResult, String) async throws -> String) {
+        self.promptProcessor = processor
+    }
+
     private struct CacheEntry {
         let expiresAt: Date
         let result: WebFetchResult

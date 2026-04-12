@@ -37,4 +37,58 @@ extension AShareMarketService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        handlers["finance.a_share"] = { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleAShareMarketInvoke(request)
+        }
+    }
+
+    private func handleAShareMarketInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct AShareMarketParams: Decodable {
+            var codes: [String]
+            var minute: Bool?
+            var json: Bool?
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(AShareMarketParams.self, from: request.paramsJSON)
+        let normalizedCodes = params.codes
+            .map(Self.cleanCode(_:))
+            .filter { !$0.isEmpty }
+        guard !normalizedCodes.isEmpty else {
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "codes must contain at least one stock code")
+        }
+
+        let includeMinute = params.minute ?? false
+        let results = try await analyzeStocks(codes: normalizedCodes, includeMinute: includeMinute)
+
+        if params.json ?? false {
+            return try BridgeInvokeResponse(id: request.id, ok: true, payload: ToolInvocationHelpers.encodePayload(results))
+        }
+
+        var blocks: [String] = []
+        for result in results {
+            if let error = result.error {
+                blocks.append("错误: \(error)")
+                continue
+            }
+            guard let realtime = result.realtime else {
+                blocks.append("错误: 无法获取 \(result.code) 的行情数据")
+                continue
+            }
+
+            var text = Self.formatRealtime(realtime)
+            if includeMinute {
+                if let analysis = result.minuteAnalysis {
+                    text += Self.formatMinuteAnalysis(analysis)
+                } else if let minuteError = result.minuteError {
+                    text += "\n\n【分时量能分析】\n  错误: \(minuteError)"
+                }
+            }
+            blocks.append(text)
+        }
+
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: blocks.joined(separator: "\n\n"))
+    }
 }

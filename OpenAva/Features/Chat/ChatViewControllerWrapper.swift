@@ -267,7 +267,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         )
     }
 
-    func makeUIViewController(context: Context) -> ChatViewController {
+    func makeUIViewController(context: Context) -> UIViewController {
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
         if let runtimeRootURL, activeAgentID != nil {
@@ -354,7 +354,19 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             providerName: selectedProviderName
         ))
 
-        return chatViewController
+        #if targetEnvironment(macCatalyst)
+            return chatViewController
+        #else
+            let navigationController = UINavigationController(rootViewController: chatViewController)
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = ChatUIDesign.Color.warmCream
+            appearance.shadowColor = .clear
+            navigationController.navigationBar.standardAppearance = appearance
+            navigationController.navigationBar.scrollEdgeAppearance = appearance
+            navigationController.navigationBar.compactAppearance = appearance
+            return navigationController
+        #endif
     }
 
     private func buildQuickSettingItems() -> [QuickSettingItem] {
@@ -398,7 +410,15 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             .replacingOccurrences(of: "/", with: "-")
     }
 
-    func updateUIViewController(_ uiViewController: ChatViewController, context: Context) {
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        let chatViewController: ChatViewController
+        #if targetEnvironment(macCatalyst)
+            chatViewController = uiViewController as! ChatViewController
+        #else
+            let nav = uiViewController as! UINavigationController
+            chatViewController = nav.viewControllers.first as! ChatViewController
+        #endif
+
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
         context.coordinator.teams = teams
@@ -417,7 +437,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             context.coordinator.processedAutoSendID = id
             // Use the same submission path as manual user input.
             let content = ChatInputContent(text: message)
-            uiViewController.chatInputDidSubmit(uiViewController.chatInputView, object: content) { _ in }
+            chatViewController.chatInputDidSubmit(chatViewController.chatInputView, object: content) { _ in }
         }
 
         context.coordinator.onAgentSwitch = onAgentSwitch
@@ -430,20 +450,20 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onDeleteTeam = onDeleteTeam
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
-        context.coordinator.chatViewController = uiViewController
-        uiViewController.menuDelegate = context.coordinator
-        uiViewController.refreshNavigationMenus()
-        uiViewController.updateAutoCompactEnabled(autoCompactEnabled)
+        context.coordinator.chatViewController = chatViewController
+        chatViewController.menuDelegate = context.coordinator
+        chatViewController.refreshNavigationMenus()
+        chatViewController.updateAutoCompactEnabled(autoCompactEnabled)
 
         #if targetEnvironment(macCatalyst)
-            if let catalystController = uiViewController as? CatalystChatViewController {
+            if let catalystController = chatViewController as? CatalystChatViewController {
                 catalystController.onOpenModelSettings = { [weak coordinator = context.coordinator] in
                     coordinator?.onMenuAction?(.openLLM)
                 }
             }
         #endif
 
-        uiViewController.updateHeader(.init(
+        chatViewController.updateHeader(.init(
             agentName: activeAgentName,
             agentEmoji: activeAgentEmoji,
             modelName: selectedModelName,

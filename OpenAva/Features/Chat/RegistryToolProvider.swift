@@ -21,9 +21,9 @@ final class RegistryToolExecutor: ToolExecutor {
         self.displayName = definition.functionName
         self.command = definition.command
         self.iconName = iconName
-        self.isReadOnly = definition.resolvedIsReadOnly
-        self.isDestructive = definition.resolvedIsDestructive
-        self.isConcurrencySafe = definition.resolvedIsConcurrencySafe
+        self.isReadOnly = definition.isReadOnly
+        self.isDestructive = definition.isDestructive
+        self.isConcurrencySafe = definition.isConcurrencySafe
         self.maxResultSizeChars = definition.maxResultSizeChars
     }
 }

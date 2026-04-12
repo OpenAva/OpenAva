@@ -31,4 +31,37 @@ extension WebFetchService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        handlers["web.fetch"] = { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleWebFetchInvoke(request)
+        }
+    }
+
+    private func handleWebFetchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let url: String
+            let prompt: String
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+        guard let prompt = AppConfig.nonEmpty(params.prompt) else {
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "prompt is required")
+        }
+
+        guard let url = URL(string: params.url)
+        else {
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "invalid URL")
+        }
+
+        let result = try await fetch(url: url)
+        let processedResult: String
+        if let processor = promptProcessor {
+            processedResult = try await processor(result, prompt)
+        } else {
+            processedResult = "The fetched content did not produce a response for the requested prompt."
+        }
+        return BridgeInvokeResponse(id: request.id, ok: true, payload: result.asPromptResultText(prompt: prompt, processedResult: processedResult))
+    }
 }

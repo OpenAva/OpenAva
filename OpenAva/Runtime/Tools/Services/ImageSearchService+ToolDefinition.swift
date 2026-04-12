@@ -53,4 +53,42 @@ extension ImageSearchService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        handlers["image.search"] = { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleImageSearchInvoke(request)
+        }
+    }
+
+    private func handleImageSearchInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Codable {
+            let query: String
+            let topK: Int?
+            let minWidth: Int?
+            let minHeight: Int?
+            let orientation: String?
+            let safeSearch: Bool?
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+        let query = params.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "query is required")
+        }
+
+        let result = try await search(
+            query: query,
+            topK: params.topK ?? 8,
+            minWidth: params.minWidth ?? 1024,
+            minHeight: params.minHeight ?? 720,
+            orientation: params.orientation ?? "any",
+            safeSearch: params.safeSearch ?? true
+        )
+        let lines = result.results.enumerated().map { index, item in
+            "\(index + 1). \(item.title)\n   - image: \(item.imageURL)\n   - size: \(item.width)x\(item.height)\n   - provider: \(item.provider), license: \(item.license)"
+        }
+        let text = "## Image Search\n- query: \(result.query)\n- total: \(result.total)\n- filters: min=\(result.minWidth)x\(result.minHeight), orientation=\(result.orientation)\n\n\(lines.joined(separator: "\n"))"
+        return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+    }
 }

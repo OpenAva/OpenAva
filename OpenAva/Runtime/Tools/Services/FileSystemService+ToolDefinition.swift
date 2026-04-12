@@ -239,4 +239,180 @@ extension FileSystemService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        let commands = ["fs.read", "fs.write", "fs.list", "fs.mkdir", "fs.delete", "fs.replace", "fs.append", "fs.find", "fs.grep"]
+        for command in commands {
+            handlers[command] = { [weak self] request in
+                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                return try await self.handleFileSystemInvoke(request)
+            }
+        }
+    }
+
+    private func handleFileSystemInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        func resolvedPathText(_ path: String) async throws -> String {
+            let metadata = try await pathMetadata(path: path)
+            return metadata.resolvedPath
+        }
+
+        func conciseListText(for result: DirectoryListResult, resolvedPath: String) -> String {
+            if result.items.isEmpty {
+                return "Empty: \(resolvedPath)"
+            }
+
+            let itemLines = result.items.map { item in
+                item.isDirectory ? "  \(item.name)/" : "  \(item.name)"
+            }
+
+            return ([resolvedPath] + itemLines).joined(separator: "\n")
+        }
+
+        switch request.command {
+        case "fs.read":
+            struct Params: Codable {
+                let path: String
+                let startLine: Int?
+                let endLine: Int?
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await readFile(
+                path: params.path,
+                startLine: params.startLine,
+                endLine: params.endLine
+            )
+            var text = result.content
+            if result.truncated {
+                text += "\n\n... (truncated — file is \(result.totalChars) chars, limit 128000)"
+            }
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.write":
+            struct Params: Codable {
+                let path: String
+                let content: String
+                let createDirectories: Bool?
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await writeFile(
+                path: params.path,
+                content: params.content,
+                createDirectories: params.createDirectories ?? true
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let verb = result.created ? "created" : "updated"
+            let text = "OK: \(verb) \(result.size) bytes -> \(resolvedPath)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.replace":
+            struct Params: Codable {
+                let path: String
+                let oldText: String
+                let newText: String
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await replaceInFile(
+                path: params.path,
+                oldText: params.oldText,
+                newText: params.newText
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: replaced \(result.occurrences) occurrence\(result.occurrences == 1 ? "" : "s") -> \(resolvedPath)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.append":
+            struct Params: Codable {
+                let path: String
+                let content: String
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await appendToFile(
+                path: params.path,
+                content: params.content
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: appended \(result.appendedSize) bytes -> \(resolvedPath)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.list":
+            struct Params: Codable {
+                let path: String
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await listDirectory(path: params.path)
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = conciseListText(for: result, resolvedPath: resolvedPath)
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.mkdir":
+            struct Params: Codable {
+                let path: String
+                let recursive: Bool?
+                let ifNotExists: Bool?
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await makeDirectory(
+                path: params.path,
+                recursive: params.recursive ?? true,
+                ifNotExists: params.ifNotExists ?? true
+            )
+            let resolvedPath = try await resolvedPathText(params.path)
+            let verb = result.created ? "created" : "already exists"
+            let text = "OK: \(verb) directory -> \(resolvedPath)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.delete":
+            struct Params: Codable {
+                let path: String
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await delete(path: params.path)
+            let resolvedPath = try await resolvedPathText(params.path)
+            let text = "OK: deleted -> \(resolvedPath)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.find":
+            struct Params: Codable {
+                let glob: String
+                let path: String?
+                let recursive: Bool?
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await findFiles(
+                glob: params.glob,
+                path: params.path ?? ".",
+                recursive: params.recursive ?? true
+            )
+            let itemLines = result.items.map { item in
+                "[FILE] \(item.path) (\(item.size ?? 0) bytes)"
+            }
+            let text = itemLines.isEmpty ? "No files matching '\(result.pattern)'" : itemLines.joined(separator: "\n")
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "fs.grep":
+            struct Params: Codable {
+                let pattern: String
+                let path: String?
+                let recursive: Bool?
+                let isRegex: Bool?
+                let caseInsensitive: Bool?
+            }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await grep(
+                pattern: params.pattern,
+                path: params.path ?? ".",
+                recursive: params.recursive ?? true,
+                isRegex: params.isRegex ?? true,
+                caseInsensitive: params.caseInsensitive ?? true
+            )
+            let matchLines = result.matches.map { match in
+                "\(match.path):\(match.lineNumber): \(match.line)"
+            }
+            let text = matchLines.isEmpty ? "No matches for '\(result.pattern)'" : matchLines.joined(separator: "\n")
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        default:
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "unknown command")
+        }
+    }
 }

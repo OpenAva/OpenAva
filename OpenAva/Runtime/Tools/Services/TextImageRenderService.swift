@@ -33,6 +33,12 @@ struct TextImageRenderResult {
 
 /// Generate social-friendly image cards from plain text with automatic pagination.
 final class TextImageRenderService {
+    /// Result of persisting media data to the workspace.
+    struct PersistedMediaFile {
+        let path: String
+        let sizeBytes: Int
+    }
+
     struct Request {
         var text: String
         var title: String?
@@ -41,6 +47,10 @@ final class TextImageRenderService {
         var aspectRatio: String?
         var maxPages: Int?
     }
+
+    /// Injected media persister for saving rendered images to the workspace.
+    /// Set by LocalToolInvokeService during initialization.
+    var mediaPersister: (@Sendable (Data, String, String) throws -> PersistedMediaFile)?
 
     private struct ThemePalette {
         let backgroundTop: UIColor

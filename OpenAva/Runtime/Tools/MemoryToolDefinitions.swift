@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 /// Tool definitions for memory retrieval workflows.
-struct MemoryToolDefinitions: ToolDefinitionProvider {
+final class MemoryToolDefinitions: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(

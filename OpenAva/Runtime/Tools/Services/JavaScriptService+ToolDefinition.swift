@@ -41,4 +41,74 @@ extension JavaScriptService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        handlers["javascript.execute"] = { [weak self] request in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleJavaScriptInvoke(request)
+        }
+    }
+
+    private func handleJavaScriptInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        struct Params: Decodable {
+            let code: String
+            let input: AnyCodable?
+            let allowedTools: [String]?
+            let sessionID: String?
+            let timeoutMs: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case code
+                case input
+                case allowedTools = "allowed_tools"
+                case sessionID = "session_id"
+                case timeoutMs = "timeout_ms"
+            }
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+        let sessionID = LocalToolInvokeService.InvocationContext.sessionID
+        let allowedTools = Self.normalizedAllowedTools(from: params.allowedTools)
+        let timeoutMs = Self.clampedTimeoutMs(params.timeoutMs)
+
+        let payload = try await execute(
+            request: .init(
+                code: params.code,
+                input: params.input,
+                allowedTools: allowedTools,
+                sessionID: params.sessionID,
+                timeoutMs: timeoutMs
+            )
+        ) { [weak self] functionName, argumentsJSON in
+            // Use the injected tool invoker if available, otherwise return an error
+            guard let invoker = await self?.toolInvoker else {
+                return BridgeInvokeResponse(
+                    id: UUID().uuidString,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                )
+            }
+
+            guard let command = await ToolRegistry.shared.command(forFunctionName: functionName) else {
+                return BridgeInvokeResponse(
+                    id: UUID().uuidString,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown tool function '\(functionName)'")
+                )
+            }
+
+            let nestedRequest = BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: command,
+                paramsJSON: argumentsJSON
+            )
+            return await invoker(nestedRequest)
+        }
+
+        return try BridgeInvokeResponse(
+            id: request.id,
+            ok: true,
+            payload: ToolInvocationHelpers.encodePayload(payload)
+        )
+    }
 }

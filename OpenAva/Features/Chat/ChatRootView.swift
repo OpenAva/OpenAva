@@ -581,33 +581,11 @@ private struct ChatScreen: View {
         )
         .id(scopedSessionID)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        #if !targetEnvironment(macCatalyst)
-            .toolbar {
-                ChatToolbarContent(
-                    agentName: activeAgentName,
-                    agentEmoji: activeAgentEmoji,
-                    modelName: selectedModelName,
-                    teams: teams,
-                    agents: agents,
-                    activeAgentID: activeAgentID,
-                    autoCompactEnabled: autoCompactEnabled,
-                    onTapAgent: {},
-                    onTapModel: { onMenuAction?(.openLLM) },
-                    onMenuAction: onMenuAction,
-                    onAgentSwitch: onAgentSwitch,
-                    onCreateLocalAgent: onCreateLocalAgent,
-                    onCreateLocalTeam: onCreateLocalTeam,
-                    onDeleteCurrentAgent: onDeleteCurrentAgent,
-                    onRenameCurrentAgent: onRenameCurrentAgent,
-                    onAddAgentToTeam: onAddAgentToTeam,
-                    onCreateAgentForTeam: onCreateAgentForTeam,
-                    onDeleteTeam: onDeleteTeam,
-                    onToggleAutoCompact: onToggleAutoCompact
-                )
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        #if targetEnvironment(macCatalyst)
+            .toolbar(.hidden, for: .navigationBar)
         #endif
             .alert(L10n.tr("chat.menu.renameAgentNamed", activeAgentName), isPresented: $showsRenameAlert) {
                 TextField(L10n.tr("chat.menu.renameAlert.placeholder"), text: $renameText)

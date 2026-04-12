@@ -1,68 +1,63 @@
 import Foundation
 
-/// Central registry for managing tool definitions from various services.
+/// Central registry for managing tool definitions and handlers from various services.
 /// Tools are registered at startup and queried by LLMClient when building requests.
 actor ToolRegistry {
-    private var definitions: [ToolDefinition] = []
-    private var commandToFunctionName: [String: String] = [:]
-    private var functionNameToCommand: [String: String] = [:]
+    private var definitionsByCommand: [String: ToolDefinition] = [:]
+    private var handlersByCommand: [String: ToolHandler] = [:]
 
     /// Shared singleton instance
     static let shared = ToolRegistry()
 
     private init() {}
 
-    /// Register tools from a provider
+    /// Register tools and handlers from a provider
     func register(provider: ToolDefinitionProvider) {
         let newDefinitions = provider.toolDefinitions()
         for definition in newDefinitions {
-            // Keep registry idempotent across repeated startup/attach cycles.
-            definitions.removeAll {
-                $0.functionName == definition.functionName || $0.command == definition.command
-            }
-
-            if let previousCommand = functionNameToCommand[definition.functionName] {
-                commandToFunctionName.removeValue(forKey: previousCommand)
-            }
-            if let previousFunctionName = commandToFunctionName[definition.command] {
-                functionNameToCommand.removeValue(forKey: previousFunctionName)
-            }
-
-            definitions.append(definition)
-            commandToFunctionName[definition.command] = definition.functionName
-            functionNameToCommand[definition.functionName] = definition.command
+            definitionsByCommand[definition.command] = definition
         }
+        provider.registerHandlers(into: &handlersByCommand)
+    }
+
+    /// Register a single handler for a command
+    func registerHandler(command: String, handler: @escaping ToolHandler) {
+        handlersByCommand[command] = handler
     }
 
     /// Get all registered tool definitions
     func allDefinitions() -> [ToolDefinition] {
-        definitions
-    }
-
-    /// Get function name for a command
-    func functionName(forCommand command: String) -> String? {
-        commandToFunctionName[command]
+        Array(definitionsByCommand.values)
     }
 
     /// Get command for a function name
     func command(forFunctionName functionName: String) -> String? {
-        functionNameToCommand[functionName]
+        definitionsByCommand.values.first { $0.functionName == functionName }?.command
     }
 
     /// Get full definition for a function name
     func definition(forFunctionName functionName: String) -> ToolDefinition? {
-        definitions.first { $0.functionName == functionName }
+        definitionsByCommand.values.first { $0.functionName == functionName }
     }
 
     /// Get full definition for a command
     func definition(forCommand command: String) -> ToolDefinition? {
-        definitions.first { $0.command == command }
+        definitionsByCommand[command]
     }
 
-    /// Clear all registered tools (useful for testing)
+    /// Get handler for a command
+    func handler(forCommand command: String) -> ToolHandler? {
+        handlersByCommand[command]
+    }
+
+    /// Get all registered handlers
+    func allHandlers() -> [String: ToolHandler] {
+        handlersByCommand
+    }
+
+    /// Clear all registered tools and handlers (useful for testing)
     func clear() {
-        definitions.removeAll()
-        commandToFunctionName.removeAll()
-        functionNameToCommand.removeAll()
+        definitionsByCommand.removeAll()
+        handlersByCommand.removeAll()
     }
 }

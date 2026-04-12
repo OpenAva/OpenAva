@@ -173,4 +173,103 @@ extension WebViewService: ToolDefinitionProvider {
             ),
         ]
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler]) {
+        let commands = ["web_view", "web_view_snapshot", "web_view_click", "web_view_type",
+                        "web_view_scroll", "web_view_select", "web_view_navigate", "web_view_close", "web_view_read"]
+        for command in commands {
+            handlers[command] = { [weak self] request in
+                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                return try await self.handleWebViewInvoke(request)
+            }
+        }
+    }
+
+    private func normalizedSessionID() -> String {
+        let trimmed = (LocalToolInvokeService.InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "default" : trimmed
+    }
+
+    /// Dispatch all web_view* commands to the appropriate WebViewService method.
+    private func handleWebViewInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let sessionID = normalizedSessionID()
+        switch request.command {
+        case "web_view":
+            struct Params: Codable { let url: String }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let rawURL = params.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            let expandedPath = (rawURL as NSString).expandingTildeInPath
+            let resolvedURL: URL?
+            if expandedPath.hasPrefix("/") {
+                resolvedURL = URL(fileURLWithPath: expandedPath)
+            } else if let parsedURL = URL(string: rawURL), parsedURL.scheme != nil {
+                resolvedURL = parsedURL
+            } else {
+                resolvedURL = nil
+            }
+
+            guard let url = resolvedURL else {
+                return ToolInvocationHelpers.invalidRequest(id: request.id, "invalid URL")
+            }
+            let result = try await openAndSnapshot(url: url, sessionID: sessionID)
+            let lines = result.elements.joined(separator: "\n")
+            let text = "## Web View\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- elements: \(result.count)\n\(lines)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_snapshot":
+            let result = try await snapshot(sessionID: sessionID)
+            let lines = result.elements.joined(separator: "\n")
+            let text = "## Web Snapshot\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- elements: \(result.count)\n\(lines)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_click":
+            struct Params: Codable { let ref: String }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await click(sessionID: sessionID, ref: params.ref)
+            let text = "<web-action kind=\"click\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(ToolInvocationHelpers.xmlEscaped(result.message))\" url=\"\(ToolInvocationHelpers.xmlEscaped(result.url ?? ""))\" title=\"\(ToolInvocationHelpers.xmlEscaped(result.title ?? ""))\"/>"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_type":
+            struct Params: Codable { let ref: String; let text: String; let submit: Bool? }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await type(sessionID: sessionID, ref: params.ref, text: params.text, submit: params.submit ?? false)
+            let text = "<web-action kind=\"type\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(ToolInvocationHelpers.xmlEscaped(result.message))\" url=\"\(ToolInvocationHelpers.xmlEscaped(result.url ?? ""))\" title=\"\(ToolInvocationHelpers.xmlEscaped(result.title ?? ""))\"/>"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_scroll":
+            struct Params: Codable { let direction: String; let amount: Int? }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await scroll(sessionID: sessionID, direction: params.direction, amount: params.amount ?? 300)
+            let text = "<web-action kind=\"scroll\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(ToolInvocationHelpers.xmlEscaped(result.message))\" url=\"\(ToolInvocationHelpers.xmlEscaped(result.url ?? ""))\" title=\"\(ToolInvocationHelpers.xmlEscaped(result.title ?? ""))\"/>"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_select":
+            struct Params: Codable { let ref: String; let value: String }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await selectOption(sessionID: sessionID, ref: params.ref, value: params.value)
+            let text = "<web-action kind=\"select\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(ToolInvocationHelpers.xmlEscaped(result.message))\" url=\"\(ToolInvocationHelpers.xmlEscaped(result.url ?? ""))\" title=\"\(ToolInvocationHelpers.xmlEscaped(result.title ?? ""))\"/>"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_navigate":
+            struct Params: Codable { let direction: String }
+            let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
+            let result = try await navigate(sessionID: sessionID, direction: params.direction)
+            let text = "<web-action kind=\"navigate\" ok=\"\(result.ok ? "1" : "0")\" message=\"\(ToolInvocationHelpers.xmlEscaped(result.message))\" url=\"\(ToolInvocationHelpers.xmlEscaped(result.url ?? ""))\" title=\"\(ToolInvocationHelpers.xmlEscaped(result.title ?? ""))\"/>"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        case "web_view_close":
+            close(sessionID: sessionID)
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: "Web view closed.")
+
+        case "web_view_read":
+            struct Params: Codable { let maxLength: Int? }
+            let params = (try? ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)) ?? Params(maxLength: nil)
+            let result = try await readMarkdown(sessionID: sessionID, maxLength: params.maxLength ?? 120_000)
+            let text = "## Web Page Read\n- title: \(result.title ?? "")\n- url: \(result.finalUrl)\n- length: \(result.length)\n\n\(result.markdown)"
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+
+        default:
+            return ToolInvocationHelpers.invalidRequest(id: request.id, "Unknown web_view command: \(request.command)")
+        }
+    }
 }

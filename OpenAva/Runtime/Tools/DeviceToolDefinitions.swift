@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 /// Provides tool definitions for device-related commands (screen, camera, location, etc.)
-struct DeviceToolDefinitions: ToolDefinitionProvider {
+final class DeviceToolDefinitions: ToolDefinitionProvider {
     enum PlatformProfile {
         case iOS
         case macCatalyst
@@ -130,7 +130,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "desiredAccuracy": ["type": "string", "enum": ["coarse", "balanced", "precise"]],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "device_status",
@@ -140,7 +142,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "device_info",
@@ -150,7 +154,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "current_time",
@@ -163,7 +169,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "locale": ["type": "string"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "photos_latest",
@@ -177,7 +185,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "quality": ["type": "number"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "image_remove_background",
@@ -204,7 +214,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "limit": ["type": "integer"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "contacts_add",
@@ -235,7 +247,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "limit": ["type": "integer"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "calendar_add",
@@ -268,7 +282,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "limit": ["type": "integer"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             makeTool(
                 functionName: "reminders_add",
@@ -318,7 +334,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "camera_snap",
@@ -361,7 +379,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "watch_notify",
@@ -396,7 +416,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "limit": ["type": "integer"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "motion_pedometer",
@@ -409,7 +431,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                         "endISO": ["type": "string"],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
             makeTool(
                 functionName: "speech_transcribe",
@@ -427,7 +451,9 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
                     ],
                     "required": ["filePath"],
                     "additionalProperties": false,
-                ]
+                ],
+                isReadOnly: true,
+                isConcurrencySafe: false
             ),
         ]
 
@@ -440,13 +466,21 @@ struct DeviceToolDefinitions: ToolDefinitionProvider {
         functionName: String,
         command: String,
         description: String,
-        schema: [String: Any]
+        schema: [String: Any],
+        isReadOnly: Bool = false,
+        isDestructive: Bool = false,
+        isConcurrencySafe: Bool = false,
+        maxResultSizeChars: Int? = nil
     ) -> ToolDefinition {
         ToolDefinition(
             functionName: functionName,
             command: command,
             description: descriptionWithPlatformHint(base: description, functionName: functionName),
-            parametersSchema: AnyCodable(schema)
+            parametersSchema: AnyCodable(schema),
+            isReadOnly: isReadOnly,
+            isDestructive: isDestructive,
+            isConcurrencySafe: isConcurrencySafe,
+            maxResultSizeChars: maxResultSizeChars
         )
     }
 

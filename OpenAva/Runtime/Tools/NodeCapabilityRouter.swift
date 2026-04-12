@@ -8,12 +8,16 @@ final class NodeCapabilityRouter {
         case handlerUnavailable
     }
 
-    typealias Handler = (BridgeInvokeRequest) async throws -> BridgeInvokeResponse
+    private let handlers: [String: ToolHandler]
 
-    private let handlers: [String: Handler]
-
-    init(handlers: [String: Handler]) {
+    init(handlers: [String: ToolHandler]) {
         self.handlers = handlers
+    }
+
+    /// Build a router from all handlers currently registered in ToolRegistry.
+    static func fromRegistry() async -> NodeCapabilityRouter {
+        let handlers = await ToolRegistry.shared.allHandlers()
+        return NodeCapabilityRouter(handlers: handlers)
     }
 
     func handle(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
