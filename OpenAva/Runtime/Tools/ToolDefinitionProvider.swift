@@ -11,7 +11,7 @@ protocol ToolDefinitionProvider: AnyObject {
 
     /// Register invocation handlers for this provider's commands into the given handlers map.
     /// The default implementation does nothing, preserving backward compatibility for
-    /// providers whose handlers are still in LocalToolRuntime.
+    /// providers whose handlers are still in ToolRuntime.
     func registerHandlers(into handlers: inout [String: ToolHandler])
 
     /// Register invocation handlers using a shared registration context.

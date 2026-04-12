@@ -105,7 +105,7 @@ final class JavaScriptService {
     private var persistentSessions: [String: PersistentSessionState] = [:]
 
     /// Injected tool invoker for handling nested tool calls from JavaScript.
-    /// Set by LocalToolRuntime during initialization.
+    /// Set by ToolRuntime during initialization.
     var toolInvoker: (@Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse)?
 
     static func normalizedAllowedTools(from names: [String]?) -> Set<String> {

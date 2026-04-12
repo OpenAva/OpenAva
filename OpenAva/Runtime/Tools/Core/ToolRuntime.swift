@@ -6,7 +6,7 @@ import OpenClawProtocol
 import UserNotifications
 
 @MainActor
-final class LocalToolRuntime: @unchecked Sendable {
+final class ToolRuntime: @unchecked Sendable {
     enum InvocationContext {
         /// Session identifier propagated from chat layer for tool state isolation.
         @TaskLocal static var sessionID: String?
@@ -68,7 +68,7 @@ final class LocalToolRuntime: @unchecked Sendable {
         fileSystemService: fileSystemService,
         persistMediaData: { [weak self] data, ext, prefix in
             guard let self else {
-                throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
+                throw NSError(domain: "ToolRuntime", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
                 ])
             }
@@ -85,7 +85,7 @@ final class LocalToolRuntime: @unchecked Sendable {
     private lazy var teamProvider = TeamTools()
     private lazy var skillProvider = SkillTools()
 
-    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolRuntime {
+    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> ToolRuntime {
         let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
         let notificationCenter = LiveNotificationCenter()
         let cameraService = CameraController()
@@ -107,7 +107,7 @@ final class LocalToolRuntime: @unchecked Sendable {
             additionalReadableRootURLs: builtInSkillRoots
         )
 
-        return LocalToolRuntime(
+        return ToolRuntime(
             cameraService: cameraService,
             screenRecordingService: screenRecordingService,
             locationService: locationService,
@@ -230,7 +230,7 @@ final class LocalToolRuntime: @unchecked Sendable {
         }
         textImageRenderService.mediaPersister = { [weak self] data, suggestedExtension, prefix in
             guard let self else {
-                throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
+                throw NSError(domain: "ToolRuntime", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
                 ])
             }
@@ -346,7 +346,7 @@ final class LocalToolRuntime: @unchecked Sendable {
 
     private func applyPromptToWebFetchResult(_ result: WebFetchResult, prompt: String) async throws -> String {
         guard let modelConfig else {
-            throw NSError(domain: "LocalToolRuntime.WebFetch", code: 1, userInfo: [NSLocalizedDescriptionKey: "UNAVAILABLE: no configured model for web fetch prompt processing"])
+            throw NSError(domain: "ToolRuntime.WebFetch", code: 1, userInfo: [NSLocalizedDescriptionKey: "UNAVAILABLE: no configured model for web fetch prompt processing"])
         }
 
         let client = LLMChatClient(modelConfig: modelConfig)

@@ -67,7 +67,7 @@ extension SubAgentTools {
                 )
             }
             let definition = SubAgentRegistry.definition(for: params.subagentType) ?? SubAgentRegistry.generalPurpose
-            let sessionID = LocalToolRuntime.InvocationContext.sessionID
+            let sessionID = ToolRuntime.InvocationContext.sessionID
 
             if params.runInBackground == true {
                 let record = await SubAgentTaskStore.shared.create(

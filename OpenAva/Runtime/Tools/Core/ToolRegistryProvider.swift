@@ -14,10 +14,10 @@ extension ToolDefinition: ToolExecutor {
 
 /// ToolProvider implementation that adapts ToolRegistry to the session tool interface.
 final class ToolRegistryProvider: ToolProvider {
-    private let toolRuntime: LocalToolRuntime
+    private let toolRuntime: ToolRuntime
     private let invocationSessionID: String
 
-    init(toolRuntime: LocalToolRuntime, invocationSessionID: String) {
+    init(toolRuntime: ToolRuntime, invocationSessionID: String) {
         self.toolRuntime = toolRuntime
         self.invocationSessionID = invocationSessionID
     }

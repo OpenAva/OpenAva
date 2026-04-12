@@ -2,7 +2,7 @@ import Foundation
 import OpenClawKit
 
 /// Shared utility methods for tool invocation handlers.
-/// These are used by both LocalToolRuntime and individual Provider extensions.
+/// These are used by both ToolRuntime and individual Provider extensions.
 enum ToolInvocationHelpers {
     // MARK: - Parameter Decoding
 

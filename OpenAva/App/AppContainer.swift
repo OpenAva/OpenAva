@@ -3,7 +3,7 @@ import Foundation
 
 struct AppContainer {
     struct Services {
-        let localToolRuntime: LocalToolRuntime
+        let toolRuntime: ToolRuntime
         let chatClient: (any ChatClient)?
         let localization: LocalizationService
     }
@@ -27,7 +27,7 @@ struct AppContainer {
     }
 
     static func makeServices(config: AppConfig) -> Services {
-        let localToolRuntime = LocalToolRuntime.makeDefault(
+        let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
             runtimeRootURL: config.agent.runtimeRootURL,
             modelConfig: config.selectedLLMModel
@@ -45,7 +45,7 @@ struct AppContainer {
         }()
 
         return Services(
-            localToolRuntime: localToolRuntime,
+            toolRuntime: toolRuntime,
             chatClient: chatClient,
             localization: localization
         )

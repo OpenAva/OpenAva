@@ -92,7 +92,7 @@ extension SkillTools {
                     )
                 }
 
-                let sessionID = LocalToolRuntime.InvocationContext.sessionID
+                let sessionID = ToolRuntime.InvocationContext.sessionID
                 let output = try await SubAgentRunner.run(
                     prompt: forkedSkillPrompt(skill: skill, task: task, body: body),
                     definition: definition,

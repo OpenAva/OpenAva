@@ -16,7 +16,7 @@ struct HeartbeatRuntimeConfiguration {
     let baseSystemPrompt: String?
     let chatClient: any ChatClient
     let modelConfig: AppConfig.LLMModel
-    let toolRuntime: LocalToolRuntime
+    let toolRuntime: ToolRuntime
     let autoCompactEnabled: Bool
 }
 

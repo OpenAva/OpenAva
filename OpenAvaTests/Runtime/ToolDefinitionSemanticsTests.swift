@@ -141,8 +141,8 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
     }
 
     @MainActor
-    func testCurrentTimeToolWorksThroughLocalToolRuntime() async {
-        let runtime = LocalToolRuntime(
+    func testCurrentTimeToolWorksThroughToolRuntime() async {
+        let runtime = ToolRuntime(
             cameraService: StubCameraService(),
             screenRecordingService: StubScreenRecordingService(),
             locationService: StubLocationService(),

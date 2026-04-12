@@ -67,7 +67,7 @@ extension JavaScriptService: ToolDefinitionProvider {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        let sessionID = LocalToolRuntime.InvocationContext.sessionID
+        let sessionID = ToolRuntime.InvocationContext.sessionID
         let allowedTools = Self.normalizedAllowedTools(from: params.allowedTools)
         let timeoutMs = Self.clampedTimeoutMs(params.timeoutMs)
 

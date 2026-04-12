@@ -99,7 +99,7 @@ final class DeviceTools: ToolDefinitionProvider {
     private let notificationCenter: any NotificationCentering
     private let fileSystemService: FileSystemService
 
-    /// Shared media-persistence closure injected from LocalToolRuntime.
+    /// Shared media-persistence closure injected from ToolRuntime.
     let persistMediaData: @Sendable (Data, String, String) throws -> MediaFile
 
     /// Resolves the active agent workspace URL for media output.

@@ -186,7 +186,7 @@ extension WebViewService: ToolDefinitionProvider {
     }
 
     private func normalizedSessionID() -> String {
-        let trimmed = (LocalToolRuntime.InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = (ToolRuntime.InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "default" : trimmed
     }
 
