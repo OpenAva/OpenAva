@@ -2,6 +2,8 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
+// MARK: - Tools
+
 extension ImageSearchService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -56,7 +58,7 @@ extension ImageSearchService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["image.search"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleImageSearchInvoke(request)
         }
     }

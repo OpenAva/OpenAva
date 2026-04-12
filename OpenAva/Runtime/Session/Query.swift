@@ -42,7 +42,7 @@ func query(
     model: ConversationSession.Model,
     requestMessages: inout [ChatRequestBody.Message],
     tools: [ChatRequestBody.Tool]?,
-    toolUseContext: ToolUseContext,
+    toolUseContext: ToolExecutionContext,
     maxTurns: Int,
     continuation: AsyncThrowingStream<QueryEvent, Error>.Continuation
 ) async throws -> QueryResult {
@@ -72,7 +72,7 @@ private func queryLoop(
     model: ConversationSession.Model,
     state: inout QueryState,
     tools: [ChatRequestBody.Tool]?,
-    toolUseContext: ToolUseContext,
+    toolUseContext: ToolExecutionContext,
     maxTurns: Int,
     continuation: AsyncThrowingStream<QueryEvent, Error>.Continuation
 ) async throws -> QueryResult {
@@ -172,7 +172,7 @@ private func synthesizeInterruptedToolResults(
     _ entries: [ToolCallEntry],
     assistantMessage: ConversationMessage,
     requestMessages: inout [ChatRequestBody.Message],
-    toolUseContext: ToolUseContext,
+    toolUseContext: ToolExecutionContext,
     continuation: AsyncThrowingStream<QueryEvent, Error>.Continuation
 ) {
     guard !entries.isEmpty else { return }
@@ -384,7 +384,7 @@ private func executeToolCalls(
     _ pendingToolCalls: [ToolRequest],
     assistantMessage: ConversationMessage?,
     requestMessages: inout [ChatRequestBody.Message],
-    toolUseContext: ToolUseContext,
+    toolUseContext: ToolExecutionContext,
     continuation: AsyncThrowingStream<QueryEvent, Error>.Continuation
 ) async throws -> String? {
     guard let toolProvider = toolUseContext.toolProvider,
@@ -417,7 +417,6 @@ private func executeToolCalls(
                     id: request.id,
                     toolName: tool.displayName,
                     apiName: request.name,
-                    toolIcon: tool.iconName,
                     parameters: request.arguments,
                     state: permissionDecision.allowsExecution ? .running : .failed
                 )
@@ -594,7 +593,7 @@ private func summarizeToolText(_ text: String, limit: Int) -> String {
 private func executeSingleToolCall(
     _ entry: ToolCallEntry,
     toolProvider: any ToolProvider,
-    toolUseContext: ToolUseContext
+    toolUseContext: ToolExecutionContext
 ) async throws -> ToolCallResponse {
     if Task.isCancelled {
         logger.notice(
@@ -605,8 +604,7 @@ private func executeSingleToolCall(
     do {
         let result = try await toolProvider.executeTool(
             entry.tool,
-            parameters: entry.request.arguments,
-            anchor: toolUseContext.messageListView
+            parameters: entry.request.arguments
         )
         if Task.isCancelled {
             logger.notice(
@@ -675,6 +673,9 @@ private func permissionMessage(for decision: ToolPermissionDecision, fallback: S
 }
 
 private func truncateToolOutput(_ text: String, limit: Int) -> String {
-    guard text.count > limit else { return text }
-    return "\(String(text.prefix(limit)))...\n\(String.localized("Output truncated."))"
+    ToolInvocationHelpers.truncateText(
+        text,
+        limit: limit,
+        suffix: String.localized("Output truncated.")
+    )
 }

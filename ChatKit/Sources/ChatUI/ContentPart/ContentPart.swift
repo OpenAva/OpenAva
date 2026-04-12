@@ -139,7 +139,6 @@ public struct ToolCallContentPart: Identifiable, Sendable {
     public let id: String
     public var toolName: String
     public var apiName: String
-    public var toolIcon: String?
     public var parameters: String
     public var state: ToolCallState
 
@@ -147,14 +146,12 @@ public struct ToolCallContentPart: Identifiable, Sendable {
         id: String = UUID().uuidString,
         toolName: String,
         apiName: String = "",
-        toolIcon: String? = nil,
         parameters: String = "{}",
         state: ToolCallState = .running
     ) {
         self.id = id
         self.toolName = toolName
         self.apiName = apiName
-        self.toolIcon = toolIcon
         self.parameters = parameters
         self.state = state
     }

@@ -27,9 +27,9 @@ struct ToolPermissionDecision: Equatable {
     }
 }
 
-typealias CanUseTool = @Sendable (_ request: ToolRequest, _ tool: any ToolExecutor, _ context: ToolUseContext) async -> ToolPermissionDecision
+typealias CanUseTool = @Sendable (_ request: ToolRequest, _ tool: any ToolExecutor, _ context: ToolExecutionContext) async -> ToolPermissionDecision
 
 @MainActor
-func allowAllTools(_: ToolRequest, _: any ToolExecutor, _: ToolUseContext) async -> ToolPermissionDecision {
+func allowAllTools(_: ToolRequest, _: any ToolExecutor, _: ToolExecutionContext) async -> ToolPermissionDecision {
     .allow
 }

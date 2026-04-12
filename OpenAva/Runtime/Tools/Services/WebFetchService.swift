@@ -43,7 +43,7 @@ actor WebFetchService {
     private var cache: [String: CacheEntry] = [:]
 
     /// Injected prompt processor for applying LLM-based processing to fetched content.
-    /// Set by LocalToolInvokeService during initialization.
+    /// Set by LocalToolRuntime during initialization.
     var promptProcessor: (@Sendable (WebFetchResult, String) async throws -> String)?
 
     /// Allows external callers to set `promptProcessor` from an isolated context.

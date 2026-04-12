@@ -2,6 +2,8 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
+// MARK: - Tools
+
 extension YouTubeTranscriptService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -44,7 +46,7 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["youtube.transcript"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleYouTubeTranscriptInvoke(request)
         }
     }

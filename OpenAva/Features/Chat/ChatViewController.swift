@@ -448,31 +448,10 @@ open class ChatViewController: UIViewController {
         isExecutingCurrentTurn = session.currentTask != nil
         messageListView.prepareForNewSession()
         messageListView.onToggleReasoningCollapse = { [weak self] messageID in
-            guard let self, let conversationMessage = self.currentSession?.message(for: messageID) else { return }
-            for (index, part) in conversationMessage.parts.enumerated() {
-                if case var .reasoning(reasoningPart) = part {
-                    reasoningPart.isCollapsed.toggle()
-                    conversationMessage.parts[index] = .reasoning(reasoningPart)
-                    self.currentSession?.notifyMessagesDidChange(scrolling: false)
-                    return
-                }
-            }
+            self?.currentSession?.toggleReasoningCollapse(for: messageID)
         }
         messageListView.onToggleToolResultCollapse = { [weak self] messageID, toolCallID in
-            guard let self, let conversationMessage = self.currentSession?.message(for: messageID) else { return }
-            var didToggle = false
-            for (index, part) in conversationMessage.parts.enumerated() {
-                guard case var .toolResult(toolResult) = part,
-                      toolResult.toolCallID == toolCallID
-                else {
-                    continue
-                }
-                toolResult.isCollapsed.toggle()
-                conversationMessage.parts[index] = .toolResult(toolResult)
-                didToggle = true
-            }
-            guard didToggle else { return }
-            self.currentSession?.notifyMessagesDidChange(scrolling: false)
+            self?.currentSession?.toggleToolResultCollapse(for: messageID, toolCallID: toolCallID)
         }
         messageListView.onRetryInterruptedInference = { [weak self] in
             guard let self, let session = self.currentSession else { return }

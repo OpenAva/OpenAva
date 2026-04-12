@@ -2,18 +2,17 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-extension MemoryToolDefinitions {
+extension MemoryTools {
     func registerHandlers(
         into handlers: inout [String: ToolHandler],
-        runtimeRootURL _: URL?,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        context: ToolHandlerRegistrationContext
     ) {
         for command in ["memory.recall", "memory.upsert", "memory.forget", "memory.transcript_search"] {
             handlers[command] = { [weak self] request in
-                guard self != nil else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
                 return try await Self.handleMemoryInvoke(
                     request,
-                    activeRuntimeRootURLProvider: activeRuntimeRootURLProvider
+                    activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider
                 )
             }
         }

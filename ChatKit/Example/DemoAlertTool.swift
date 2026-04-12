@@ -20,10 +20,9 @@ enum DemoAlertTool {
 
     final class Executor: ToolExecutor {
         let displayName = String(localized: "Show Alert")
-        let iconName = "exclamationmark.bubble"
 
         @MainActor
-        func execute(parameters: String, anchor: UIView?) throws -> ToolResult {
+        func execute(parameters: String) throws -> ToolResult {
             let data = Data(parameters.utf8)
             let arguments = try JSONDecoder().decode(Arguments.self, from: data)
 
@@ -41,7 +40,7 @@ enum DemoAlertTool {
                 )
             )
 
-            guard let viewController = anchor?.parentViewController else {
+            guard let viewController = UIApplication.shared.topPresentedViewController else {
                 throw NSError(domain: "DemoAlertTool", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: String(localized: "Unable to find a view controller to present the alert."),
                 ])
@@ -90,30 +89,36 @@ enum DemoAlertTool {
 
         func executeTool(
             _ tool: ToolExecutor,
-            parameters: String,
-            anchor: UIView?
+            parameters: String
         ) async throws -> ToolResult {
             guard let tool = tool as? Executor else {
                 return .init(error: String(localized: "Unsupported tool executor."))
             }
             return try await MainActor.run {
-                try tool.execute(parameters: parameters, anchor: anchor)
+                try tool.execute(parameters: parameters)
             }
         }
-
-        func prepareForConversation() async {}
     }
 }
 
-extension UIResponder {
-    var parentViewController: UIViewController? {
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let viewController = next as? UIViewController {
-                return viewController
-            }
-            responder = next
+extension UIApplication {
+    @MainActor
+    var topPresentedViewController: UIViewController? {
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: { $0.isKeyWindow })?
+            .topPresentedViewController
+    }
+}
+
+extension UIViewController {
+    @MainActor
+    var topPresentedViewController: UIViewController {
+        var current = self
+        while let presented = current.presentedViewController {
+            current = presented
         }
-        return nil
+        return current
     }
 }

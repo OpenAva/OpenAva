@@ -2,6 +2,8 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
+// MARK: - Tools
+
 extension TextImageRenderService: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
@@ -51,7 +53,7 @@ extension TextImageRenderService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["text.image.render"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleTextImageRenderInvoke(request)
         }
     }

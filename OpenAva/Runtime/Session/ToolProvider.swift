@@ -8,14 +8,11 @@
 
 import ChatClient
 import Foundation
-import UIKit
 
 /// Information about an executable tool.
 public protocol ToolExecutor: Sendable {
     /// Display name for the tool.
     var displayName: String { get }
-    /// SF Symbol name for the tool icon.
-    var iconName: String { get }
     /// Whether this tool is read-only from the agent's perspective.
     var isReadOnly: Bool { get }
     /// Whether this tool can destroy or overwrite data.
@@ -109,10 +106,7 @@ public protocol ToolProvider: AnyObject, Sendable {
     /// Execute a tool with the given parameters.
     func executeTool(
         _ tool: ToolExecutor,
-        parameters: String,
-        anchor: UIView?
+        parameters: String
     ) async throws -> ToolResult
 
-    /// Called before a conversation starts, to set up tool state.
-    func prepareForConversation() async
 }

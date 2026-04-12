@@ -3,6 +3,8 @@ import OpenClawKit
 import OpenClawProtocol
 
 /// Tool definition provider for file system service
+// MARK: - Tools
+
 extension FileSystemService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -244,7 +246,7 @@ extension FileSystemService: ToolDefinitionProvider {
         let commands = ["fs.read", "fs.write", "fs.list", "fs.mkdir", "fs.delete", "fs.replace", "fs.append", "fs.find", "fs.grep"]
         for command in commands {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleFileSystemInvoke(request)
             }
         }

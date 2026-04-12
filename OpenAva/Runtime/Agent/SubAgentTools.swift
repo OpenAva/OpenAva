@@ -2,7 +2,7 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-final class SubAgentToolDefinitions: ToolDefinitionProvider {
+final class SubAgentTools: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         let availableTypes = SubAgentRegistry.availableAgentTypes().joined(separator: ", ")
 

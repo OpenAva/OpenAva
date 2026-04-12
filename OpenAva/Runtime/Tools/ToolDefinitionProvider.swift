@@ -11,14 +11,56 @@ protocol ToolDefinitionProvider: AnyObject {
 
     /// Register invocation handlers for this provider's commands into the given handlers map.
     /// The default implementation does nothing, preserving backward compatibility for
-    /// providers whose handlers are still in LocalToolInvokeService.
+    /// providers whose handlers are still in LocalToolRuntime.
     func registerHandlers(into handlers: inout [String: ToolHandler])
+
+    /// Register invocation handlers using a shared registration context.
+    func registerHandlers(into handlers: inout [String: ToolHandler], context: ToolHandlerRegistrationContext)
 }
 
 extension ToolDefinitionProvider {
     func registerHandlers(into _: inout [String: ToolHandler]) {
         // Default: no handlers — backward compatible with providers not yet migrated.
     }
+
+    func registerHandlers(into handlers: inout [String: ToolHandler], context _: ToolHandlerRegistrationContext) {
+        registerHandlers(into: &handlers)
+    }
+}
+
+struct ToolHandlerRegistrationContext {
+    let workspaceRootURL: URL?
+    let modelConfig: AppConfig.LLMModel?
+    let activeRuntimeRootURLProvider: @Sendable () -> URL?
+    let toolInvoker: @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
+    let teamToolContextProvider: @Sendable () -> TeamSwarmCoordinator.ToolContext
+
+    init(
+        workspaceRootURL: URL? = nil,
+        modelConfig: AppConfig.LLMModel? = nil,
+        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL? = { nil },
+        toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse = { request, _ in
+            BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+            )
+        },
+        teamToolContextProvider: @escaping @Sendable () -> TeamSwarmCoordinator.ToolContext = {
+            TeamSwarmCoordinator.ToolContext(sessionID: nil, senderMemberID: nil)
+        }
+    ) {
+        self.workspaceRootURL = workspaceRootURL
+        self.modelConfig = modelConfig
+        self.activeRuntimeRootURLProvider = activeRuntimeRootURLProvider
+        self.toolInvoker = toolInvoker
+        self.teamToolContextProvider = teamToolContextProvider
+    }
+}
+
+enum ToolHandlerError: Error {
+    case unknownCommand
+    case handlerUnavailable
 }
 
 /// A tool invocation handler closure type.

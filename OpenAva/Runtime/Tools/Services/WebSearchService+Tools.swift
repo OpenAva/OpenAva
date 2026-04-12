@@ -2,6 +2,8 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
+// MARK: - Tools
+
 extension WebSearchService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -50,7 +52,7 @@ extension WebSearchService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["web.search"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleWebSearchInvoke(request)
         }
     }

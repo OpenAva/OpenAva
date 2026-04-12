@@ -7,7 +7,7 @@ import UserNotifications
 /// Provides tool definitions and invocation handlers for device-related commands
 /// (location, camera, screen, notify, device status, watch, photos, image, contacts,
 /// calendar, reminders, cron, motion, speech).
-final class DeviceToolDefinitions: ToolDefinitionProvider {
+final class DeviceTools: ToolDefinitionProvider {
     enum PlatformProfile {
         case iOS
         case macCatalyst
@@ -99,7 +99,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
     private let notificationCenter: any NotificationCentering
     private let fileSystemService: FileSystemService
 
-    /// Shared media-persistence closure injected from LocalToolInvokeService.
+    /// Shared media-persistence closure injected from LocalToolRuntime.
     let persistMediaData: @Sendable (Data, String, String) throws -> MediaFile
 
     /// Resolves the active agent workspace URL for media output.
@@ -573,7 +573,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
 
         // Location
         handlers[OpenClawLocationCommand.get.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             if let message = Self.unsupportedPlatformMessage(platform: platform, command: request.command) {
                 return ToolInvocationHelpers.unavailableResponse(id: request.id, message)
             }
@@ -583,27 +583,27 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
         // Camera
         for command in [OpenClawCameraCommand.list.rawValue, OpenClawCameraCommand.snap.rawValue, OpenClawCameraCommand.clip.rawValue] {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleCameraInvoke(request)
             }
         }
 
         // Screen record
         handlers[OpenClawScreenCommand.record.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleScreenRecordInvoke(request)
         }
 
         // System notify
         handlers[OpenClawSystemCommand.notify.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleSystemNotify(request)
         }
 
         // Device status / info / current time
         for command in [OpenClawDeviceCommand.status.rawValue, OpenClawDeviceCommand.info.rawValue, "current.time"] {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleDeviceInvoke(request)
             }
         }
@@ -612,7 +612,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
         if !platform.isMacCatalyst {
             for command in [OpenClawWatchCommand.status.rawValue, OpenClawWatchCommand.notify.rawValue] {
                 handlers[command] = { [weak self] request in
-                    guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                    guard let self else { throw ToolHandlerError.handlerUnavailable }
                     return try await self.handleWatchInvoke(request)
                 }
             }
@@ -620,20 +620,20 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
 
         // Photos
         handlers[OpenClawPhotosCommand.latest.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handlePhotosInvoke(request)
         }
 
         // Image background removal
         handlers[OpenClawImageCommand.removeBackground.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleImageInvoke(request)
         }
 
         // Contacts
         for command in [OpenClawContactsCommand.search.rawValue, OpenClawContactsCommand.add.rawValue] {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleContactsInvoke(request)
             }
         }
@@ -641,7 +641,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
         // Calendar
         for command in [OpenClawCalendarCommand.events.rawValue, OpenClawCalendarCommand.add.rawValue] {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleCalendarInvoke(request)
             }
         }
@@ -649,14 +649,14 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
         // Reminders
         for command in [OpenClawRemindersCommand.list.rawValue, OpenClawRemindersCommand.add.rawValue] {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleRemindersInvoke(request)
             }
         }
 
         // Cron
         handlers[CronCommand.cron.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleCronInvoke(request)
         }
 
@@ -664,7 +664,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
         if !platform.isMacCatalyst {
             for command in [OpenClawMotionCommand.activity.rawValue, OpenClawMotionCommand.pedometer.rawValue] {
                 handlers[command] = { [weak self] request in
-                    guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                    guard let self else { throw ToolHandlerError.handlerUnavailable }
                     return try await self.handleMotionInvoke(request)
                 }
             }
@@ -672,7 +672,7 @@ final class DeviceToolDefinitions: ToolDefinitionProvider {
 
         // Speech
         handlers[OpenClawSpeechCommand.transcribe.rawValue] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleSpeechInvoke(request)
         }
     }

@@ -44,7 +44,7 @@ extension JavaScriptService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["javascript.execute"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleJavaScriptInvoke(request)
         }
     }
@@ -67,7 +67,7 @@ extension JavaScriptService: ToolDefinitionProvider {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        let sessionID = LocalToolInvokeService.InvocationContext.sessionID
+        let sessionID = LocalToolRuntime.InvocationContext.sessionID
         let allowedTools = Self.normalizedAllowedTools(from: params.allowedTools)
         let timeoutMs = Self.clampedTimeoutMs(params.timeoutMs)
 
@@ -89,7 +89,11 @@ extension JavaScriptService: ToolDefinitionProvider {
                 )
             }
 
-            guard let command = await ToolRegistry.shared.command(forFunctionName: functionName) else {
+            guard let nestedRequest = await ToolRegistry.shared.request(
+                id: UUID().uuidString,
+                forFunctionName: functionName,
+                argumentsJSON: argumentsJSON
+            ) else {
                 return BridgeInvokeResponse(
                     id: UUID().uuidString,
                     ok: false,
@@ -97,11 +101,6 @@ extension JavaScriptService: ToolDefinitionProvider {
                 )
             }
 
-            let nestedRequest = BridgeInvokeRequest(
-                id: UUID().uuidString,
-                command: command,
-                paramsJSON: argumentsJSON
-            )
             return await invoker(nestedRequest)
         }
 

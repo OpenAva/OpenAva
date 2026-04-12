@@ -16,7 +16,7 @@ struct HeartbeatRuntimeConfiguration {
     let baseSystemPrompt: String?
     let chatClient: any ChatClient
     let modelConfig: AppConfig.LLMModel
-    let toolInvokeService: LocalToolInvokeService
+    let toolRuntime: LocalToolRuntime
     let autoCompactEnabled: Bool
 }
 
@@ -248,8 +248,8 @@ final class HeartbeatService {
         )
         let sessionConfiguration = ConversationSession.Configuration(
             storage: storageProvider,
-            tools: RegistryToolProvider(
-                toolInvokeService: configuration.toolInvokeService,
+            tools: ToolRegistryProvider(
+                toolRuntime: configuration.toolRuntime,
                 invocationSessionID: toolInvocationSessionID
             ),
             delegate: agentDelegate,

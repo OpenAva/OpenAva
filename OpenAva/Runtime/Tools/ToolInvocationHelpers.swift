@@ -2,7 +2,7 @@ import Foundation
 import OpenClawKit
 
 /// Shared utility methods for tool invocation handlers.
-/// These are used by both LocalToolInvokeService and individual Provider extensions.
+/// These are used by both LocalToolRuntime and individual Provider extensions.
 enum ToolInvocationHelpers {
     // MARK: - Parameter Decoding
 
@@ -31,6 +31,11 @@ enum ToolInvocationHelpers {
 
     static func unavailableResponse(id: String, _ message: String) -> BridgeInvokeResponse {
         errorResponse(id: id, code: .unavailable, message: message)
+    }
+
+    static func truncateText(_ text: String, limit: Int, suffix: String = "Output truncated.") -> String {
+        guard text.count > limit else { return text }
+        return "\(String(text.prefix(limit)))...\n\(suffix)"
     }
 
     // MARK: - Payload Encoding

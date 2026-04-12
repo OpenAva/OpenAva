@@ -174,6 +174,12 @@ public final class ConversationSession: Identifiable, Sendable {
         messagesSubject.send((messages, scrolling))
     }
 
+    func checkCancellation() throws {
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+    }
+
     func refreshContentsFromDatabase(scrolling: Bool = true) {
         messages.removeAll()
         messages = storageProvider.messages(in: id)
@@ -190,6 +196,35 @@ public final class ConversationSession: Identifiable, Sendable {
 
     func removeMessage(with messageID: String) {
         messages.removeAll { $0.id == messageID }
+    }
+
+    func toggleReasoningCollapse(for messageID: String) {
+        guard let conversationMessage = message(for: messageID) else { return }
+        for (index, part) in conversationMessage.parts.enumerated() {
+            if case var .reasoning(reasoningPart) = part {
+                reasoningPart.isCollapsed.toggle()
+                conversationMessage.parts[index] = .reasoning(reasoningPart)
+                notifyMessagesDidChange(scrolling: false)
+                return
+            }
+        }
+    }
+
+    func toggleToolResultCollapse(for messageID: String, toolCallID: String) {
+        guard let conversationMessage = message(for: messageID) else { return }
+        var didToggle = false
+        for (index, part) in conversationMessage.parts.enumerated() {
+            guard case var .toolResult(toolResult) = part,
+                  toolResult.toolCallID == toolCallID
+            else {
+                continue
+            }
+            toolResult.isCollapsed.toggle()
+            conversationMessage.parts[index] = .toolResult(toolResult)
+            didToggle = true
+        }
+        guard didToggle else { return }
+        notifyMessagesDidChange(scrolling: false)
     }
 
     public func delete(_ messageID: String) {

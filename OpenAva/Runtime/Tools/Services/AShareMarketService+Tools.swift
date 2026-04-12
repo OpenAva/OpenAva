@@ -2,6 +2,8 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
+// MARK: - Tools
+
 extension AShareMarketService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -40,7 +42,7 @@ extension AShareMarketService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["finance.a_share"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleAShareMarketInvoke(request)
         }
     }

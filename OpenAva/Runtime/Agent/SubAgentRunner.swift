@@ -107,34 +107,24 @@ enum SubAgentRunner {
     }
 
     private static func filteredTools(for definition: SubAgentDefinition) async -> [ChatRequestBody.Tool] {
-        let definitions = await ToolRegistry.shared.allDefinitions()
+        await ToolRegistry.shared.allDefinitions()
             .filter { definition.allowsTool(functionName: $0.functionName) }
-
-        return definitions.compactMap { definition in
-            .function(
-                name: definition.functionName,
-                description: definition.description,
-                parameters: convertParametersSchema(definition.parametersSchema),
-                strict: nil
-            )
-        }
+            .map(\.chatRequestTool)
     }
 
     private static func executeToolCall(
         _ toolRequest: ToolRequest,
         executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse
     ) async -> (text: String, isError: Bool) {
-        guard let command = await ToolRegistry.shared.command(forFunctionName: toolRequest.name) else {
+        guard let request = await ToolRegistry.shared.request(
+            id: toolRequest.id,
+            forFunctionName: toolRequest.name,
+            argumentsJSON: toolRequest.arguments
+        ) else {
             return ("TOOL_NOT_FOUND: \(toolRequest.name)", true)
         }
 
-        let response = await executeTool(
-            BridgeInvokeRequest(
-                id: toolRequest.id,
-                command: command,
-                paramsJSON: toolRequest.arguments
-            )
-        )
+        let response = await executeTool(request)
 
         if response.ok {
             let payload = AppConfig.nonEmpty(response.payload) ?? "Tool executed successfully with no output."
@@ -146,16 +136,6 @@ enum SubAgentRunner {
     }
 
     private static func trimmedToolResponse(_ text: String, limit: Int = 64 * 1024) -> String {
-        guard text.count > limit else { return text }
-        return "\(String(text.prefix(limit)))...\nOutput truncated."
-    }
-
-    private static func convertParametersSchema(_ schema: AnyCodable) -> [String: AnyCodingValue]? {
-        do {
-            let data = try JSONEncoder().encode(schema)
-            return try JSONDecoder().decode([String: AnyCodingValue].self, from: data)
-        } catch {
-            return nil
-        }
+        ToolInvocationHelpers.truncateText(text, limit: limit)
     }
 }

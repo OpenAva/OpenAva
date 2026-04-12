@@ -1,9 +1,10 @@
 import Foundation
+import OpenClawKit
 
 /// Central registry for managing tool definitions and handlers from various services.
 /// Tools are registered at startup and queried by LLMClient when building requests.
 actor ToolRegistry {
-    private var definitionsByCommand: [String: ToolDefinition] = [:]
+    private var definitionsByFunctionName: [String: ToolDefinition] = [:]
     private var handlersByCommand: [String: ToolHandler] = [:]
 
     /// Shared singleton instance
@@ -13,11 +14,16 @@ actor ToolRegistry {
 
     /// Register tools and handlers from a provider
     func register(provider: ToolDefinitionProvider) {
+        register(provider: provider, context: .init())
+    }
+
+    /// Register tools and handlers from a provider with a shared registration context.
+    func register(provider: ToolDefinitionProvider, context: ToolHandlerRegistrationContext) {
         let newDefinitions = provider.toolDefinitions()
         for definition in newDefinitions {
-            definitionsByCommand[definition.command] = definition
+            definitionsByFunctionName[definition.functionName] = definition
         }
-        provider.registerHandlers(into: &handlersByCommand)
+        provider.registerHandlers(into: &handlersByCommand, context: context)
     }
 
     /// Register a single handler for a command
@@ -27,22 +33,20 @@ actor ToolRegistry {
 
     /// Get all registered tool definitions
     func allDefinitions() -> [ToolDefinition] {
-        Array(definitionsByCommand.values)
-    }
-
-    /// Get command for a function name
-    func command(forFunctionName functionName: String) -> String? {
-        definitionsByCommand.values.first { $0.functionName == functionName }?.command
+        Array(definitionsByFunctionName.values)
     }
 
     /// Get full definition for a function name
     func definition(forFunctionName functionName: String) -> ToolDefinition? {
-        definitionsByCommand.values.first { $0.functionName == functionName }
+        definitionsByFunctionName[functionName]
     }
 
-    /// Get full definition for a command
-    func definition(forCommand command: String) -> ToolDefinition? {
-        definitionsByCommand[command]
+    /// Build an invoke request for a function name.
+    func request(id: String, forFunctionName functionName: String, argumentsJSON: String?) -> BridgeInvokeRequest? {
+        guard let definition = definitionsByFunctionName[functionName] else {
+            return nil
+        }
+        return BridgeInvokeRequest(id: id, command: definition.command, paramsJSON: argumentsJSON)
     }
 
     /// Get handler for a command
@@ -50,14 +54,9 @@ actor ToolRegistry {
         handlersByCommand[command]
     }
 
-    /// Get all registered handlers
-    func allHandlers() -> [String: ToolHandler] {
-        handlersByCommand
-    }
-
     /// Clear all registered tools and handlers (useful for testing)
     func clear() {
-        definitionsByCommand.removeAll()
+        definitionsByFunctionName.removeAll()
         handlersByCommand.removeAll()
     }
 }

@@ -2,20 +2,18 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-extension SkillToolDefinitions {
+extension SkillTools {
     func registerHandlers(
         into handlers: inout [String: ToolHandler],
-        workspaceRootURL: URL?,
-        modelConfig: AppConfig.LLMModel?,
-        toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
+        context: ToolHandlerRegistrationContext
     ) {
         handlers["skill.invoke"] = { [weak self] request in
-            guard self != nil else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard self != nil else { throw ToolHandlerError.handlerUnavailable }
             return try await Self.handleSkillInvoke(
                 request,
-                workspaceRootURL: workspaceRootURL,
-                modelConfig: modelConfig,
-                toolInvoker: toolInvoker
+                workspaceRootURL: context.workspaceRootURL,
+                modelConfig: context.modelConfig,
+                toolInvoker: context.toolInvoker
             )
         }
     }
@@ -95,7 +93,7 @@ extension SkillToolDefinitions {
                     )
                 }
 
-                let sessionID = LocalToolInvokeService.InvocationContext.sessionID
+                let sessionID = LocalToolRuntime.InvocationContext.sessionID
                 let output = try await SubAgentRunner.run(
                     prompt: forkedSkillPrompt(skill: skill, task: task, body: body),
                     definition: definition,

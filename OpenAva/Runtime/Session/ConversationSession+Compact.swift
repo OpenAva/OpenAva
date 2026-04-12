@@ -82,7 +82,6 @@ extension ConversationSession {
         let requestMessages = buildRequestMessages(capabilities: model.capabilities)
         var tools: [ChatRequestBody.Tool]?
         if model.capabilities.contains(.tool), let toolProvider {
-            await toolProvider.prepareForConversation()
             let enabledTools = await toolProvider.enabledTools()
             if !enabledTools.isEmpty {
                 tools = enabledTools

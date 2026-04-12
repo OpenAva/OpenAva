@@ -6,7 +6,7 @@ import OpenClawProtocol
 import UserNotifications
 
 @MainActor
-final class LocalToolInvokeService: @unchecked Sendable {
+final class LocalToolRuntime: @unchecked Sendable {
     enum InvocationContext {
         /// Session identifier propagated from chat layer for tool state isolation.
         @TaskLocal static var sessionID: String?
@@ -47,8 +47,9 @@ final class LocalToolInvokeService: @unchecked Sendable {
     private let weatherService: WeatherService
     private let yahooFinanceService: YahooFinanceService
     private let aShareMarketService: AShareMarketService
+    private var registryRegistrationTask: Task<Void, Never>?
 
-    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolInvokeService {
+    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> LocalToolRuntime {
         let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
         let notificationCenter = LiveNotificationCenter()
         let cameraService = CameraController()
@@ -70,7 +71,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
             additionalReadableRootURLs: builtInSkillRoots
         )
 
-        let service = LocalToolInvokeService(
+        let service = LocalToolRuntime(
             cameraService: cameraService,
             screenRecordingService: screenRecordingService,
             locationService: locationService,
@@ -101,11 +102,6 @@ final class LocalToolInvokeService: @unchecked Sendable {
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL
         )
-
-        // Register all tools with the registry once the service is fully initialized.
-        Task { @MainActor [weak service] in
-            await service?.registerProvidersWithRegistry()
-        }
 
         return service
     }
@@ -197,25 +193,55 @@ final class LocalToolInvokeService: @unchecked Sendable {
         }
         textImageRenderService.mediaPersister = { [weak self] data, suggestedExtension, prefix in
             guard let self else {
-                throw NSError(domain: "LocalToolInvokeService", code: 1, userInfo: [
+                throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
                 ])
             }
             let file = try self.persistMediaData(data, suggestedExtension: suggestedExtension, prefix: prefix)
             return TextImageRenderService.PersistedMediaFile(path: file.path, sizeBytes: file.sizeBytes)
         }
+
+        registryRegistrationTask = Task { @MainActor [weak self] in
+            await self?.registerProvidersWithRegistry()
+        }
     }
 
     // MARK: - Tool Registry Registration
 
+    func ensureRegistryReady() async {
+        await registryRegistrationTask?.value
+    }
+
+    private func makeToolHandlerRegistrationContext() -> ToolHandlerRegistrationContext {
+        ToolHandlerRegistrationContext(
+            workspaceRootURL: workspaceRootURL,
+            modelConfig: modelConfig,
+            activeRuntimeRootURLProvider: { [weak self] in
+                self?.activeAgentRuntimeRootURL()
+            },
+            toolInvoker: { [weak self] request, sessionID in
+                guard let self else {
+                    return Self.unavailableResponse(id: request.id, "UNAVAILABLE: local tool handler unavailable")
+                }
+                return await self.handle(request, sessionID: sessionID)
+            },
+            teamToolContextProvider: {
+                TeamSwarmCoordinator.ToolContext(
+                    sessionID: Self.InvocationContext.sessionID,
+                    senderMemberID: Self.InvocationContext.teamContext?.memberID
+                )
+            }
+        )
+    }
+
     /// Register all providers with the tool registry.
-    /// Called during `registerAllTools()` from `ToolRegistration.swift`.
-    func registerProvidersWithRegistry() async {
+    private func registerProvidersWithRegistry() async {
         let registry = ToolRegistry.shared
+        let context = makeToolHandlerRegistrationContext()
 
         // Device tools (location, camera, screen, notify, device, watch, photos, image,
         // contacts, calendar, reminders, cron, motion, speech)
-        let deviceProvider = DeviceToolDefinitions(
+        let deviceProvider = DeviceTools(
             cameraService: cameraService,
             screenRecordingService: screenRecordingService,
             locationService: locationService,
@@ -234,129 +260,58 @@ final class LocalToolInvokeService: @unchecked Sendable {
             fileSystemService: fileSystemService,
             persistMediaData: { [weak self] data, ext, prefix in
                 guard let self else {
-                    throw NSError(domain: "LocalToolInvokeService", code: 1, userInfo: [
+                    throw NSError(domain: "LocalToolRuntime", code: 1, userInfo: [
                         NSLocalizedDescriptionKey: "UNAVAILABLE: media persister unavailable",
                     ])
                 }
                 let file = try self.persistMediaData(data, suggestedExtension: ext, prefix: prefix)
-                return DeviceToolDefinitions.MediaFile(path: file.path, sizeBytes: file.sizeBytes)
+                return DeviceTools.MediaFile(path: file.path, sizeBytes: file.sizeBytes)
             },
             activeAgentWorkspaceURL: { [weak self] in
                 self?.activeAgentWorkspaceURL()
             }
         )
-        await registry.register(provider: deviceProvider)
+        let memoryProvider = MemoryTools()
+        let subAgentProvider = SubAgentTools()
+        let teamProvider = TeamTools()
+        let skillProvider = SkillTools()
 
-        // Web tools
-        await registry.register(provider: webFetchService)
-        await registry.register(provider: webSearchService)
-        await registry.register(provider: imageSearchService)
-        await registry.register(provider: youTubeTranscriptService)
-        await registry.register(provider: webViewToolService)
-        await registry.register(provider: javaScriptService)
-        await registry.register(provider: textImageRenderService)
+        let providers: [any ToolDefinitionProvider] = [
+            deviceProvider,
+            webFetchService,
+            webSearchService,
+            imageSearchService,
+            youTubeTranscriptService,
+            webViewToolService,
+            javaScriptService,
+            textImageRenderService,
+            fileSystemService,
+            memoryProvider,
+            subAgentProvider,
+            teamProvider,
+            skillProvider,
+            weatherService,
+            yahooFinanceService,
+            aShareMarketService,
+        ]
 
-        // File system tools
-        await registry.register(provider: fileSystemService)
-
-        // Memory tools
-        let memoryProvider = MemoryToolDefinitions()
-        var memoryHandlers: [String: ToolHandler] = [:]
-        memoryProvider.registerHandlers(
-            into: &memoryHandlers,
-            runtimeRootURL: runtimeRootURL,
-            activeRuntimeRootURLProvider: { [weak self] in
-                self?.activeAgentRuntimeRootURL()
-            }
-        )
-        for (command, handler) in memoryHandlers {
-            await registry.registerHandler(command: command, handler: handler)
+        for provider in providers {
+            await registry.register(provider: provider, context: context)
         }
-        await registry.register(provider: memoryProvider)
-
-        // Sub agent tools
-        let subAgentProvider = SubAgentToolDefinitions()
-        var subAgentHandlers: [String: ToolHandler] = [:]
-        subAgentProvider.registerHandlers(
-            into: &subAgentHandlers,
-            workspaceRootURL: workspaceRootURL,
-            modelConfig: modelConfig,
-            toolInvoker: { [weak self] request, sessionID in
-                guard let self else {
-                    return BridgeInvokeResponse(
-                        id: request.id,
-                        ok: false,
-                        error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
-                    )
-                }
-                return await self.handle(request, sessionID: sessionID)
-            }
-        )
-        for (command, handler) in subAgentHandlers {
-            await registry.registerHandler(command: command, handler: handler)
-        }
-        await registry.register(provider: subAgentProvider)
-
-        // Team / swarm tools
-        let teamProvider = TeamToolDefinitions()
-        var teamHandlers: [String: ToolHandler] = [:]
-        teamProvider.registerHandlers(
-            into: &teamHandlers,
-            toolContextProvider: { [weak self] in
-                TeamSwarmCoordinator.ToolContext(
-                    sessionID: Self.InvocationContext.sessionID,
-                    senderMemberID: Self.InvocationContext.teamContext?.memberID
-                )
-            }
-        )
-        for (command, handler) in teamHandlers {
-            await registry.registerHandler(command: command, handler: handler)
-        }
-        await registry.register(provider: teamProvider)
-
-        // Skill tools
-        let skillProvider = SkillToolDefinitions()
-        var skillHandlers: [String: ToolHandler] = [:]
-        skillProvider.registerHandlers(
-            into: &skillHandlers,
-            workspaceRootURL: workspaceRootURL,
-            modelConfig: modelConfig,
-            toolInvoker: { [weak self] request, sessionID in
-                guard let self else {
-                    return BridgeInvokeResponse(
-                        id: request.id,
-                        ok: false,
-                        error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
-                    )
-                }
-                return await self.handle(request, sessionID: sessionID)
-            }
-        )
-        for (command, handler) in skillHandlers {
-            await registry.registerHandler(command: command, handler: handler)
-        }
-        await registry.register(provider: skillProvider)
-
-        // Weather tool
-        await registry.register(provider: weatherService)
-
-        // Yahoo Finance tool
-        await registry.register(provider: yahooFinanceService)
-
-        // A-share market tool
-        await registry.register(provider: aShareMarketService)
     }
 
     // MARK: - Request Dispatch
 
     func handle(_ request: BridgeInvokeRequest) async -> BridgeInvokeResponse {
+        await ensureRegistryReady()
+
         guard let handler = await ToolRegistry.shared.handler(forCommand: request.command) else {
             return Self.invalidRequest(id: request.id, "unknown command")
         }
 
         do {
             return try await handler(request)
-        } catch let error as NodeCapabilityRouter.RouterError {
+        } catch let error as ToolHandlerError {
             switch error {
             case .unknownCommand:
                 return Self.invalidRequest(id: request.id, "unknown command")
@@ -390,7 +345,7 @@ final class LocalToolInvokeService: @unchecked Sendable {
 
     private func applyPromptToWebFetchResult(_ result: WebFetchResult, prompt: String) async throws -> String {
         guard let modelConfig else {
-            throw NSError(domain: "LocalToolInvokeService.WebFetch", code: 1, userInfo: [NSLocalizedDescriptionKey: "UNAVAILABLE: no configured model for web fetch prompt processing"])
+            throw NSError(domain: "LocalToolRuntime.WebFetch", code: 1, userInfo: [NSLocalizedDescriptionKey: "UNAVAILABLE: no configured model for web fetch prompt processing"])
         }
 
         let client = LLMChatClient(modelConfig: modelConfig)

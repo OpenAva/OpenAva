@@ -3,7 +3,7 @@ import OpenClawKit
 import OpenClawProtocol
 
 /// Tool definition for invoking a skill by stable skill name.
-final class SkillToolDefinitions: ToolDefinitionProvider {
+final class SkillTools: ToolDefinitionProvider {
     func toolDefinitions() -> [ToolDefinition] {
         [
             ToolDefinition(

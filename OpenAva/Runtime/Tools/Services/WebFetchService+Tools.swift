@@ -3,6 +3,8 @@ import OpenClawKit
 import OpenClawProtocol
 
 /// Tool definition provider for web fetch service
+// MARK: - Tools
+
 extension WebFetchService: ToolDefinitionProvider {
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -34,7 +36,7 @@ extension WebFetchService: ToolDefinitionProvider {
 
     func registerHandlers(into handlers: inout [String: ToolHandler]) {
         handlers["web.fetch"] = { [weak self] request in
-            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            guard let self else { throw ToolHandlerError.handlerUnavailable }
             return try await self.handleWebFetchInvoke(request)
         }
     }

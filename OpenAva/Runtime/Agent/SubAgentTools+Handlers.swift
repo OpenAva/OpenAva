@@ -2,21 +2,19 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-extension SubAgentToolDefinitions {
+extension SubAgentTools {
     func registerHandlers(
         into handlers: inout [String: ToolHandler],
-        workspaceRootURL: URL?,
-        modelConfig: AppConfig.LLMModel?,
-        toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
+        context: ToolHandlerRegistrationContext
     ) {
         for command in ["subagent.run", "subagent.status", "subagent.cancel"] {
             handlers[command] = { [weak self] request in
-                guard self != nil else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
                 return try await Self.handleSubAgentInvoke(
                     request,
-                    workspaceRootURL: workspaceRootURL,
-                    modelConfig: modelConfig,
-                    toolInvoker: toolInvoker
+                    workspaceRootURL: context.workspaceRootURL,
+                    modelConfig: context.modelConfig,
+                    toolInvoker: context.toolInvoker
                 )
             }
         }
@@ -70,7 +68,7 @@ extension SubAgentToolDefinitions {
                 )
             }
             let definition = SubAgentRegistry.definition(for: params.subagentType) ?? SubAgentRegistry.generalPurpose
-            let sessionID = LocalToolInvokeService.InvocationContext.sessionID
+            let sessionID = LocalToolRuntime.InvocationContext.sessionID
 
             if params.runInBackground == true {
                 let record = await SubAgentTaskStore.shared.create(

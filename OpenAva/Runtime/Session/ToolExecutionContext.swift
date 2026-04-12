@@ -3,10 +3,9 @@ import ChatUI
 import Foundation
 
 @MainActor
-struct ToolUseContext {
+struct ToolExecutionContext {
     let session: ConversationSession
     let toolProvider: (any ToolProvider)?
-    let messageListView: MessageListView
     let canUseTool: CanUseTool
     let toolResponseLimit: Int
     let interruptFallbackText: String
@@ -14,14 +13,12 @@ struct ToolUseContext {
     init(
         session: ConversationSession,
         toolProvider: (any ToolProvider)?,
-        messageListView: MessageListView,
         canUseTool: @escaping CanUseTool,
         toolResponseLimit: Int = 64 * 1024,
         interruptFallbackText: String = String.localized("Interrupted by user")
     ) {
         self.session = session
         self.toolProvider = toolProvider
-        self.messageListView = messageListView
         self.canUseTool = canUseTool
         self.toolResponseLimit = toolResponseLimit
         self.interruptFallbackText = interruptFallbackText

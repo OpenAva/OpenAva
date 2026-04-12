@@ -54,7 +54,6 @@ final class QueryEngine {
     ) async throws -> QueryResult {
         let session = config.session
         let model = config.model
-        let messageListView = config.messageListView
         let modelCapabilities = model.capabilities
 
         session.persistMessages()
@@ -81,17 +80,15 @@ final class QueryEngine {
 
         var tools: [ChatRequestBody.Tool]? = nil
         if modelCapabilities.contains(.tool), let toolProvider = session.toolProvider {
-            await toolProvider.prepareForConversation()
             let toolDefinitions = await toolProvider.enabledTools()
             if !toolDefinitions.isEmpty {
                 tools = toolDefinitions
             }
         }
 
-        let toolUseContext = ToolUseContext(
+        let toolUseContext = ToolExecutionContext(
             session: session,
             toolProvider: session.toolProvider,
-            messageListView: messageListView,
             canUseTool: config.canUseTool
         )
 

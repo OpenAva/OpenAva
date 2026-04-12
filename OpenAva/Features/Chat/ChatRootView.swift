@@ -311,7 +311,7 @@ struct ChatRootView: View {
                 baseSystemPrompt: selectedModel.systemPrompt,
                 chatClient: chatClient,
                 modelConfig: selectedModel,
-                toolInvokeService: containerStore.container.services.localToolInvokeService,
+                toolRuntime: containerStore.container.services.localToolRuntime,
                 autoCompactEnabled: autoCompactEnabled
             )
         )
@@ -552,8 +552,8 @@ private struct ChatScreen: View {
             workspaceRootURL: container.config.agent.workspaceRootURL,
             runtimeRootURL: container.config.agent.runtimeRootURL,
             chatClient: container.services.chatClient,
-            toolProvider: RegistryToolProvider(
-                toolInvokeService: container.services.localToolInvokeService,
+            toolProvider: ToolRegistryProvider(
+                toolRuntime: container.services.localToolRuntime,
                 invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,

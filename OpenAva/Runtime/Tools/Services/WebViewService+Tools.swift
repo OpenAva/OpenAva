@@ -179,14 +179,14 @@ extension WebViewService: ToolDefinitionProvider {
                         "web_view_scroll", "web_view_select", "web_view_navigate", "web_view_close", "web_view_read"]
         for command in commands {
             handlers[command] = { [weak self] request in
-                guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard let self else { throw ToolHandlerError.handlerUnavailable }
                 return try await self.handleWebViewInvoke(request)
             }
         }
     }
 
     private func normalizedSessionID() -> String {
-        let trimmed = (LocalToolInvokeService.InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = (LocalToolRuntime.InvocationContext.sessionID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "default" : trimmed
     }
 

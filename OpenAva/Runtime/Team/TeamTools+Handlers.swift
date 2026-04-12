@@ -2,19 +2,19 @@ import Foundation
 import OpenClawKit
 import OpenClawProtocol
 
-extension TeamToolDefinitions {
+extension TeamTools {
     func registerHandlers(
         into handlers: inout [String: ToolHandler],
-        toolContextProvider: @escaping @Sendable () -> TeamSwarmCoordinator.ToolContext
+        context: ToolHandlerRegistrationContext
     ) {
         for command in ["team.status", "team.message.send", "team.plan.approve",
                         "team.task.create", "team.task.list", "team.task.get", "team.task.update"]
         {
             handlers[command] = { [weak self] request in
-                guard self != nil else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+                guard self != nil else { throw ToolHandlerError.handlerUnavailable }
                 return try await Self.handleTeamInvoke(
                     request,
-                    toolContextProvider: toolContextProvider
+                    toolContextProvider: context.teamToolContextProvider
                 )
             }
         }

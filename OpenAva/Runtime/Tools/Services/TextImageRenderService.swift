@@ -49,7 +49,7 @@ final class TextImageRenderService {
     }
 
     /// Injected media persister for saving rendered images to the workspace.
-    /// Set by LocalToolInvokeService during initialization.
+    /// Set by LocalToolRuntime during initialization.
     var mediaPersister: (@Sendable (Data, String, String) throws -> PersistedMediaFile)?
 
     private struct ThemePalette {
