@@ -35,12 +35,26 @@ enum SubAgentRunner {
         var finalText = ""
 
         while turnCount < maxTurns {
+            let shouldReserveFinalTurn = shouldReserveFinalResponseTurn(
+                completedTurns: turnCount,
+                maxTurns: maxTurns
+            )
+            if shouldReserveFinalTurn {
+                requestMessages.append(.user(content: .text(
+                    """
+                    <system-reminder>
+                    \(finalTurnResponseReminderText())
+                    </system-reminder>
+                    """
+                )))
+            }
+
             turnCount += 1
 
             let response = try await client.chat(
                 body: ChatRequestBody(
                     messages: requestMessages,
-                    tools: tools.isEmpty ? nil : tools
+                    tools: shouldReserveFinalTurn || tools.isEmpty ? nil : tools
                 )
             )
 

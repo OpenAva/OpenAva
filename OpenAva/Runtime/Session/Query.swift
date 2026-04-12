@@ -5,6 +5,34 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.query")
 
+func shouldReserveFinalResponseTurn(completedTurns: Int, maxTurns: Int) -> Bool {
+    guard maxTurns > 0 else { return false }
+    return completedTurns + 1 >= maxTurns
+}
+
+func finalTurnResponseReminderText() -> String {
+    """
+    This is the final allowed model turn for this task.
+    Provide the best possible final answer using the conversation and any tool results already available.
+    Do not call tools or ask for more investigation.
+    If anything remains uncertain, clearly separate confirmed findings from remaining unknowns.
+    """
+}
+
+func appendFinalTurnResponseReminder(to requestMessages: inout [ChatRequestBody.Message]) {
+    requestMessages.append(
+        .user(
+            content: .text(
+                """
+                <system-reminder>
+                \(finalTurnResponseReminderText())
+                </system-reminder>
+                """
+            )
+        )
+    )
+}
+
 private struct QueryState {
     var requestMessages: [ChatRequestBody.Message]
     var totalTurns: Int = 0
@@ -78,6 +106,10 @@ private func queryLoop(
 ) async throws -> QueryResult {
     while state.totalTurns < maxTurns {
         let nextTurn = state.totalTurns + 1
+        let shouldReserveFinalTurn = shouldReserveFinalResponseTurn(
+            completedTurns: state.totalTurns,
+            maxTurns: maxTurns
+        )
         logger.debug(
             "query loop tick session=\(session.id, privacy: .public) turn=\(nextTurn) cancelled=\(String(Task.isCancelled), privacy: .public)"
         )
@@ -95,13 +127,20 @@ private func queryLoop(
             state.didCompact = true
         }
 
+        if shouldReserveFinalTurn {
+            logger.notice(
+                "query loop reserving final response turn session=\(session.id, privacy: .public) turn=\(nextTurn)"
+            )
+            appendFinalTurnResponseReminder(to: &state.requestMessages)
+        }
+
         state.totalTurns += 1
 
         let turn = try await executeQueryTurn(
             session: session,
             model: model,
             requestMessages: &state.requestMessages,
-            tools: tools,
+            tools: shouldReserveFinalTurn ? nil : tools,
             continuation: continuation
         )
 

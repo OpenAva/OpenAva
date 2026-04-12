@@ -46,12 +46,26 @@ enum TeamSwarmRunner {
         var finalText = ""
 
         while totalTurns < definition.maxTurns {
+            let shouldReserveFinalTurn = shouldReserveFinalResponseTurn(
+                completedTurns: totalTurns,
+                maxTurns: definition.maxTurns
+            )
+            if shouldReserveFinalTurn {
+                requestMessages.append(.user(content: .text(
+                    """
+                    <system-reminder>
+                    \(finalTurnResponseReminderText())
+                    </system-reminder>
+                    """
+                )))
+            }
+
             totalTurns += 1
 
             let response = try await client.chat(
                 body: ChatRequestBody(
                     messages: requestMessages,
-                    tools: tools.isEmpty ? nil : tools
+                    tools: shouldReserveFinalTurn || tools.isEmpty ? nil : tools
                 )
             )
 

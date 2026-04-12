@@ -13,7 +13,7 @@ struct QueryEngineConfig {
         session: ConversationSession,
         model: ConversationSession.Model,
         messageListView: MessageListView,
-        maxTurns: Int = 16,
+        maxTurns: Int = 32,
         canUseTool: @escaping CanUseTool = allowAllTools
     ) {
         self.session = session

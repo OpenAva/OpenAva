@@ -11,7 +11,7 @@ enum SubAgentRegistry {
         """,
         toolPolicy: .all,
         disallowedFunctionNames: SubAgentDefinition.recursiveToolFunctionNames,
-        maxTurns: 8,
+        maxTurns: 16,
         supportsBackground: true
     )
 
@@ -26,7 +26,7 @@ enum SubAgentRegistry {
         """,
         toolPolicy: .readOnly,
         disallowedFunctionNames: SubAgentDefinition.recursiveToolFunctionNames,
-        maxTurns: 6,
+        maxTurns: 12,
         supportsBackground: true
     )
 
@@ -40,7 +40,7 @@ enum SubAgentRegistry {
         """,
         toolPolicy: .readOnly,
         disallowedFunctionNames: SubAgentDefinition.recursiveToolFunctionNames,
-        maxTurns: 6,
+        maxTurns: 12,
         supportsBackground: true
     )
 
