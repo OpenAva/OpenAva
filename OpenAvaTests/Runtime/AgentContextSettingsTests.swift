@@ -189,11 +189,21 @@ final class AgentContextSettingsTests: XCTestCase {
         // Ensure built-in skill files are discoverable in runtime skill listing.
         let names = Set(AgentSkillsLoader.listSkills(filterUnavailable: false).map(\.name))
 
+        XCTAssertTrue(names.contains("arxiv-research"))
         XCTAssertTrue(names.contains("frontend-design"))
         XCTAssertTrue(names.contains("expert-translator"))
         XCTAssertTrue(names.contains("memory-maintenance"))
         XCTAssertTrue(names.contains("social-post-image"))
         XCTAssertTrue(names.contains("time-lock"))
+    }
+
+    func testBuiltInArxivResearchSkillMetadataIsReadable() {
+        let skill = AgentSkillsLoader.resolveSkill(named: "arxiv-research", filterUnavailable: false)
+
+        XCTAssertEqual(skill?.displayName, "arXiv Research")
+        XCTAssertEqual(skill?.emoji, "📚")
+        XCTAssertEqual(skill?.description, "Find, triage, and synthesize academic papers using `arxiv_search` plus OpenAva web reading tools.")
+        XCTAssertEqual(skill?.whenToUse, "Use when the user wants to find papers, scan a research topic, compare recent work, or build a reading list from arXiv.")
     }
 
     func testBuiltInMemoryMaintenanceSkillRemainsDiscoverable() {

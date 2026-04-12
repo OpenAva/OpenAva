@@ -47,6 +47,7 @@ final class LocalToolRuntime: @unchecked Sendable {
     private let weatherService: WeatherService
     private let yahooFinanceService: YahooFinanceService
     private let aShareMarketService: AShareMarketService
+    private let arxivSearchService: ArxivSearchService
     private var registryRegistrationTask: Task<Void, Never>?
     private lazy var deviceProvider: DeviceTools = .init(
         cameraService: cameraService,
@@ -134,6 +135,7 @@ final class LocalToolRuntime: @unchecked Sendable {
             weatherService: WeatherService(),
             yahooFinanceService: YahooFinanceService(),
             aShareMarketService: AShareMarketService(),
+            arxivSearchService: ArxivSearchService(),
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL
         )
@@ -167,6 +169,7 @@ final class LocalToolRuntime: @unchecked Sendable {
         weatherService: WeatherService = WeatherService(),
         yahooFinanceService: YahooFinanceService = YahooFinanceService(),
         aShareMarketService: AShareMarketService = AShareMarketService(),
+        arxivSearchService: ArxivSearchService = ArxivSearchService(),
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil
     ) {
@@ -199,6 +202,7 @@ final class LocalToolRuntime: @unchecked Sendable {
         self.weatherService = weatherService
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
+        self.arxivSearchService = arxivSearchService
         TeamSwarmCoordinator.shared.configure(
             runtimeRootURL: runtimeRootURL,
             workspaceRootURL: workspaceRootURL,
@@ -289,6 +293,7 @@ final class LocalToolRuntime: @unchecked Sendable {
             weatherService,
             yahooFinanceService,
             aShareMarketService,
+            arxivSearchService,
         ]
 
         for provider in providers {

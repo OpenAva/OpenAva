@@ -4,6 +4,16 @@ import XCTest
 @testable import OpenAva
 
 final class ToolDefinitionSemanticsTests: XCTestCase {
+    func testArxivSearchDefinitionExposesReadOnlySemantics() {
+        let definitions = ArxivSearchService().toolDefinitions()
+        let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
+
+        XCTAssertEqual(byName["arxiv_search"]?.isReadOnly, true)
+        XCTAssertEqual(byName["arxiv_search"]?.isDestructive, false)
+        XCTAssertEqual(byName["arxiv_search"]?.isConcurrencySafe, true)
+        XCTAssertEqual(byName["arxiv_search"]?.maxResultSizeChars, 24 * 1024)
+    }
+
     func testFileSystemDefinitionsExposeReadOnlyAndMutableSemantics() async {
         let definitions = await FileSystemService().toolDefinitions()
         let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
