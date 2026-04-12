@@ -108,7 +108,7 @@ actor AShareMarketService {
                     updatedAt: formatter.string(from: Date()),
                     minuteAnalysis: nil,
                     minuteError: nil,
-                    error: "无法获取 \(Self.cleanCode(code)) 的行情数据"
+                    error: "Failed to fetch market data for \(Self.cleanCode(code))"
                 ))
                 continue
             }
@@ -120,7 +120,7 @@ actor AShareMarketService {
                 if let analyzed = Self.analyzeMinuteVolume(minuteData) {
                     minuteAnalysis = analyzed
                 } else {
-                    minuteError = "无有效交易数据"
+                    minuteError = "No valid trading data"
                 }
             }
 
@@ -386,21 +386,21 @@ actor AShareMarketService {
         let openRatio = Double(open30) / Double(totalVolume)
 
         if closeRatio > 0.25 {
-            signals.append("尾盘大幅放量，可能有主力抢筹或出货")
+            signals.append("Heavy volume into the close, which may indicate aggressive accumulation or distribution")
         } else if closeRatio > 0.15 {
-            signals.append("尾盘有一定放量")
+            signals.append("Noticeable volume expansion into the close")
         }
         if openRatio > 0.40 {
-            signals.append("早盘放量异常，主力强势介入")
+            signals.append("Abnormally high early-session volume, suggesting strong institutional participation")
         } else if openRatio > 0.30 {
-            signals.append("早盘主力抢筹明显")
+            signals.append("Strong early-session buying pressure is evident")
         }
 
         if let lastPrice = tradingData.last?.close,
            let highestVolPrice = sortedByVolume.first?.close,
            abs(lastPrice - highestVolPrice) < 0.01
         {
-            signals.append("封板状态，关注封单量")
+            signals.append("Price appears pinned near the limit-up level; monitor order-book support")
         }
 
         return AShareMinuteAnalysis(

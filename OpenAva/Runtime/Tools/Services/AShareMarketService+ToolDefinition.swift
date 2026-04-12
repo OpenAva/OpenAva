@@ -70,11 +70,11 @@ extension AShareMarketService: ToolDefinitionProvider {
         var blocks: [String] = []
         for result in results {
             if let error = result.error {
-                blocks.append("错误: \(error)")
+                blocks.append("Error: \(error)")
                 continue
             }
             guard let realtime = result.realtime else {
-                blocks.append("错误: 无法获取 \(result.code) 的行情数据")
+                blocks.append("Error: Failed to fetch market data for \(result.code)")
                 continue
             }
 
@@ -83,7 +83,7 @@ extension AShareMarketService: ToolDefinitionProvider {
                 if let analysis = result.minuteAnalysis {
                     text += Self.formatMinuteAnalysis(analysis)
                 } else if let minuteError = result.minuteError {
-                    text += "\n\n【分时量能分析】\n  错误: \(minuteError)"
+                    text += "\n\n[Minute Volume Analysis]\n  Error: \(minuteError)"
                 }
             }
             blocks.append(text)
