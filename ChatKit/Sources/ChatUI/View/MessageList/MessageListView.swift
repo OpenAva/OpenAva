@@ -17,6 +17,11 @@ public final class MessageListView: UIView {
     private var renderedMessages: [ConversationMessage] = []
     private var loadingMessage: String?
     private var lastRenderScrolling = false
+    private var lastObservedListWidth: CGFloat = 0
+    /// Tracks whether entries were rendered while the list had no usable width.
+    /// Catalyst foreground/window restoration can transiently layout the list at zero width,
+    /// which makes all row heights collapse to zero until we explicitly reload.
+    private var needsWidthRecovery = false
 
     public var contentSize: CGSize {
         listView.contentSize
@@ -86,6 +91,7 @@ public final class MessageListView: UIView {
         super.layoutSubviews()
 
         listView.contentInset = contentSafeAreaInsets
+        recoverLayoutIfNeeded()
 
         if isAutoScrollingToBottom || wasNearBottom {
             let targetOffset = listView.maximumContentOffset
@@ -116,6 +122,7 @@ public final class MessageListView: UIView {
         isAutoScrollingToBottom = true
         showsInterruptedRetryAction = false
         isFirstLoad = true
+        needsWidthRecovery = false
         alpha = 0
         dataSource.applySnapshot(using: [], animatingDifferences: false)
     }
@@ -140,6 +147,33 @@ public final class MessageListView: UIView {
         updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: nil)
     }
 
+    public func recoverLayoutIfNeeded() {
+        let currentWidth = listView.bounds.width
+
+        guard entryCount > 0 else {
+            lastObservedListWidth = currentWidth
+            needsWidthRecovery = false
+            return
+        }
+
+        guard currentWidth > 0 else {
+            needsWidthRecovery = true
+            lastObservedListWidth = 0
+            return
+        }
+
+        let recoveredFromZeroWidth = needsWidthRecovery || lastObservedListWidth == 0
+        lastObservedListWidth = currentWidth
+        guard recoveredFromZeroWidth else { return }
+
+        needsWidthRecovery = false
+        listView.reloadData()
+
+        if isAutoScrollingToBottom {
+            listView.setContentOffset(.init(x: 0, y: listView.maximumContentOffset.y), animated: false)
+        }
+    }
+
     private func updateFromUpstreamPublisher(_ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?) {
         var entries = entries(from: messages)
 
@@ -156,6 +190,9 @@ public final class MessageListView: UIView {
         let shouldScrolling = scrolling && isAutoScrollingToBottom
 
         entryCount = entries.count
+        if entryCount > 0, listView.bounds.width == 0 {
+            needsWidthRecovery = true
+        }
         if isFirstLoad || alpha == 0 {
             isFirstLoad = false
             dataSource.applySnapshot(using: entries, animatingDifferences: false)

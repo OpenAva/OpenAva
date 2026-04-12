@@ -151,6 +151,9 @@ open class ChatViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var sessionCancellables = Set<AnyCancellable>()
     private var keyboardHeight: CGFloat = 0
+    /// Coalesces foreground / safe-area / transition recovery into one pass so the
+    /// message list only re-evaluates once after geometry stabilizes.
+    private var isContentRecoveryScheduled = false
     private var latestContextUsageSnapshot: ContextUsageSnapshot?
     private var contextUsageRefreshTask: Task<Void, Never>?
 
@@ -277,7 +280,13 @@ open class ChatViewController: UIViewController {
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutViews()
+        messageListView.recoverLayoutIfNeeded()
         updateCatalystTitlebarToolbarIfNeeded()
+    }
+
+    override open func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        scheduleContentRecoveryIfNeeded()
     }
 
     override open func viewWillAppear(_ animated: Bool) {
@@ -287,7 +296,15 @@ open class ChatViewController: UIViewController {
 
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        scheduleContentRecoveryIfNeeded()
         updateCatalystTitlebarToolbarIfNeeded()
+    }
+
+    override open func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.scheduleContentRecoveryIfNeeded()
+        }
     }
 
     private func layoutViews() {
@@ -314,6 +331,36 @@ open class ChatViewController: UIViewController {
             height: chatInputView.frame.minY
         )
         messageListView.contentSafeAreaInsets = UIEdgeInsets(top: safeArea.top, left: 0, bottom: 0, right: 0)
+    }
+
+    private func recoverVisibleContent(resetKeyboard: Bool = false) {
+        guard isViewLoaded else { return }
+        if resetKeyboard {
+            keyboardHeight = 0
+        }
+
+        chatInputView.setNeedsLayout()
+        chatInputView.layoutIfNeeded()
+        layoutViews()
+        messageListView.setNeedsLayout()
+        messageListView.layoutIfNeeded()
+        messageListView.recoverLayoutIfNeeded()
+        updateCatalystTitlebarToolbarIfNeeded()
+    }
+
+    private func scheduleContentRecoveryIfNeeded(resetKeyboard: Bool = false) {
+        guard isViewLoaded else { return }
+        if resetKeyboard {
+            keyboardHeight = 0
+        }
+        guard !isContentRecoveryScheduled else { return }
+        isContentRecoveryScheduled = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isViewLoaded else { return }
+            self.isContentRecoveryScheduled = false
+            self.recoverVisibleContent()
+        }
     }
 
     private func setupKeyboardObservation() {
@@ -358,17 +405,7 @@ open class ChatViewController: UIViewController {
         #if targetEnvironment(macCatalyst)
             NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
                 .sink { [weak self] _ in
-                    guard let self else { return }
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, self.isViewLoaded else { return }
-                        self.keyboardHeight = 0
-                        self.chatInputView.setNeedsLayout()
-                        self.chatInputView.layoutIfNeeded()
-                        self.messageListView.setNeedsLayout()
-                        self.messageListView.layoutIfNeeded()
-                        self.layoutViews()
-                        self.updateCatalystTitlebarToolbarIfNeeded()
-                    }
+                    self?.scheduleContentRecoveryIfNeeded(resetKeyboard: true)
                 }
                 .store(in: &cancellables)
         #endif
