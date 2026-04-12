@@ -544,7 +544,7 @@ open class ChatViewController: UIViewController {
         let model = resolvedHeaderModelTitle(from: headerState)
         let agentText = emoji.isEmpty ? (agent.isEmpty ? "Assistant" : agent) : "\(emoji) \(agent)"
         let title = "\(agentText) · \(model)"
-        
+
         navigationTitleView.agentTitle = agent.isEmpty ? "Assistant" : agent
         navigationTitleView.agentEmoji = emoji
         navigationTitleView.modelTitle = model

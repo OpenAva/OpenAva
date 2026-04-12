@@ -169,9 +169,6 @@ struct ChatRootView: View {
         .id(containerAgent)
         #if targetEnvironment(macCatalyst)
             .toolbar(.hidden, for: .navigationBar)
-        #else
-            .toolbar(.visible, for: .navigationBar)
-            .toolbarBackground(.hidden, for: .navigationBar)
         #endif
             .ignoresSafeArea(edges: .top)
     }
@@ -498,6 +495,9 @@ private struct ChatScreen: View {
     private let autoCompactEnabled: Bool
     private let onToggleAutoCompact: (() -> Void)?
 
+    @State private var showsRenameAlert = false
+    @State private var renameText = ""
+
     init(
         container: AppContainer,
         scopedSessionID: String,
@@ -554,7 +554,6 @@ private struct ChatScreen: View {
             chatClient: container.services.chatClient,
             toolProvider: RegistryToolProvider(
                 toolInvokeService: container.services.localToolInvokeService,
-                // Combine agent and session scope to prevent cross-agent web_view collisions.
                 invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
@@ -582,7 +581,55 @@ private struct ChatScreen: View {
         )
         .id(scopedSessionID)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        .navigationBarTitleDisplayMode(.inline)
+        #if !targetEnvironment(macCatalyst)
+            .toolbar {
+                ChatToolbarContent(
+                    agentName: activeAgentName,
+                    agentEmoji: activeAgentEmoji,
+                    modelName: selectedModelName,
+                    teams: teams,
+                    agents: agents,
+                    activeAgentID: activeAgentID,
+                    autoCompactEnabled: autoCompactEnabled,
+                    onTapAgent: {},
+                    onTapModel: { onMenuAction?(.openLLM) },
+                    onMenuAction: onMenuAction,
+                    onAgentSwitch: onAgentSwitch,
+                    onCreateLocalAgent: onCreateLocalAgent,
+                    onCreateLocalTeam: onCreateLocalTeam,
+                    onDeleteCurrentAgent: onDeleteCurrentAgent,
+                    onRenameCurrentAgent: onRenameCurrentAgent,
+                    onAddAgentToTeam: onAddAgentToTeam,
+                    onCreateAgentForTeam: onCreateAgentForTeam,
+                    onDeleteTeam: onDeleteTeam,
+                    onToggleAutoCompact: onToggleAutoCompact
+                )
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
+            .alert(L10n.tr("chat.menu.renameAgentNamed", activeAgentName), isPresented: $showsRenameAlert) {
+                TextField(L10n.tr("chat.menu.renameAlert.placeholder"), text: $renameText)
+                Button(L10n.tr("common.cancel"), role: .cancel) {}
+                Button(L10n.tr("common.save")) {
+                    let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    _ = onRenameCurrentAgent?(name)
+                }
+            } message: {
+                Text(L10n.tr("chat.menu.renameAlert.message"))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarRenameRequested)) { _ in
+                renameText = activeAgentName
+                showsRenameAlert = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarHeartbeatRequested)) { _ in
+                onMenuAction?(.runHeartbeatNow)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarOpenModelRequested)) { _ in
+                onMenuAction?(.openLLM)
+            }
     }
 }
 
