@@ -84,6 +84,27 @@ extension MessageListView {
         var entries: [Entry] = []
         var latestDisplayedDay: Date?
 
+        func isReasoningStillStreaming(in message: ConversationMessage) -> Bool {
+            var hasVisibleReasoning = false
+
+            for part in message.parts {
+                switch part {
+                case let .reasoning(reasoningPart):
+                    if !reasoningPart.text.isEmpty {
+                        hasVisibleReasoning = true
+                    }
+                case let .text(textPart):
+                    if !textPart.text.isEmpty {
+                        return false
+                    }
+                case .toolCall, .toolResult, .image, .audio, .file:
+                    return false
+                }
+            }
+
+            return hasVisibleReasoning
+        }
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
 
@@ -106,8 +127,7 @@ extension MessageListView {
             checkAddDateHint(message.createdAt)
 
             let textContent = message.textContent
-            let reasoningContent = message.reasoningContent ?? ""
-            let isThinking = textContent.isEmpty && !reasoningContent.isEmpty
+            let isThinking = isReasoningStillStreaming(in: message)
             var reasoningDuration: TimeInterval = 0
             var reasoningCollapsed = false
 
@@ -180,7 +200,7 @@ extension MessageListView {
                             role: message.role,
                             content: reasoningPart.text,
                             isRevealed: !reasoningPart.isCollapsed,
-                            isThinking: textContent.isEmpty,
+                            isThinking: isThinking,
                             thinkingDuration: reasoningPart.duration
                         )
                         entries.append(.reasoningContent(reasoningPart.id, reasoningRep))
