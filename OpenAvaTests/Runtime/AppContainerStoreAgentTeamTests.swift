@@ -4,6 +4,16 @@ import XCTest
 
 @MainActor
 final class AppContainerStoreAgentTeamTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        removeTeamStoreFile()
+    }
+
+    override func tearDown() {
+        removeTeamStoreFile()
+        super.tearDown()
+    }
+
     func testCreateAgentsFromPresetsCreatesProfilesAndFiles() throws {
         let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -88,5 +98,10 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
         let updatedTeam = try XCTUnwrap(containerStore.addAgents([agent.id], toTeam: team.id))
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
+    }
+
+    private func removeTeamStoreFile() {
+        guard let rootURL = TeamStore.storageDirectoryURL(fileManager: .default) else { return }
+        try? FileManager.default.removeItem(at: rootURL.appendingPathComponent("teams.json", isDirectory: false))
     }
 }

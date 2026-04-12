@@ -352,7 +352,7 @@ enum AgentStore {
         }
     }
 
-    private static func workspaceRootDirectory(fileManager: FileManager) throws -> URL {
+    static func workspaceRootDirectory(fileManager: FileManager) throws -> URL {
         guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw NSError(
                 domain: "AgentStore",
@@ -360,7 +360,7 @@ enum AgentStore {
                 userInfo: [NSLocalizedDescriptionKey: "Documents directory unavailable"]
             )
         }
-        #if targetEnvironment(macCatalyst)
+        #if os(macOS) || targetEnvironment(macCatalyst)
             let rootURL = documentsURL.appendingPathComponent("OpenAva", isDirectory: true)
         #else
             let rootURL = documentsURL

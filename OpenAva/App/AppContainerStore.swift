@@ -44,7 +44,7 @@ final class AppContainerStore {
         self.defaults = defaults
         self.fileManager = fileManager
         agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
-        teamState = TeamStore.load(defaults: defaults)
+        teamState = TeamStore.load(fileManager: fileManager)
         // Migration: clear stale explicit "en" override left from early development.
         // English is the fallback — storing it explicitly blocks system language negotiation.
         AppLanguagePreference.clearStaleEnglishOverride()
@@ -211,7 +211,7 @@ final class AppContainerStore {
             description: description,
             agentPoolIDs: agentIDs,
             defaultTopology: defaultTopology,
-            defaults: defaults
+            fileManager: fileManager
         )
         if team != nil {
             reloadTeamState()
@@ -221,7 +221,7 @@ final class AppContainerStore {
 
     @discardableResult
     func updateTeam(_ team: TeamProfile) -> TeamProfile? {
-        let updated = TeamStore.updateTeamProfile(team, defaults: defaults)
+        let updated = TeamStore.updateTeamProfile(team, fileManager: fileManager)
         if updated != nil {
             reloadTeamState()
         }
@@ -230,7 +230,7 @@ final class AppContainerStore {
 
     @discardableResult
     func updateTeam(_ teamID: UUID, name: String, emoji: String, description: String?) -> TeamProfile? {
-        let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, defaults: defaults)
+        let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, fileManager: fileManager)
         if team != nil {
             reloadTeamState()
         }
@@ -239,7 +239,7 @@ final class AppContainerStore {
 
     @discardableResult
     func addAgents(_ agentIDs: [UUID], toTeam teamID: UUID) -> TeamProfile? {
-        let team = TeamStore.addAgents(agentIDs, to: teamID, defaults: defaults)
+        let team = TeamStore.addAgents(agentIDs, to: teamID, fileManager: fileManager)
         if team != nil {
             reloadTeamState()
         }
@@ -248,7 +248,7 @@ final class AppContainerStore {
 
     @discardableResult
     func removeAgent(_ agentID: UUID, fromTeam teamID: UUID) -> TeamProfile? {
-        let team = TeamStore.removeAgent(agentID, from: teamID, defaults: defaults)
+        let team = TeamStore.removeAgent(agentID, from: teamID, fileManager: fileManager)
         if team != nil {
             reloadTeamState()
         }
@@ -256,7 +256,7 @@ final class AppContainerStore {
     }
 
     func deleteTeam(_ teamID: UUID) {
-        TeamStore.deleteTeam(teamID, defaults: defaults)
+        TeamStore.deleteTeam(teamID, fileManager: fileManager)
         reloadTeamState()
     }
 
@@ -283,7 +283,7 @@ final class AppContainerStore {
     func deleteAgent(_ agentID: UUID) -> Bool {
         let changed = AgentStore.deleteAgent(agentID, defaults: defaults, fileManager: fileManager)
         if changed {
-            TeamStore.removeAgentReferences(agentID, defaults: defaults)
+            TeamStore.removeAgentReferences(agentID, fileManager: fileManager)
             reloadTeamState()
             rebuildContainer(with: container.config)
         }
@@ -332,7 +332,7 @@ final class AppContainerStore {
     }
 
     private func reloadTeamState() {
-        teamState = TeamStore.load(defaults: defaults)
+        teamState = TeamStore.load(fileManager: fileManager)
         TeamSwarmCoordinator.shared.reload()
     }
 

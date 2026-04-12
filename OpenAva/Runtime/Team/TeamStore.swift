@@ -10,25 +10,35 @@ enum TeamStore {
         var teams: [TeamProfile]
     }
 
-    private enum DefaultsKey {
-        static let state = "team.profile.state.v1"
+    private enum Storage {
+        static let directoryName = "team"
+        static let fileName = "teams.json"
     }
 
-    static func load(defaults: UserDefaults = .standard) -> TeamStateSnapshot {
-        guard let data = defaults.data(forKey: DefaultsKey.state),
-              let decoded = try? JSONDecoder().decode(PersistedState.self, from: data),
-              decoded.version == 1
-        else {
-            return TeamStateSnapshot(teams: [])
-        }
+    static func load(fileManager: FileManager = .default) -> TeamStateSnapshot {
+        loadFromFile(fileManager: fileManager) ?? TeamStateSnapshot(teams: [])
+    }
 
+    private static func decodedState(from data: Data) -> TeamStateSnapshot? {
+        guard let decoded = try? JSONDecoder().decode(PersistedState.self, from: data), decoded.version == 1 else {
+            return nil
+        }
         return TeamStateSnapshot(
             teams: decoded.teams.sorted { $0.createdAt < $1.createdAt }
         )
     }
 
-    static func team(id teamID: UUID, defaults: UserDefaults = .standard) -> TeamProfile? {
-        load(defaults: defaults).teams.first { $0.id == teamID }
+    private static func loadFromFile(fileManager: FileManager) -> TeamStateSnapshot? {
+        guard let url = storageURL(fileManager: fileManager),
+              let data = try? Data(contentsOf: url)
+        else {
+            return nil
+        }
+        return decodedState(from: data)
+    }
+
+    static func team(id teamID: UUID, fileManager: FileManager = .default) -> TeamProfile? {
+        load(fileManager: fileManager).teams.first { $0.id == teamID }
     }
 
     @discardableResult
@@ -38,9 +48,9 @@ enum TeamStore {
         description: String? = nil,
         agentPoolIDs: [UUID] = [],
         defaultTopology: TeamTopologyKind = .automatic,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default
     ) -> TeamProfile? {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager)
         let assignedIDs = Set(state.teams.flatMap(\.agentPoolIDs))
         let normalizedAgentPoolIDs = agentPoolIDs.reduce(into: [UUID]()) { partialResult, id in
             if !partialResult.contains(id), !assignedIDs.contains(id) {
@@ -61,26 +71,26 @@ enum TeamStore {
             defaultTopology: defaultTopology
         )
         state.teams.append(team)
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager)
         return team
     }
 
-    static func deleteTeam(_ teamID: UUID, defaults: UserDefaults = .standard) {
-        var state = load(defaults: defaults)
+    static func deleteTeam(_ teamID: UUID, fileManager: FileManager = .default) {
+        var state = load(fileManager: fileManager)
         state.teams.removeAll { $0.id == teamID }
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager)
     }
 
-    static func teams(containing agentID: UUID, defaults: UserDefaults = .standard) -> [TeamProfile] {
-        load(defaults: defaults).teams.filter { $0.agentPoolIDs.contains(agentID) }
+    static func teams(containing agentID: UUID, fileManager: FileManager = .default) -> [TeamProfile] {
+        load(fileManager: fileManager).teams.filter { $0.agentPoolIDs.contains(agentID) }
     }
 
     @discardableResult
     static func updateTeamProfile(
         _ profile: TeamProfile,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default
     ) -> TeamProfile? {
-        return mutateTeam(profile.id, defaults: defaults) { team in
+        return mutateTeam(profile.id, fileManager: fileManager) { team in
             team.name = profile.name
             team.emoji = profile.emoji
             team.description = profile.description
@@ -94,9 +104,9 @@ enum TeamStore {
         name: String,
         emoji: String,
         description: String?,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default
     ) -> TeamProfile? {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager)
         guard let index = state.teams.firstIndex(where: { $0.id == teamID }) else {
             return nil
         }
@@ -117,7 +127,7 @@ enum TeamStore {
         team.description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
         team.updatedAt = Date()
         state.teams[index] = team
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager)
         return team
     }
 
@@ -125,16 +135,16 @@ enum TeamStore {
     static func addAgents(
         _ agentIDs: [UUID],
         to teamID: UUID,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default
     ) -> TeamProfile? {
-        let state = load(defaults: defaults)
+        let state = load(fileManager: fileManager)
         let assignedIDs = Set(
             state.teams
                 .filter { $0.id != teamID }
                 .flatMap(\.agentPoolIDs)
         )
         let eligible = agentIDs.filter { !assignedIDs.contains($0) }
-        return mutateTeam(teamID, defaults: defaults) { team in
+        return mutateTeam(teamID, fileManager: fileManager) { team in
             for agentID in eligible where !team.agentPoolIDs.contains(agentID) {
                 team.agentPoolIDs.append(agentID)
             }
@@ -145,31 +155,31 @@ enum TeamStore {
     static func removeAgent(
         _ agentID: UUID,
         from teamID: UUID,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default
     ) -> TeamProfile? {
-        mutateTeam(teamID, defaults: defaults) { team in
+        mutateTeam(teamID, fileManager: fileManager) { team in
             team.agentPoolIDs.removeAll { $0 == agentID }
         }
     }
 
-    static func removeAgentReferences(_ agentID: UUID, defaults: UserDefaults = .standard) {
-        var state = load(defaults: defaults)
+    static func removeAgentReferences(_ agentID: UUID, fileManager: FileManager = .default) {
+        var state = load(fileManager: fileManager)
         state.teams = state.teams.map { team in
             var team = team
             team.agentPoolIDs.removeAll { $0 == agentID }
             team.updatedAt = Date()
             return team
         }
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager)
     }
 
     @discardableResult
     private static func mutateTeam(
         _ teamID: UUID,
-        defaults: UserDefaults,
+        fileManager: FileManager,
         mutate: (inout TeamProfile) -> Void
     ) -> TeamProfile? {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager)
         guard let index = state.teams.firstIndex(where: { $0.id == teamID }) else {
             return nil
         }
@@ -178,14 +188,33 @@ enum TeamStore {
         mutate(&team)
         team.updatedAt = Date()
         state.teams[index] = team
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager)
         return team
     }
 
-    private static func persist(state: TeamStateSnapshot, defaults: UserDefaults) {
+    private static func persist(state: TeamStateSnapshot, fileManager: FileManager) {
         let payload = PersistedState(version: 1, teams: state.teams)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        defaults.set(data, forKey: DefaultsKey.state)
+        guard let url = storageURL(fileManager: fileManager, createDirectoryIfNeeded: true) else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(payload) else { return }
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    static func storageDirectoryURL(fileManager: FileManager = .default, createDirectoryIfNeeded: Bool = false) -> URL? {
+        guard let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: fileManager) else {
+            return nil
+        }
+        let directoryURL = rootURL.appendingPathComponent(Storage.directoryName, isDirectory: true)
+        if createDirectoryIfNeeded {
+            try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+        return directoryURL
+    }
+
+    private static func storageURL(fileManager: FileManager, createDirectoryIfNeeded: Bool = false) -> URL? {
+        storageDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: createDirectoryIfNeeded)?
+            .appendingPathComponent(Storage.fileName, isDirectory: false)
     }
 
     private static func nextUniqueName(baseName: String, existingNames: [String]) -> String {

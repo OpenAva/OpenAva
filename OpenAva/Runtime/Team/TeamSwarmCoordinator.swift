@@ -1083,7 +1083,7 @@ final class TeamSwarmCoordinator {
     }
 
     private var teamRootURL: URL? {
-        runtimeRootURL?.appendingPathComponent("team-swarms", isDirectory: true)
+        TeamStore.storageDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)
     }
 
     private func teamDirectoryURL(teamName: String) -> URL? {
