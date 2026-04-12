@@ -217,6 +217,16 @@
         }
       }
     },
+    "Image unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片不可用"
+          }
+        }
+      }
+    },
     "Import PDF" : {
       "localizations" : {
         "zh-Hans" : {
@@ -261,6 +271,16 @@
     "Item" : {
 
     },
+    "Loading image..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载图片…"
+          }
+        }
+      }
+    },
     "Microphone is not authorized." : {
       "localizations" : {
         "zh-Hans" : {
@@ -302,6 +322,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "确定"
+          }
+        }
+      }
+    },
+    "Open" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开"
           }
         }
       }
@@ -637,6 +667,16 @@
     },
     "Value" : {
 
+    },
+    "Video unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频不可用"
+          }
+        }
+      }
     },
     "X" : {
 

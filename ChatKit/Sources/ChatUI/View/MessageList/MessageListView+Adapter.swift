@@ -14,6 +14,7 @@ private extension MessageListView {
         case userAttachment
         case reasoningContent
         case responseContent
+        case mediaContent
         case hint
         case toolCallHint
         case toolResultContent
@@ -36,6 +37,7 @@ extension MessageListView: ListViewAdapter {
         case .userAttachment: RowType.userAttachment
         case .reasoningContent: RowType.reasoningContent
         case .responseContent: RowType.responseContent
+        case .mediaContent: RowType.mediaContent
         case .hint: RowType.hint
         case .toolCallHint: RowType.toolCallHint
         case .toolResultContent: RowType.toolResultContent
@@ -58,6 +60,8 @@ extension MessageListView: ListViewAdapter {
             ReasoningContentView()
         case .responseContent:
             ResponseView()
+        case .mediaContent:
+            MediaMessageView()
         case .hint:
             HintMessageView()
         case .toolCallHint:
@@ -114,6 +118,8 @@ extension MessageListView: ListViewAdapter {
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 markdownViewForSizeCalculation.setMarkdownManually(package)
                 return ceil(markdownViewForSizeCalculation.boundingSize(for: containerWidth).height)
+            case let .mediaContent(_, media):
+                return MediaMessageView.contentHeight(for: media, containerWidth: containerWidth)
             case .hint:
                 return ceil(theme.fonts.footnote.lineHeight + 16)
             case let .toolResultContent(_, text):
@@ -202,6 +208,33 @@ extension MessageListView: ListViewAdapter {
                             responseView?.markdownView.textView.selectAllText()
                         },
                     ])
+                }
+            }
+        } else if let mediaMessageView = rowView as? MediaMessageView {
+            if case let .mediaContent(_, media) = entry {
+                mediaMessageView.theme = theme
+                mediaMessageView.configure(with: media)
+                let mediaURL = media.url
+                mediaMessageView.contextMenuProvider = { _ in
+                    var actions: [UIAction] = [
+                        UIAction(
+                            title: String.localized("Copy"),
+                            image: UIImage(systemName: "doc.on.doc")
+                        ) { _ in
+                            UIPasteboard.general.string = mediaURL
+                        },
+                    ]
+                    if let url = URL(string: mediaURL) {
+                        actions.append(
+                            UIAction(
+                                title: String.localized("Open"),
+                                image: UIImage(systemName: "arrow.up.right.square")
+                            ) { _ in
+                                UIApplication.shared.open(url)
+                            }
+                        )
+                    }
+                    return UIMenu(children: actions)
                 }
             }
         } else if let hintMessageView = rowView as? HintMessageView {

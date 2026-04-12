@@ -11,6 +11,18 @@ enum ParsedMessageSegment: Hashable {
     case markdown(String)
     case chart(spec: ChartSpec, rawBlock: String)
     case map(spec: MapSpec, rawBlock: String)
+    case media(MarkdownMediaPayload)
+}
+
+enum MarkdownMediaKind: Hashable {
+    case image
+    case video
+}
+
+struct MarkdownMediaPayload: Hashable {
+    let kind: MarkdownMediaKind
+    let url: String
+    let altText: String?
 }
 
 enum ChartMarkdownParser {

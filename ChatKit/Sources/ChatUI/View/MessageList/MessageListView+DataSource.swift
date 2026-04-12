@@ -48,6 +48,15 @@ extension MessageListView {
         let rawBlock: String
     }
 
+    struct MediaRepresentation: Hashable {
+        let id: String
+        let messageID: String
+        let createdAt: Date
+        let kind: MarkdownMediaKind
+        let url: String
+        let altText: String?
+    }
+
     /// Displayable entries for the list view.
     enum Entry: Hashable, Identifiable {
         case userContent(String, MessageRepresentation)
@@ -59,6 +68,7 @@ extension MessageListView {
         case toolResultContent(String, String) // tool result plain text
         case chartContent(String, ChartRepresentation)
         case mapContent(String, MapRepresentation)
+        case mediaContent(String, MediaRepresentation)
         case interruptionRetry(String)
         case activityReporting(String)
 
@@ -73,6 +83,7 @@ extension MessageListView {
             case let .toolResultContent(id, _): "tool-result-\(id)"
             case let .chartContent(id, _): "chart-\(id)"
             case let .mapContent(id, _): "map-\(id)"
+            case let .mediaContent(id, _): "media-\(id)"
             case .interruptionRetry: "interruption-retry"
             case let .activityReporting(msg): "activity-\(msg)"
             }
@@ -232,19 +243,58 @@ extension MessageListView {
                                 for (nestedIndex, nestedSegment) in nestedSegments.enumerated() {
                                     switch nestedSegment {
                                     case let .markdown(nestedContent):
-                                        guard !nestedContent.isEmpty else { continue }
-                                        let segmentID = "\(textPart.id).md.\(index).\(nestedIndex)"
-                                        let textRep = MessageRepresentation(
-                                            id: segmentID,
-                                            messageID: message.id,
-                                            createdAt: message.createdAt,
-                                            role: message.role,
-                                            content: nestedContent,
-                                            isRevealed: !reasoningCollapsed,
-                                            isThinking: false,
-                                            thinkingDuration: 0
-                                        )
-                                        entries.append(.responseContent(segmentID, textRep))
+                                        let mediaSegments = MarkdownMediaParser.parseSegments(from: nestedContent)
+                                        for (mediaIndex, mediaSegment) in mediaSegments.enumerated() {
+                                            switch mediaSegment {
+                                            case let .markdown(mediaMarkdown):
+                                                guard !mediaMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                                                    continue
+                                                }
+                                                let segmentID = "\(textPart.id).md.\(index).\(nestedIndex).\(mediaIndex)"
+                                                let textRep = MessageRepresentation(
+                                                    id: segmentID,
+                                                    messageID: message.id,
+                                                    createdAt: message.createdAt,
+                                                    role: message.role,
+                                                    content: mediaMarkdown,
+                                                    isRevealed: !reasoningCollapsed,
+                                                    isThinking: false,
+                                                    thinkingDuration: 0
+                                                )
+                                                entries.append(.responseContent(segmentID, textRep))
+                                            case let .media(media):
+                                                let mediaID = "\(textPart.id).media.\(index).\(nestedIndex).\(mediaIndex)"
+                                                let mediaRep = MediaRepresentation(
+                                                    id: mediaID,
+                                                    messageID: message.id,
+                                                    createdAt: message.createdAt,
+                                                    kind: media.kind,
+                                                    url: media.url,
+                                                    altText: media.altText
+                                                )
+                                                entries.append(.mediaContent(mediaID, mediaRep))
+                                            case let .chart(spec, rawBlock):
+                                                let chartID = "\(textPart.id).chart.\(index).\(nestedIndex).\(mediaIndex)"
+                                                let chartRep = ChartRepresentation(
+                                                    id: chartID,
+                                                    messageID: message.id,
+                                                    createdAt: message.createdAt,
+                                                    spec: spec,
+                                                    rawBlock: rawBlock
+                                                )
+                                                entries.append(.chartContent(chartID, chartRep))
+                                            case let .map(spec, rawBlock):
+                                                let mapID = "\(textPart.id).map.\(index).\(nestedIndex).\(mediaIndex)"
+                                                let mapRep = MapRepresentation(
+                                                    id: mapID,
+                                                    messageID: message.id,
+                                                    createdAt: message.createdAt,
+                                                    spec: spec,
+                                                    rawBlock: rawBlock
+                                                )
+                                                entries.append(.mapContent(mapID, mapRep))
+                                            }
+                                        }
                                     case let .map(spec, rawBlock):
                                         let mapID = "\(textPart.id).map.\(index).\(nestedIndex)"
                                         let mapRep = MapRepresentation(
@@ -265,6 +315,17 @@ extension MessageListView {
                                             rawBlock: rawBlock
                                         )
                                         entries.append(.chartContent(chartID, chartRep))
+                                    case let .media(media):
+                                        let mediaID = "\(textPart.id).media.\(index).\(nestedIndex)"
+                                        let mediaRep = MediaRepresentation(
+                                            id: mediaID,
+                                            messageID: message.id,
+                                            createdAt: message.createdAt,
+                                            kind: media.kind,
+                                            url: media.url,
+                                            altText: media.altText
+                                        )
+                                        entries.append(.mediaContent(mediaID, mediaRep))
                                     }
                                 }
                             case let .chart(spec, rawBlock):
@@ -287,6 +348,17 @@ extension MessageListView {
                                     rawBlock: rawBlock
                                 )
                                 entries.append(.mapContent(mapID, mapRep))
+                            case let .media(media):
+                                let mediaID = "\(textPart.id).media.\(index)"
+                                let mediaRep = MediaRepresentation(
+                                    id: mediaID,
+                                    messageID: message.id,
+                                    createdAt: message.createdAt,
+                                    kind: media.kind,
+                                    url: media.url,
+                                    altText: media.altText
+                                )
+                                entries.append(.mediaContent(mediaID, mediaRep))
                             }
                         }
                     case let .toolResult(toolResult):
