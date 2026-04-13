@@ -31,15 +31,13 @@ final class ChartMessageView: MessageListRowView {
     override func themeDidUpdate() {
         titleLabel.textColor = theme.colors.body
 
-        // Use a dedicated chart card surface to improve contrast and reduce gray fatigue.
         let chartCardBackground = UIColor { trait in
             if trait.userInterfaceStyle == .dark {
-                return UIColor(red: 0.10, green: 0.11, blue: 0.14, alpha: 0.78)
+                return UIColor(red: 0.11, green: 0.12, blue: 0.15, alpha: 0.82)
             }
-            return UIColor(red: 0.97, green: 0.98, blue: 0.995, alpha: 0.95)
+            return UIColor(red: 0.985, green: 0.982, blue: 0.972, alpha: 0.98)
         }
         cardView.backgroundColor = chartCardBackground
-        cardView.layer.borderColor = UIColor.separator.withAlphaComponent(0.45).cgColor
         updateChartRootView()
     }
 
@@ -121,8 +119,6 @@ final class ChartMessageView: MessageListRowView {
         contentView.addSubview(cardView)
         cardView.layer.cornerRadius = ChatUIDesign.Radius.card
         cardView.layer.cornerCurve = .continuous
-        cardView.layer.borderWidth = 1
-        cardView.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         cardView.clipsToBounds = true
 
         titleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
