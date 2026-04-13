@@ -4,46 +4,46 @@ import XCTest
 
 final class AgentUserInfoDefaultsTests: XCTestCase {
     func testLoadReturnsSavedUserInfo() throws {
-        let suiteName = "LocalAgentUserInfoDefaultsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         AgentUserInfoDefaults.save(
             callName: "  Yuan  ",
             context: "  iOS 开发与 AI 自动化  ",
-            defaults: defaults
+            directoryURL: workspaceURL
         )
 
-        let value = AgentUserInfoDefaults.load(defaults: defaults)
+        let value = AgentUserInfoDefaults.load(directoryURL: workspaceURL)
         XCTAssertEqual(value?.callName, "Yuan")
         XCTAssertEqual(value?.context, "iOS 开发与 AI 自动化")
     }
 
     func testSaveRemovesValueWhenEmpty() throws {
-        let suiteName = "LocalAgentUserInfoDefaultsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-        AgentUserInfoDefaults.save(callName: "Yuan", context: "Build tools", defaults: defaults)
-        XCTAssertNotNil(AgentUserInfoDefaults.load(defaults: defaults))
+        AgentUserInfoDefaults.save(callName: "Yuan", context: "Build tools", directoryURL: workspaceURL)
+        XCTAssertNotNil(AgentUserInfoDefaults.load(directoryURL: workspaceURL))
 
-        AgentUserInfoDefaults.save(callName: "   ", context: "\n\n", defaults: defaults)
-        XCTAssertNil(AgentUserInfoDefaults.load(defaults: defaults))
+        AgentUserInfoDefaults.save(callName: "   ", context: "\n\n", directoryURL: workspaceURL)
+        XCTAssertNil(AgentUserInfoDefaults.load(directoryURL: workspaceURL))
     }
 
     @MainActor
     func testViewModelPrefillsUserInfoFromDefaults() throws {
-        let suiteName = "LocalAgentUserInfoDefaultsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         AgentUserInfoDefaults.save(
             callName: "Yuan",
             context: "我喜欢简洁、直接、可执行的回答。",
-            defaults: defaults
+            directoryURL: workspaceURL
         )
 
-        let viewModel = AgentCreationViewModel(defaults: defaults)
+        let viewModel = AgentCreationViewModel(userInfoDirectoryURL: workspaceURL)
         XCTAssertEqual(viewModel.data.userCallName, "Yuan")
         XCTAssertEqual(viewModel.data.userContext, "我喜欢简洁、直接、可执行的回答。")
     }

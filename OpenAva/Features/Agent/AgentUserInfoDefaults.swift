@@ -2,7 +2,6 @@ import Foundation
 
 enum AgentUserInfoDefaults {
     private struct PersistedUserInfo: Codable {
-        var version: Int
         var callName: String
         var context: String
     }
@@ -12,14 +11,18 @@ enum AgentUserInfoDefaults {
         var context: String
     }
 
-    private enum DefaultsKey {
-        static let userInfo = "agent.creation.userInfo.v1"
+    private static func fileURL(directoryURL: URL?, fileManager: FileManager) -> URL? {
+        let root = directoryURL ?? (try? AgentStore.workspaceRootDirectory(fileManager: fileManager))
+        return root?.appendingPathComponent("userInfo.json", isDirectory: false)
     }
 
-    static func load(defaults: UserDefaults = .standard) -> Value? {
-        guard let data = defaults.data(forKey: DefaultsKey.userInfo),
-              let decoded = try? JSONDecoder().decode(PersistedUserInfo.self, from: data),
-              decoded.version == 1
+    static func load(
+        directoryURL: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> Value? {
+        guard let url = fileURL(directoryURL: directoryURL, fileManager: fileManager),
+              let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode(PersistedUserInfo.self, from: data)
         else {
             return nil
         }
@@ -27,26 +30,32 @@ enum AgentUserInfoDefaults {
         return Value(callName: decoded.callName, context: decoded.context)
     }
 
-    static func save(callName: String, context: String, defaults: UserDefaults = .standard) {
+    static func save(
+        callName: String,
+        context: String,
+        directoryURL: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
         let normalizedCallName = callName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedContext = context.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        guard let url = fileURL(directoryURL: directoryURL, fileManager: fileManager) else { return }
+
         guard !(normalizedCallName.isEmpty && normalizedContext.isEmpty) else {
-            defaults.removeObject(forKey: DefaultsKey.userInfo)
+            try? fileManager.removeItem(at: url)
             return
         }
 
         let payload = PersistedUserInfo(
-            version: 1,
             callName: normalizedCallName,
             context: normalizedContext
         )
 
         guard let encoded = try? JSONEncoder().encode(payload) else {
-            defaults.removeObject(forKey: DefaultsKey.userInfo)
+            try? fileManager.removeItem(at: url)
             return
         }
 
-        defaults.set(encoded, forKey: DefaultsKey.userInfo)
+        try? encoded.write(to: url, options: .atomic)
     }
 }

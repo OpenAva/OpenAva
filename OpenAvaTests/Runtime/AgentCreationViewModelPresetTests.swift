@@ -4,11 +4,7 @@ import XCTest
 
 @MainActor
 final class AgentCreationViewModelPresetTests: XCTestCase {
-    func testApplyPresetFillsCreationFieldsAndSelection() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
+    func testApplyPresetFillsCreationFieldsAndSelection() {
         let preset = AgentPreset(
             id: "engineering",
             title: "Engineering Lead",
@@ -19,7 +15,7 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
             soulCoreTruths: "Reason step by step\nOffer actionable suggestions"
         )
 
-        let viewModel = AgentCreationViewModel(defaults: defaults, presets: [preset])
+        let viewModel = AgentCreationViewModel(presets: [preset])
         viewModel.applyPreset(preset, avoiding: [])
 
         XCTAssertEqual(viewModel.selectedPresetID, "engineering")
@@ -29,11 +25,7 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         XCTAssertEqual(viewModel.data.soulCoreTruths, "Reason step by step\nOffer actionable suggestions")
     }
 
-    func testApplyPresetWithoutEmojiFallsBackToRandomEmoji() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
+    func testApplyPresetWithoutEmojiFallsBackToRandomEmoji() {
         let preset = AgentPreset(
             id: "support",
             title: "Support Specialist",
@@ -44,31 +36,23 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
             soulCoreTruths: "Be genuinely helpful"
         )
 
-        let viewModel = AgentCreationViewModel(defaults: defaults, presets: [preset])
+        let viewModel = AgentCreationViewModel(presets: [preset])
         viewModel.applyPreset(preset, avoiding: [])
 
         XCTAssertFalse(viewModel.data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertTrue(viewModel.emojiCandidates.contains(viewModel.data.agentEmoji))
     }
 
-    func testDefaultTeamPresetsUseCatalogOrder() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let viewModel = AgentCreationViewModel(defaults: defaults, presets: AgentPresetCatalog.builtInPresets())
+    func testDefaultTeamPresetsUseCatalogOrder() {
+        let viewModel = AgentCreationViewModel(presets: AgentPresetCatalog.builtInPresets())
 
         XCTAssertEqual(viewModel.defaultTeamPresets.map(\.id), AgentPresetCatalog.defaultTeamPresetIDs)
         XCTAssertFalse(viewModel.canCreateTeam)
     }
 
     func testToggleDefaultTeamPresetUpdatesSelectedTeam() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let presets = AgentPresetCatalog.builtInPresets()
-        let viewModel = AgentCreationViewModel(defaults: defaults, presets: presets)
+        let viewModel = AgentCreationViewModel(presets: presets)
         let marketing = try XCTUnwrap(presets.first(where: { $0.id == "marketing" }))
 
         XCTAssertFalse(viewModel.containsDefaultTeamPreset(marketing))
@@ -81,12 +65,8 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
     }
 
     func testCanCreateTeamDependsOnTeamNameAndUserInfo() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let presets = AgentPresetCatalog.builtInPresets()
-        let viewModel = AgentCreationViewModel(defaults: defaults, presets: presets)
+        let viewModel = AgentCreationViewModel(presets: presets)
 
         XCTAssertFalse(viewModel.canCreateTeam)
 
@@ -104,12 +84,8 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         XCTAssertFalse(viewModel.canCreateTeam)
     }
 
-    func testTeamModeInitializesDefaultTeamName() throws {
-        let suiteName = "LocalAgentCreationViewModelPresetTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let viewModel = AgentCreationViewModel(initialMode: .defaultTeam, defaults: defaults, presets: [])
+    func testTeamModeInitializesDefaultTeamName() {
+        let viewModel = AgentCreationViewModel(initialMode: .defaultTeam, presets: [])
         XCTAssertFalse(viewModel.data.teamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 }

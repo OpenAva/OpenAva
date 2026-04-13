@@ -32,8 +32,8 @@ final class AgentCreationViewModel {
     var selectedPresetID: String?
     var selectedDefaultTeamPresetIDs: Set<String> = []
     private(set) var hasAppliedInitialDefaults = false
-    private let defaults: UserDefaults
     private let targetTeamID: UUID?
+    private let userInfoDirectoryURL: URL?
     let presets: [AgentPreset]
 
     /// Shared emoji source for picker and random fill.
@@ -61,16 +61,16 @@ final class AgentCreationViewModel {
 
     init(
         initialMode: CreationMode = .singleAgent,
-        defaults: UserDefaults = .standard,
         targetTeamID: UUID? = nil,
-        presets: [AgentPreset] = AgentPresetCatalog.load()
+        presets: [AgentPreset] = AgentPresetCatalog.load(),
+        userInfoDirectoryURL: URL? = nil
     ) {
         creationMode = initialMode
-        self.defaults = defaults
         self.targetTeamID = targetTeamID
         self.presets = presets
+        self.userInfoDirectoryURL = userInfoDirectoryURL
         isUserInfoExpanded = true
-        if let savedUserInfo = AgentUserInfoDefaults.load(defaults: defaults),
+        if let savedUserInfo = AgentUserInfoDefaults.load(directoryURL: userInfoDirectoryURL),
            !savedUserInfo.callName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             data.userCallName = savedUserInfo.callName
@@ -274,7 +274,7 @@ final class AgentCreationViewModel {
         AgentUserInfoDefaults.save(
             callName: data.userCallName,
             context: data.userContext,
-            defaults: defaults
+            directoryURL: userInfoDirectoryURL
         )
     }
 
@@ -315,7 +315,7 @@ final class AgentCreationViewModel {
         AgentUserInfoDefaults.save(
             callName: data.userCallName,
             context: data.userContext,
-            defaults: defaults
+            directoryURL: userInfoDirectoryURL
         )
     }
 
