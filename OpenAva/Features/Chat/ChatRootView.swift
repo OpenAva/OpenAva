@@ -37,6 +37,7 @@ struct ChatRootView: View {
     @State private var teamToManageAgents: ManageAgentsSheetTarget?
     @State private var showsDeleteTeamAlert = false
     @State private var teamToDelete: UUID?
+    @State private var teamMenuRefreshToken: Int = 0
 
     private enum MenuDestination: Hashable {
         case llm
@@ -115,6 +116,11 @@ struct ChatRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .OpenAvaIntentAutoSend)) { _ in
             drainPendingAutoSend()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
+            // Team creation/editing can happen in another Catalyst window.
+            // Force one SwiftUI update so the wrapper receives the latest teams/agents.
+            teamMenuRefreshToken &+= 1
+        }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
                 showsAgentOnboarding = true
@@ -154,6 +160,7 @@ struct ChatRootView: View {
             selectedProviderName: resolveSelectedProviderName(),
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
+            menuRefreshToken: teamMenuRefreshToken,
             onMenuAction: handleMenuAction,
             onAgentSwitch: handleAgentSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
@@ -170,7 +177,6 @@ struct ChatRootView: View {
         #if targetEnvironment(macCatalyst)
             .toolbar(.hidden, for: .navigationBar)
         #endif
-            .ignoresSafeArea(edges: .top)
     }
 
     /// Recreate the chat screen when runtime config changes.
@@ -483,6 +489,7 @@ private struct ChatScreen: View {
     private let selectedProviderName: String
     private let pendingAutoSendID: String?
     private let pendingAutoSendMessage: String?
+    private let menuRefreshToken: Int
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     private let onAgentSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
@@ -510,6 +517,7 @@ private struct ChatScreen: View {
         selectedProviderName: String,
         pendingAutoSendID: String? = nil,
         pendingAutoSendMessage: String? = nil,
+        menuRefreshToken: Int = 0,
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
         onAgentSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
@@ -533,6 +541,7 @@ private struct ChatScreen: View {
         self.selectedProviderName = selectedProviderName
         self.pendingAutoSendID = pendingAutoSendID
         self.pendingAutoSendMessage = pendingAutoSendMessage
+        self.menuRefreshToken = menuRefreshToken
         self.onMenuAction = onMenuAction
         self.onAgentSwitch = onAgentSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
@@ -547,6 +556,55 @@ private struct ChatScreen: View {
     }
 
     var body: some View {
+        contentView
+            .alert(L10n.tr("chat.menu.renameAgentNamed", activeAgentName), isPresented: $showsRenameAlert) {
+                TextField(L10n.tr("chat.menu.renameAlert.placeholder"), text: $renameText)
+                Button(L10n.tr("common.cancel"), role: .cancel) {}
+                Button(L10n.tr("common.save")) {
+                    let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    _ = onRenameCurrentAgent?(name)
+                }
+            } message: {
+                Text(L10n.tr("chat.menu.renameAlert.message"))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarRenameRequested)) { _ in
+                renameText = activeAgentName
+                showsRenameAlert = true
+            }
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        #if targetEnvironment(macCatalyst)
+            chatControllerView
+        #else
+            chatControllerView
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    TopoBotNavigationBar(
+                        agentName: activeAgentName,
+                        agentEmoji: activeAgentEmoji,
+                        modelName: selectedModelName,
+                        teams: teams,
+                        agents: agents,
+                        activeAgentID: activeAgentID,
+                        autoCompactEnabled: autoCompactEnabled,
+                        onTapModel: { onMenuAction?(.openLLM) },
+                        onMenuAction: onMenuAction,
+                        onAgentSwitch: onAgentSwitch,
+                        onCreateLocalAgent: onCreateLocalAgent,
+                        onCreateLocalTeam: onCreateLocalTeam,
+                        onDeleteCurrentAgent: onDeleteCurrentAgent,
+                        onAddAgentToTeam: onAddAgentToTeam,
+                        onCreateAgentForTeam: onCreateAgentForTeam,
+                        onDeleteTeam: onDeleteTeam,
+                        onToggleAutoCompact: onToggleAutoCompact
+                    )
+                }
+        #endif
+    }
+
+    private var chatControllerView: some View {
         ChatViewControllerWrapper(
             sessionID: scopedSessionID,
             workspaceRootURL: container.config.agent.workspaceRootURL,
@@ -566,6 +624,7 @@ private struct ChatScreen: View {
             selectedProviderName: selectedProviderName,
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
+            menuRefreshToken: menuRefreshToken,
             onMenuAction: onMenuAction,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
@@ -581,33 +640,7 @@ private struct ChatScreen: View {
         )
         .id(scopedSessionID)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        #if targetEnvironment(macCatalyst)
-            .toolbar(.hidden, for: .navigationBar)
-        #endif
-            .alert(L10n.tr("chat.menu.renameAgentNamed", activeAgentName), isPresented: $showsRenameAlert) {
-                TextField(L10n.tr("chat.menu.renameAlert.placeholder"), text: $renameText)
-                Button(L10n.tr("common.cancel"), role: .cancel) {}
-                Button(L10n.tr("common.save")) {
-                    let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { return }
-                    _ = onRenameCurrentAgent?(name)
-                }
-            } message: {
-                Text(L10n.tr("chat.menu.renameAlert.message"))
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarRenameRequested)) { _ in
-                renameText = activeAgentName
-                showsRenameAlert = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarHeartbeatRequested)) { _ in
-                onMenuAction?(.runHeartbeatNow)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarOpenModelRequested)) { _ in
-                onMenuAction?(.openLLM)
-            }
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 

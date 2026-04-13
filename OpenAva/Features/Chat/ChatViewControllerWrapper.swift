@@ -231,6 +231,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     /// `pendingAutoSendID` is a unique token so the coordinator never submits the same request twice.
     let pendingAutoSendID: String?
     let pendingAutoSendMessage: String?
+    /// Forces `updateUIViewController` after team swarm notifications so menus pull fresh data.
+    let menuRefreshToken: Int
     let onMenuAction: ((MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
@@ -354,19 +356,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             providerName: selectedProviderName
         ))
 
-        #if targetEnvironment(macCatalyst)
-            return chatViewController
-        #else
-            let navigationController = UINavigationController(rootViewController: chatViewController)
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = ChatUIDesign.Color.warmCream
-            appearance.shadowColor = .clear
-            navigationController.navigationBar.standardAppearance = appearance
-            navigationController.navigationBar.scrollEdgeAppearance = appearance
-            navigationController.navigationBar.compactAppearance = appearance
-            return navigationController
-        #endif
+        return chatViewController
     }
 
     private func buildQuickSettingItems() -> [QuickSettingItem] {
@@ -411,13 +401,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        let chatViewController: ChatViewController
-        #if targetEnvironment(macCatalyst)
-            chatViewController = uiViewController as! ChatViewController
-        #else
-            let nav = uiViewController as! UINavigationController
-            chatViewController = nav.viewControllers.first as! ChatViewController
-        #endif
+        let chatViewController = uiViewController as! ChatViewController
 
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
@@ -495,7 +479,6 @@ extension ChatViewControllerWrapper {
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
         weak var chatViewController: ChatViewController?
-        private var swarmObserver: NSObjectProtocol?
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
@@ -536,25 +519,6 @@ extension ChatViewControllerWrapper {
             self.onDeleteTeam = onDeleteTeam
             self.onToggleAutoCompact = onToggleAutoCompact
             super.init()
-            swarmObserver = NotificationCenter.default.addObserver(
-                forName: .openAvaTeamSwarmDidChange,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshLeadingMenu()
-                }
-            }
-        }
-
-        deinit {
-            if let swarmObserver {
-                NotificationCenter.default.removeObserver(swarmObserver)
-            }
-        }
-
-        func refreshLeadingMenu() {
-            chatViewController?.refreshNavigationMenus()
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {

@@ -13,7 +13,7 @@ import UIKit
 
 final class MediaMessageView: MessageListRowView {
     private static let horizontalPadding: CGFloat = 12
-    private static let verticalPadding: CGFloat = 12
+    private static let bottomPadding: CGFloat = 12
     private static let captionSpacing: CGFloat = 8
     private static let captionFont = UIFont.systemFont(ofSize: 12, weight: .regular)
     private static let mediaCornerRadius: CGFloat = 10
@@ -43,7 +43,6 @@ final class MediaMessageView: MessageListRowView {
             return UIColor(red: 0.985, green: 0.982, blue: 0.972, alpha: 0.98)
         }
         cardView.backgroundColor = cardBackground
-        cardView.layer.borderColor = UIColor.separator.withAlphaComponent(0.22).cgColor
         captionLabel.textColor = .secondaryLabel
         updateMediaRootView()
     }
@@ -74,7 +73,7 @@ final class MediaMessageView: MessageListRowView {
         let mediaHeight = Self.mediaHeight(for: media.kind, containerWidth: innerWidth)
         hostingController.view.frame = CGRect(
             x: Self.horizontalPadding,
-            y: Self.verticalPadding,
+            y: 0,
             width: innerWidth,
             height: mediaHeight
         )
@@ -93,7 +92,7 @@ final class MediaMessageView: MessageListRowView {
         let mediaHeight = mediaHeight(for: media.kind, containerWidth: innerWidth)
         let captionHeight = captionHeight(for: media, containerWidth: innerWidth)
         let spacing = captionHeight > 0 ? captionSpacing : 0
-        return ceil(verticalPadding * 2 + mediaHeight + spacing + captionHeight)
+        return ceil(mediaHeight + spacing + captionHeight + bottomPadding)
     }
 
     private static func mediaHeight(for kind: MarkdownMediaKind, containerWidth: CGFloat) -> CGFloat {
@@ -142,8 +141,6 @@ final class MediaMessageView: MessageListRowView {
         contentView.addSubview(cardView)
         cardView.layer.cornerRadius = ChatUIDesign.Radius.card
         cardView.layer.cornerCurve = .continuous
-        cardView.layer.borderWidth = 1
-        cardView.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         cardView.clipsToBounds = true
 
         hostingController.view.backgroundColor = .clear

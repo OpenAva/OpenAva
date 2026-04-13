@@ -291,6 +291,8 @@ open class ChatViewController: UIViewController {
     }
 
     private func layoutViews() {
+        guard view.bounds.width > 0, view.bounds.height > 0 else { return }
+        
         let safeArea = view.safeAreaInsets
         let inputHeight = chatInputView.heightPublisher.value
         let bottomPadding = max(safeArea.bottom, 0)

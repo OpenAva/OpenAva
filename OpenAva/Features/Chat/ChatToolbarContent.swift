@@ -8,7 +8,7 @@ import OpenClawKit
 import SwiftUI
 import UserNotifications
 
-struct ChatToolbarContent: ToolbarContent {
+struct TopoBotNavigationBar: View {
     let agentName: String
     let agentEmoji: String
     let modelName: String
@@ -16,73 +16,97 @@ struct ChatToolbarContent: ToolbarContent {
     let agents: [AgentProfile]
     let activeAgentID: UUID?
     let autoCompactEnabled: Bool
-    let onTapAgent: () -> Void
     let onTapModel: () -> Void
     let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
     let onCreateLocalTeam: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
-    let onRenameCurrentAgent: ((String) -> Bool)?
     let onAddAgentToTeam: ((UUID) -> Void)?
     let onCreateAgentForTeam: ((UUID) -> Void)?
     let onDeleteTeam: ((UUID) -> Void)?
     let onToggleAutoCompact: (() -> Void)?
 
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            // Use HStack to force SwiftUI to render a custom UIView for the item,
-            // preventing iOS 16+ from adding a default grey circular/square background to the menu button.
-            HStack {
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
                 leadingMenu
-            }
-        }
 
-        ToolbarItem(placement: .principal) {
-            VStack(spacing: 0) {
-                Button(action: onTapAgent) {
-                    Text(resolvedAgentTitle)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .lineLimit(1)
+                VStack(spacing: 0) {
+                    titleMenu
+                    modelButton
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
 
-                Button(action: onTapModel) {
-                    Text(resolvedModelTitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-
-        ToolbarItem(placement: .topBarTrailing) {
-            HStack {
                 trailingMenu
             }
+            .frame(minHeight: 44)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
         }
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
     }
 
     // MARK: - Leading (Agent Picker)
 
     private var leadingMenu: some View {
         Menu {
-            agentPickerContent
-            Section {
-                Button(action: { onCreateLocalAgent?() }) {
-                    Label(L10n.tr("chat.menu.newLocalAgent"), systemImage: "plus.circle")
-                }
-                Button(action: { onCreateLocalTeam?() }) {
-                    Label(L10n.tr("chat.menu.newTeam"), systemImage: "person.2")
-                }
-            }
+            agentMenuContent
         } label: {
             Image(uiImage: UIImage.chatInputIcon(named: "users") ?? UIImage(systemName: "person.2")!)
                 .renderingMode(.template)
                 .foregroundStyle(.primary.opacity(0.9))
+                .frame(width: 32, height: 32)
         }
+        .buttonStyle(.plain)
+    }
+
+    private var titleMenu: some View {
+        Menu {
+            agentMenuContent
+        } label: {
+            HStack(spacing: 4) {
+                Text(resolvedAgentTitle)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var agentMenuContent: some View {
+        agentPickerContent
+
+        Section {
+            Button(action: { onCreateLocalAgent?() }) {
+                Label(L10n.tr("chat.menu.newLocalAgent"), systemImage: "plus.circle")
+            }
+            Button(action: { onCreateLocalTeam?() }) {
+                Label(L10n.tr("chat.menu.newTeam"), systemImage: "person.2")
+            }
+        }
+    }
+
+    private var modelButton: some View {
+        Button(action: onTapModel) {
+            Text(resolvedModelTitle)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -206,7 +230,9 @@ struct ChatToolbarContent: ToolbarContent {
             Image(systemName: "ellipsis")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary.opacity(0.6))
+                .frame(width: 32, height: 32)
         }
+        .buttonStyle(.plain)
     }
 
     private var renameButton: some View {
@@ -318,6 +344,4 @@ struct ChatToolbarContent: ToolbarContent {
 
 extension Notification.Name {
     static let chatToolbarRenameRequested = Notification.Name("chatToolbarRenameRequested")
-    static let chatToolbarHeartbeatRequested = Notification.Name("chatToolbarHeartbeatRequested")
-    static let chatToolbarOpenModelRequested = Notification.Name("chatToolbarOpenModelRequested")
 }
