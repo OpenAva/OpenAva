@@ -46,8 +46,7 @@ public enum LocationServiceSupport {
         case .authorizedAlways, .authorizedWhenInUse:
             break
         case .notDetermined:
-            // Request foreground location permission before asking for a fix.
-            manager.requestWhenInUseAuthorization()
+            throw CLError(.denied)
         case .denied, .restricted:
             throw CLError(.denied)
         @unknown default:
