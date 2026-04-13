@@ -74,9 +74,25 @@ final class DeviceTools: ToolDefinitionProvider {
 
         var notificationAuthorizationGuidance: String {
             #if targetEnvironment(macCatalyst)
-                "请在 macOS 系统设置 > 通知 > OpenAva 中开启通知权限。"
+                L10n.tr("device.tools.notification.guidance.authorization.mac")
             #else
-                "请在 iOS 设置 > 通知 > OpenAva 中开启通知权限。"
+                L10n.tr("device.tools.notification.guidance.authorization.ios")
+            #endif
+        }
+
+        var locationAuthorizationGuidance: String {
+            #if targetEnvironment(macCatalyst)
+                L10n.tr("device.tools.location.guidance.authorization.mac")
+            #else
+                L10n.tr("device.tools.location.guidance.authorization.ios")
+            #endif
+        }
+
+        var locationServicesGuidance: String {
+            #if targetEnvironment(macCatalyst)
+                L10n.tr("device.tools.location.guidance.services.mac")
+            #else
+                L10n.tr("device.tools.location.guidance.services.ios")
             #endif
         }
     }
@@ -216,13 +232,23 @@ final class DeviceTools: ToolDefinitionProvider {
             makeTool(
                 functionName: "location_get",
                 command: OpenClawLocationCommand.get.rawValue,
-                description: "Get the current device location.",
+                description: "Get the current device location. Use balanced accuracy for faster, more reliable fixes when approximate location is sufficient.",
                 schema: [
                     "type": "object",
                     "properties": [
-                        "timeoutMs": ["type": "integer"],
-                        "maxAgeMs": ["type": "integer"],
-                        "desiredAccuracy": ["type": "string", "enum": ["coarse", "balanced", "precise"]],
+                        "timeoutMs": [
+                            "type": "integer",
+                            "description": "Optional timeout in milliseconds. Defaults to 10000 and is clamped to at least 1000.",
+                        ],
+                        "maxAgeMs": [
+                            "type": "integer",
+                            "description": "Optional maximum age for reusing a cached location fix. Use 0 to always request a fresh fix.",
+                        ],
+                        "desiredAccuracy": [
+                            "type": "string",
+                            "enum": ["coarse", "balanced", "precise"],
+                            "description": "Requested accuracy. Prefer balanced for speed and reliability unless precise coordinates are required.",
+                        ],
                     ],
                     "additionalProperties": false,
                 ],
@@ -800,7 +826,7 @@ final class DeviceTools: ToolDefinitionProvider {
                 ok: false,
                 error: OpenClawNodeError(
                     code: .unavailable,
-                    message: "LOCATION_DISABLED: enable Location Services in Settings"
+                    message: "LOCATION_DISABLED: \(platform.locationServicesGuidance)"
                 )
             )
         }
@@ -812,7 +838,7 @@ final class DeviceTools: ToolDefinitionProvider {
                 ok: false,
                 error: OpenClawNodeError(
                     code: .unavailable,
-                    message: "LOCATION_PERMISSION_REQUIRED: grant Location permission"
+                    message: "LOCATION_PERMISSION_REQUIRED: \(platform.locationAuthorizationGuidance)"
                 )
             )
         }
@@ -820,38 +846,80 @@ final class DeviceTools: ToolDefinitionProvider {
         let params = (try? ToolInvocationHelpers.decodeParams(OpenClawLocationGetParams.self, from: request.paramsJSON))
             ?? OpenClawLocationGetParams()
         let desired = params.desiredAccuracy ?? .precise
-        let location = try await locationService.currentLocation(
-            params: params,
-            desiredAccuracy: desired,
-            maxAgeMs: params.maxAgeMs,
-            timeoutMs: params.timeoutMs
-        )
+        let timeoutMs = LocationCurrentRequest.normalizedTimeoutMs(params.timeoutMs)
 
-        let payload = OpenClawLocationPayload(
-            lat: location.coordinate.latitude,
-            lon: location.coordinate.longitude,
-            accuracyMeters: location.horizontalAccuracy,
-            altitudeMeters: location.verticalAccuracy >= 0 ? location.altitude : nil,
-            speedMps: location.speed >= 0 ? location.speed : nil,
-            headingDeg: location.course >= 0 ? location.course : nil,
-            timestamp: ISO8601DateFormatter().string(from: location.timestamp),
-            isPrecise: locationService.accuracyAuthorization() == .fullAccuracy,
-            source: nil
-        )
-        let altitude = payload.altitudeMeters.map { String(format: "%.1f", $0) } ?? "n/a"
-        let speed = payload.speedMps.map { String(format: "%.2f", $0) } ?? "n/a"
-        let heading = payload.headingDeg.map { String(format: "%.1f", $0) } ?? "n/a"
-        let text = """
-        ## Location
-        - coordinates: \(String(format: "%.6f", payload.lat)), \(String(format: "%.6f", payload.lon))
-        - accuracy_m: \(String(format: "%.1f", payload.accuracyMeters))
-        - precise: \(payload.isPrecise ? "yes" : "no")
-        - altitude_m: \(altitude)
-        - speed_mps: \(speed)
-        - heading_deg: \(heading)
-        - timestamp: \(payload.timestamp)
-        """
-        return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+        do {
+            let location = try await locationService.currentLocation(
+                params: params,
+                desiredAccuracy: desired,
+                maxAgeMs: params.maxAgeMs,
+                timeoutMs: timeoutMs
+            )
+
+            let payload = OpenClawLocationPayload(
+                lat: location.coordinate.latitude,
+                lon: location.coordinate.longitude,
+                accuracyMeters: location.horizontalAccuracy,
+                altitudeMeters: location.verticalAccuracy >= 0 ? location.altitude : nil,
+                speedMps: location.speed >= 0 ? location.speed : nil,
+                headingDeg: location.course >= 0 ? location.course : nil,
+                timestamp: ISO8601DateFormatter().string(from: location.timestamp),
+                isPrecise: locationService.accuracyAuthorization() == .fullAccuracy,
+                source: nil
+            )
+            let altitude = payload.altitudeMeters.map { String(format: "%.1f", $0) } ?? "n/a"
+            let speed = payload.speedMps.map { String(format: "%.2f", $0) } ?? "n/a"
+            let heading = payload.headingDeg.map { String(format: "%.1f", $0) } ?? "n/a"
+            let ageMs = max(Int(Date().timeIntervalSince(location.timestamp) * 1000), 0)
+            let text = """
+            ## Location
+            - coordinates: \(String(format: "%.6f", payload.lat)), \(String(format: "%.6f", payload.lon))
+            - accuracy_m: \(String(format: "%.1f", payload.accuracyMeters))
+            - precise: \(payload.isPrecise ? "yes" : "no")
+            - age_ms: \(ageMs)
+            - altitude_m: \(altitude)
+            - speed_mps: \(speed)
+            - heading_deg: \(heading)
+            - timestamp: \(payload.timestamp)
+            """
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+        } catch let error as LocationService.Error {
+            switch error {
+            case .timeout:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(
+                        code: .unavailable,
+                        message: "LOCATION_TIMEOUT: unable to determine location within \(timeoutMs)ms"
+                    )
+                )
+            case .unavailable:
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(
+                        code: .unavailable,
+                        message: "LOCATION_UNAVAILABLE: current location is unavailable"
+                    )
+                )
+            }
+        } catch let error as CLError {
+            let message: String
+            switch error.code {
+            case .denied:
+                message = "LOCATION_PERMISSION_REQUIRED: \(platform.locationAuthorizationGuidance)"
+            case .locationUnknown:
+                message = "LOCATION_UNAVAILABLE: unable to determine the current location"
+            default:
+                message = "LOCATION_UNAVAILABLE: \(error.localizedDescription)"
+            }
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: message)
+            )
+        }
     }
 
     private func handleCameraInvoke(_ request: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {

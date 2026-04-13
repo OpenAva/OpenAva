@@ -211,6 +211,12 @@
 "settings.background.enabled" = "Run in Background";
 "notification.taskCompleted" = "completed your task";
 "notification.taskFailed" = "stopped";
+"device.tools.notification.guidance.authorization.mac" = "Please enable notification access for OpenAva in macOS System Settings > Notifications.";
+"device.tools.notification.guidance.authorization.ios" = "Please enable notification access for OpenAva in iOS Settings > Notifications.";
+"device.tools.location.guidance.authorization.mac" = "Please enable location access for OpenAva in macOS System Settings > Privacy & Security > Location Services.";
+"device.tools.location.guidance.authorization.ios" = "Please enable location access for OpenAva in iOS Settings > Privacy & Security > Location Services.";
+"device.tools.location.guidance.services.mac" = "Please enable system location services in macOS System Settings > Privacy & Security > Location Services.";
+"device.tools.location.guidance.services.ios" = "Please enable system location services in iOS Settings > Privacy & Security > Location Services.";
 "chat.activeAgent.fallbackName" = "Assistant";
 "chat.selectedModel.notSelected" = "Not Selected";
 "chat.command.runHeartbeatNow" = "Run Heartbeat";

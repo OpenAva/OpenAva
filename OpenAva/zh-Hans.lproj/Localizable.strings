@@ -211,6 +211,12 @@
 "settings.background.enabled" = "后台运行";
 "notification.taskCompleted" = "完成了你的任务";
 "notification.taskFailed" = "已停止";
+"device.tools.notification.guidance.authorization.mac" = "请在 macOS 系统设置 > 通知 > OpenAva 中开启通知权限。";
+"device.tools.notification.guidance.authorization.ios" = "请在 iOS 设置 > 通知 > OpenAva 中开启通知权限。";
+"device.tools.location.guidance.authorization.mac" = "请在 macOS 系统设置 > 隐私与安全性 > 定位服务 > OpenAva 中开启定位权限。";
+"device.tools.location.guidance.authorization.ios" = "请在 iOS 设置 > 隐私与安全性 > 定位服务 > OpenAva 中开启定位权限。";
+"device.tools.location.guidance.services.mac" = "请在 macOS 系统设置 > 隐私与安全性 > 定位服务 中开启系统定位服务。";
+"device.tools.location.guidance.services.ios" = "请在 iOS 设置 > 隐私与安全性 > 定位服务 中开启系统定位服务。";
 "chat.activeAgent.fallbackName" = "助手";
 "chat.selectedModel.notSelected" = "未选择";
 "chat.command.runHeartbeatNow" = "运行一次心跳";
