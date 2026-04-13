@@ -177,6 +177,7 @@ struct ChatRootView: View {
         #if targetEnvironment(macCatalyst)
             .toolbar(.hidden, for: .navigationBar)
         #endif
+            .ignoresSafeArea(edges: .top)
     }
 
     /// Recreate the chat screen when runtime config changes.
