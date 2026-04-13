@@ -148,6 +148,7 @@ final class MediaMessageView: MessageListRowView {
 
         captionLabel.font = Self.captionFont
         captionLabel.numberOfLines = 0
+        captionLabel.textAlignment = .center
         captionLabel.textColor = .secondaryLabel
         cardView.addSubview(captionLabel)
     }
