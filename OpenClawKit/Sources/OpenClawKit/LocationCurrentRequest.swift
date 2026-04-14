@@ -2,8 +2,8 @@ import CoreLocation
 import Foundation
 
 public enum LocationCurrentRequest {
-    private static let defaultTimeoutMs = 10_000
-    private static let minimumTimeoutMs = 1_000
+    private static let defaultTimeoutMs = 10000
+    private static let minimumTimeoutMs = 1000
 
     public typealias TimeoutRunner = @Sendable (
         _ timeoutMs: Int,

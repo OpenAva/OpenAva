@@ -21,19 +21,19 @@ private let compactMinimumSummaryMessageCount = 4
 private let partialCompactMinimumSummaryMessageCount = 2
 private let compactMaxPTLRetries = 3
 private let compactRetryDropRatio = 0.20
-private let compactTranscriptPartLimit = 4_000
+private let compactTranscriptPartLimit = 4000
 
-private enum CompactSummaryMode: Sendable {
+private enum CompactSummaryMode {
     case full
     case partial(direction: PartialCompactDirection)
 }
 
-private enum CompactionKeptPlacement: Sendable {
+private enum CompactionKeptPlacement {
     case beforeSummary
     case afterSummary
 }
 
-private struct CompactionPlan: Sendable {
+private struct CompactionPlan {
     let replacementRange: Range<Int>
     let messagesToSummarize: [ConversationMessage]
     let messagesToKeep: [ConversationMessage]
@@ -45,7 +45,7 @@ private struct CompactionPlan: Sendable {
     let summaryMode: CompactSummaryMode
 }
 
-private struct CompactionResult: Sendable {
+private struct CompactionResult {
     let replacementRange: Range<Int>
     let boundaryMarker: ConversationMessage
     let summaryMessages: [ConversationMessage]

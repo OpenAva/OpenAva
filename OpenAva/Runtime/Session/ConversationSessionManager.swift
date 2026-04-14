@@ -13,8 +13,13 @@ import Foundation
 public final class ConversationSessionManager: @unchecked Sendable {
     public static let shared = ConversationSessionManager()
 
-    private var sessions: [String: ConversationSession] = [:]
-    private var executingSessions = Set<String>()
+    private struct SessionCacheKey: Hashable {
+        let sessionID: String
+        let storageID: ObjectIdentifier
+    }
+
+    private var sessions: [SessionCacheKey: ConversationSession] = [:]
+    private var executingSessionCounts: [String: Int] = [:]
 
     private let executingSessionsSubject = CurrentValueSubject<Set<String>, Never>([])
     public var executingSessionsPublisher: AnyPublisher<Set<String>, Never> {
@@ -25,57 +30,74 @@ public final class ConversationSessionManager: @unchecked Sendable {
 
     /// Get or create a session for the given session ID using explicit providers.
     public func session(for sessionID: String, configuration: ConversationSession.Configuration) -> ConversationSession {
-        if let existing = sessions[sessionID] {
+        let key = SessionCacheKey(
+            sessionID: sessionID,
+            storageID: ObjectIdentifier(configuration.storage)
+        )
+        if let existing = sessions[key] {
             return existing
         }
         let session = ConversationSession(id: sessionID, configuration: configuration)
-        sessions[sessionID] = session
+        sessions[key] = session
         return session
     }
 
     /// Drop the cached session so a subsequent access rebuilds it from new configuration.
     public func removeSession(for sessionID: String) {
-        sessions.removeValue(forKey: sessionID)
-        executingSessions.remove(sessionID)
-        executingSessionsSubject.send(executingSessions)
+        let keysToRemove = sessions.keys.filter { $0.sessionID == sessionID }
+        keysToRemove.forEach { sessions.removeValue(forKey: $0) }
+        executingSessionCounts.removeValue(forKey: sessionID)
+        publishExecutingSessions()
     }
 
     /// Clear all cached sessions. Useful when app-level runtime scope changes.
     public func removeAllSessions() {
         sessions.removeAll()
-        executingSessions.removeAll()
-        executingSessionsSubject.send(executingSessions)
+        executingSessionCounts.removeAll()
+        publishExecutingSessions()
     }
 
     /// Remove cached sessions by scoped conversation id prefix.
     /// Example prefix: "agent:<agent-id>::"
     public func removeSessions(withPrefix prefix: String) {
         guard !prefix.isEmpty else { return }
-        let sessionIDs = sessions.keys.filter { $0.hasPrefix(prefix) }
-        for sessionID in sessionIDs {
-            sessions.removeValue(forKey: sessionID)
-            executingSessions.remove(sessionID)
+        let keysToRemove = sessions.keys.filter { $0.sessionID.hasPrefix(prefix) }
+        for key in keysToRemove {
+            sessions.removeValue(forKey: key)
+            executingSessionCounts.removeValue(forKey: key.sessionID)
         }
-        executingSessionsSubject.send(executingSessions)
+        publishExecutingSessions()
     }
 
     func markSessionExecuting(_ sessionID: String) {
-        executingSessions.insert(sessionID)
-        executingSessionsSubject.send(executingSessions)
+        let nextCount = (executingSessionCounts[sessionID] ?? 0) + 1
+        executingSessionCounts[sessionID] = nextCount
+        publishExecutingSessions()
     }
 
     func markSessionCompleted(_ sessionID: String) {
-        executingSessions.remove(sessionID)
-        executingSessionsSubject.send(executingSessions)
+        guard let currentCount = executingSessionCounts[sessionID] else {
+            return
+        }
+        if currentCount <= 1 {
+            executingSessionCounts.removeValue(forKey: sessionID)
+        } else {
+            executingSessionCounts[sessionID] = currentCount - 1
+        }
+        publishExecutingSessions()
     }
 
     public func hasExecutingSession() -> Bool {
-        !executingSessions.isEmpty
+        !executingSessionCounts.isEmpty
     }
 
     /// Returns whether any executing session belongs to the given scoped prefix.
     public func hasExecutingSession(withPrefix prefix: String) -> Bool {
         guard !prefix.isEmpty else { return false }
-        return executingSessions.contains(where: { $0.hasPrefix(prefix) })
+        return executingSessionCounts.keys.contains(where: { $0.hasPrefix(prefix) })
+    }
+
+    private func publishExecutingSessions() {
+        executingSessionsSubject.send(Set(executingSessionCounts.keys))
     }
 }

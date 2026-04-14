@@ -135,7 +135,7 @@ final class ConversationCompactionTests: XCTestCase {
         let model = ConversationSession.Model(
             client: client,
             capabilities: [.tool],
-            contextLength: 32_000,
+            contextLength: 32000,
             autoCompactEnabled: true
         )
 
@@ -165,7 +165,7 @@ final class ConversationCompactionTests: XCTestCase {
             .failure("PROMPT TOO LONG: reduce the length of the messages"),
             .success("<summary>Recovered compact summary.</summary>"),
         ])
-        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
         try await session.compact(model: model)
 
@@ -181,7 +181,7 @@ final class ConversationCompactionTests: XCTestCase {
         let pivotID = ids[4]
 
         let client = StubChatClient(responseText: "<summary>Later work compacted.</summary>")
-        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
         try await session.partialCompact(around: pivotID, direction: .from, model: model)
 
@@ -211,7 +211,7 @@ final class ConversationCompactionTests: XCTestCase {
         let originalIDs = seedConversation(into: session, turnCount: 8)
 
         let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
-        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
         try await session.compact(model: model)
 

@@ -292,7 +292,7 @@ open class ChatViewController: UIViewController {
 
     private func layoutViews() {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
-        
+
         let safeArea = view.safeAreaInsets
         let inputHeight = chatInputView.heightPublisher.value
         let bottomPadding = max(safeArea.bottom, 0)
@@ -360,7 +360,7 @@ open class ChatViewController: UIViewController {
         #if targetEnvironment(macCatalyst)
             let publishers = [
                 NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification),
-                NotificationCenter.default.publisher(for: NSNotification.Name("NSApplicationDidBecomeActiveNotification"))
+                NotificationCenter.default.publisher(for: NSNotification.Name("NSApplicationDidBecomeActiveNotification")),
             ]
             Publishers.MergeMany(publishers)
                 .sink { [weak self] _ in
@@ -368,19 +368,19 @@ open class ChatViewController: UIViewController {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.isViewLoaded else { return }
                         self.keyboardHeight = 0
-                        
+
                         self.chatInputView.setNeedsLayout()
                         self.chatInputView.layoutIfNeeded()
                         self.chatInputView.setNeedsDisplay()
-                        
+
                         self.messageListView.setNeedsLayout()
                         self.messageListView.layoutIfNeeded()
                         self.messageListView.setNeedsDisplay()
-                        
+
                         self.view.setNeedsLayout()
                         self.view.layoutIfNeeded()
                         self.view.setNeedsDisplay()
-                        
+
                         self.layoutViews()
                         self.updateCatalystTitlebarToolbarIfNeeded()
                     }

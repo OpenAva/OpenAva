@@ -234,9 +234,8 @@ struct ChatRootView: View {
     }
 
     private func handleAgentSwitch(_ agentID: UUID) {
-        // Clear all sessions to prevent cross-agent session ID conflicts.
-        // Transcripts are isolated by runtimeRootURL, so this is safe.
-        ConversationSessionManager.shared.removeAllSessions()
+        // Keep existing sessions alive so in-flight tasks can keep running
+        // when users switch to another agent.
         guard containerStore.setActiveAgent(agentID) else { return }
     }
 
