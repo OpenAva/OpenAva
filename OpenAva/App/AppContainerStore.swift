@@ -336,6 +336,12 @@ final class AppContainerStore {
         TeamSwarmCoordinator.shared.reload()
     }
 
+    /// Pull latest persisted agent/team state without re-posting swarm change notifications.
+    func refreshPersistedState() {
+        teamState = TeamStore.load(fileManager: fileManager)
+        rebuildContainer(with: container.config)
+    }
+
     private static func applyAgent(to baseConfig: AppConfig, state: AgentStateSnapshot) -> AppConfig {
         var config = baseConfig
 

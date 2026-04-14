@@ -118,7 +118,9 @@ struct ChatRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
             // Team creation/editing can happen in another Catalyst window.
-            // Force one SwiftUI update so the wrapper receives the latest teams/agents.
+            // Reload persisted state first, then force one SwiftUI update so the wrapper
+            // receives the latest teams/agents and menu snapshot.
+            containerStore.refreshPersistedState()
             teamMenuRefreshToken &+= 1
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
