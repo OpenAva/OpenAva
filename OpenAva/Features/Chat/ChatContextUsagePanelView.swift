@@ -56,6 +56,7 @@ struct ChatContextUsagePanelView: View {
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
+                        .frame(height: 24)
                         .overlay(
                             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
                                 .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
