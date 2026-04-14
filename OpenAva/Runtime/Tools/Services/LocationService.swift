@@ -82,7 +82,22 @@ final class LocationService: NSObject, CLLocationManagerDelegate, LocationServic
         timeoutMs: Int,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await AsyncTimeout.withTimeoutMs(timeoutMs: timeoutMs, onTimeout: { Error.timeout }, operation: operation)
+        do {
+            return try await AsyncTimeout.withTimeoutMs(timeoutMs: timeoutMs, onTimeout: { Error.timeout }, operation: operation)
+        } catch {
+            if let locationError = error as? Error, case .timeout = locationError {
+                cancelPendingLocationRequest(throwing: Error.timeout)
+            }
+            throw error
+        }
+    }
+
+    private func cancelPendingLocationRequest(throwing error: Swift.Error) {
+        guard let cont = locationContinuation else { return }
+        locationContinuation = nil
+        manager.stopUpdatingLocation()
+        manager.stopMonitoringSignificantLocationChanges()
+        cont.resume(throwing: error)
     }
 
     func startLocationUpdates(
@@ -170,6 +185,9 @@ final class LocationService: NSObject, CLLocationManagerDelegate, LocationServic
     nonisolated func locationManager(_: CLLocationManager, didFailWithError error: Swift.Error) {
         let err = error
         Task { @MainActor in
+            if let clError = err as? CLError, clError.code == .locationUnknown {
+                return
+            }
             guard let cont = self.locationContinuation else { return }
             self.locationContinuation = nil
             cont.resume(throwing: err)
