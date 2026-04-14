@@ -358,16 +358,29 @@ open class ChatViewController: UIViewController {
 
     private func setupActivationObservation() {
         #if targetEnvironment(macCatalyst)
-            NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            let publishers = [
+                NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification),
+                NotificationCenter.default.publisher(for: NSNotification.Name("NSApplicationDidBecomeActiveNotification"))
+            ]
+            Publishers.MergeMany(publishers)
                 .sink { [weak self] _ in
                     guard let self else { return }
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.isViewLoaded else { return }
                         self.keyboardHeight = 0
+                        
                         self.chatInputView.setNeedsLayout()
                         self.chatInputView.layoutIfNeeded()
+                        self.chatInputView.setNeedsDisplay()
+                        
                         self.messageListView.setNeedsLayout()
                         self.messageListView.layoutIfNeeded()
+                        self.messageListView.setNeedsDisplay()
+                        
+                        self.view.setNeedsLayout()
+                        self.view.layoutIfNeeded()
+                        self.view.setNeedsDisplay()
+                        
                         self.layoutViews()
                         self.updateCatalystTitlebarToolbarIfNeeded()
                     }
@@ -438,6 +451,16 @@ open class ChatViewController: UIViewController {
     }
 
     @MainActor
+    public func performPartialCompact(
+        around messageID: String,
+        direction: PartialCompactDirection
+    ) async throws {
+        guard let session = currentSession, let model = session.models.chat else { return }
+        try await session.partialCompact(around: messageID, direction: direction, model: model)
+        scheduleContextUsageRefresh()
+    }
+
+    @MainActor
     public func quickSettingAnchorView(forCommand command: String) -> UIView? {
         chatInputView.quickSettingButton(forCommand: command)
     }
@@ -470,7 +493,28 @@ open class ChatViewController: UIViewController {
                 self.chatInputView.focus()
             }
         }
+        messageListView.onPartialCompact = { [weak self] messageID, direction in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.performPartialCompact(around: messageID, direction: direction)
+                } catch {
+                    self.presentPartialCompactError(error)
+                }
+            }
+        }
         bindNavigationTitleUpdates(session: session)
+    }
+
+    private func presentPartialCompactError(_ error: Error) {
+        let alert = UIAlertController(
+            title: String.localized("Error"),
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func scheduleContextUsageRefresh() {

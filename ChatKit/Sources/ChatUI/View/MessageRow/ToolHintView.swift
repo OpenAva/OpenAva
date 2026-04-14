@@ -12,7 +12,9 @@ final class ToolHintView: MessageListRowView {
 
     var text: String?
 
-    var toolName: String = .init()
+    var toolName: String = .init() {
+        didSet { updateContentText() }
+    }
 
     var hasResult: Bool = false {
         didSet { updateContentText() }

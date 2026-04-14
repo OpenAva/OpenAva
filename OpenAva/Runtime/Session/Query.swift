@@ -441,26 +441,47 @@ private func executeToolCalls(
     var toolCallEntries: [ToolCallEntry] = []
     for request in pendingToolCalls {
         try toolUseContext.session.checkCancellation()
-        logger.notice(
-            "tool lookup session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
-        )
-        guard let tool = await toolProvider.findTool(for: request) else {
-            throw InferenceError.toolNotFound(name: request.name)
-        }
 
-        let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
         let partIndex = assistantMessage.parts.count
+        let normalizedRequestName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
         assistantMessage.parts.append(
             .toolCall(
                 ToolCallContentPart(
                     id: request.id,
-                    toolName: tool.displayName,
+                    toolName: normalizedRequestName.isEmpty ? "tool" : normalizedRequestName,
                     apiName: request.name,
                     parameters: request.arguments,
-                    state: permissionDecision.allowsExecution ? .running : .failed
+                    state: .running
                 )
             )
         )
+        continuation.yield(.refresh(scrolling: true))
+
+        logger.notice(
+            "tool lookup session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
+        )
+        guard let tool = await toolProvider.findTool(for: request) else {
+            if partIndex < assistantMessage.parts.count,
+               case var .toolCall(toolCallPart) = assistantMessage.parts[partIndex]
+            {
+                toolCallPart.state = .failed
+                assistantMessage.parts[partIndex] = .toolCall(toolCallPart)
+            }
+            continuation.yield(.refresh(scrolling: true))
+            throw InferenceError.toolNotFound(name: request.name)
+        }
+
+        let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
+        if partIndex < assistantMessage.parts.count,
+           case var .toolCall(toolCallPart) = assistantMessage.parts[partIndex]
+        {
+            toolCallPart.toolName = tool.displayName
+            toolCallPart.apiName = request.name
+            toolCallPart.parameters = request.arguments
+            toolCallPart.state = permissionDecision.allowsExecution ? .running : .failed
+            assistantMessage.parts[partIndex] = .toolCall(toolCallPart)
+        }
+
         toolCallEntries.append(
             ToolCallEntry(
                 request: request,
@@ -469,8 +490,8 @@ private func executeToolCalls(
                 permissionDecision: permissionDecision
             )
         )
+        continuation.yield(.refresh(scrolling: true))
     }
-    continuation.yield(.refresh(scrolling: true))
 
     var orderedToolResponses = [ToolCallResponse?](repeating: nil, count: toolCallEntries.count)
 

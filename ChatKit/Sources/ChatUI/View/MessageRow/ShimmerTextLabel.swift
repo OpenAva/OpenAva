@@ -12,6 +12,18 @@ final class ShimmerTextLabel: UILabel {
 
     var animationDuration: TimeInterval = 1.6
 
+    override var text: String? {
+        didSet {
+            updateMaskString()
+        }
+    }
+
+    override var attributedText: NSAttributedString? {
+        didSet {
+            updateMaskString()
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
     }
@@ -66,5 +78,10 @@ final class ShimmerTextLabel: UILabel {
         gradientLayer.removeFromSuperlayer()
         gradientLayer.mask = nil
         textColor = originalTextColor ?? .label
+    }
+
+    private func updateMaskString() {
+        guard let mask = gradientLayer.mask as? CATextLayer else { return }
+        mask.string = attributedText ?? NSAttributedString(string: text ?? "", attributes: [.font: font as Any])
     }
 }

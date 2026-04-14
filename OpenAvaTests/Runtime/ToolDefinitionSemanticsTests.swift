@@ -4,6 +4,35 @@ import XCTest
 @testable import OpenAva
 
 final class ToolDefinitionSemanticsTests: XCTestCase {
+    @MainActor
+    private func makeRuntime(locationService: (any LocationServicing)? = nil) -> ToolRuntime {
+        ToolRuntime(
+            cameraService: StubCameraService(),
+            screenRecordingService: StubScreenRecordingService(),
+            locationService: locationService ?? StubLocationService(),
+            deviceStatusService: StubDeviceStatusService(),
+            watchMessagingService: StubWatchMessagingService(),
+            photosService: StubPhotosService(),
+            imageBackgroundRemovalService: StubImageBackgroundRemovalService(),
+            contactsService: StubContactsService(),
+            calendarService: StubCalendarService(),
+            remindersService: StubRemindersService(),
+            motionService: StubMotionService(),
+            userNotifyService: StubUserNotifyService(),
+            speechService: StubSpeechService(),
+            cronService: StubCronService(),
+            notificationCenter: StubNotificationCenter(),
+            webFetchService: WebFetchService(),
+            webSearchService: WebSearchService(),
+            imageSearchService: ImageSearchService(),
+            youTubeTranscriptService: YouTubeTranscriptService(),
+            webViewToolService: WebViewService.shared,
+            javaScriptService: JavaScriptService(),
+            textImageRenderService: TextImageRenderService(),
+            fileSystemService: FileSystemService()
+        )
+    }
+
     func testArxivSearchDefinitionExposesReadOnlySemantics() {
         let definitions = ArxivSearchService().toolDefinitions()
         let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
@@ -160,31 +189,7 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
 
     @MainActor
     func testCurrentTimeToolWorksThroughToolRuntime() async {
-        let runtime = ToolRuntime(
-            cameraService: StubCameraService(),
-            screenRecordingService: StubScreenRecordingService(),
-            locationService: StubLocationService(),
-            deviceStatusService: StubDeviceStatusService(),
-            watchMessagingService: StubWatchMessagingService(),
-            photosService: StubPhotosService(),
-            imageBackgroundRemovalService: StubImageBackgroundRemovalService(),
-            contactsService: StubContactsService(),
-            calendarService: StubCalendarService(),
-            remindersService: StubRemindersService(),
-            motionService: StubMotionService(),
-            userNotifyService: StubUserNotifyService(),
-            speechService: StubSpeechService(),
-            cronService: StubCronService(),
-            notificationCenter: StubNotificationCenter(),
-            webFetchService: WebFetchService(),
-            webSearchService: WebSearchService(),
-            imageSearchService: ImageSearchService(),
-            youTubeTranscriptService: YouTubeTranscriptService(),
-            webViewToolService: WebViewService.shared,
-            javaScriptService: JavaScriptService(),
-            textImageRenderService: TextImageRenderService(),
-            fileSystemService: FileSystemService()
-        )
+        let runtime = makeRuntime()
         let response = await runtime.handle(
             BridgeInvokeRequest(
                 id: UUID().uuidString,
@@ -196,6 +201,49 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
         XCTAssertTrue(response.ok)
         XCTAssertTrue(response.payload?.contains("## Runtime Time") == true)
         XCTAssertTrue(response.payload?.contains("- timezone:") == true)
+    }
+
+    @MainActor
+    func testLocationToolReturnsAgeMetadata() async {
+        let location = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.33182, longitude: -122.03118),
+            altitude: 15,
+            horizontalAccuracy: 8,
+            verticalAccuracy: 6,
+            course: 180,
+            speed: 1.25,
+            timestamp: Date()
+        )
+        let runtime = makeRuntime(locationService: StubLocationService(result: .success(location)))
+
+        let response = await runtime.handle(
+            BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: "location.get",
+                paramsJSON: #"{"timeoutMs":200,"desiredAccuracy":"balanced"}"#
+            )
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertTrue(response.payload?.contains("## Location") == true)
+        XCTAssertTrue(response.payload?.contains("- age_ms:") == true)
+        XCTAssertTrue(response.payload?.contains("- accuracy_m: 8.0") == true)
+    }
+
+    @MainActor
+    func testLocationToolTimeoutUsesNormalizedTimeoutMessage() async {
+        let runtime = makeRuntime(locationService: StubLocationService(result: .failure(LocationService.Error.timeout)))
+
+        let response = await runtime.handle(
+            BridgeInvokeRequest(
+                id: UUID().uuidString,
+                command: "location.get",
+                paramsJSON: #"{"timeoutMs":200}"#
+            )
+        )
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.message, "LOCATION_TIMEOUT: unable to determine location within 1000ms")
     }
 }
 
@@ -225,20 +273,44 @@ private struct StubScreenRecordingService: ScreenRecordingServicing {
 
 @MainActor
 private final class StubLocationService: LocationServicing {
+    enum Result {
+        case success(CLLocation)
+        case failure(Swift.Error)
+    }
+
+    private let authorization: CLAuthorizationStatus
+    private let accuracy: CLAccuracyAuthorization
+    private let result: Result
+
+    init(
+        authorization: CLAuthorizationStatus = .authorizedWhenInUse,
+        accuracy: CLAccuracyAuthorization = .fullAccuracy,
+        result: Result = .success(CLLocation(latitude: 0, longitude: 0))
+    ) {
+        self.authorization = authorization
+        self.accuracy = accuracy
+        self.result = result
+    }
+
     func authorizationStatus() -> CLAuthorizationStatus {
-        .authorizedWhenInUse
+        authorization
     }
 
     func accuracyAuthorization() -> CLAccuracyAuthorization {
-        .fullAccuracy
+        accuracy
     }
 
     func ensureAuthorization(mode _: OpenClawLocationMode) async -> CLAuthorizationStatus {
-        .authorizedWhenInUse
+        authorization
     }
 
     func currentLocation(params _: OpenClawLocationGetParams, desiredAccuracy _: OpenClawLocationAccuracy, maxAgeMs _: Int?, timeoutMs _: Int?) async throws -> CLLocation {
-        CLLocation(latitude: 0, longitude: 0)
+        switch result {
+        case let .success(location):
+            return location
+        case let .failure(error):
+            throw error
+        }
     }
 
     func startLocationUpdates(desiredAccuracy _: OpenClawLocationAccuracy, significantChangesOnly _: Bool) -> AsyncStream<CLLocation> {
