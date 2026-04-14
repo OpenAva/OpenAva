@@ -26,6 +26,29 @@ private extension MessageListView {
 }
 
 extension MessageListView: ListViewAdapter {
+    private func compactConversationMenu(messageID: String) -> UIMenu {
+        let upToTitle = String.localized("Compact Up to Here")
+        let fromTitle = String.localized("Compact From Here")
+        return UIMenu(
+            title: String.localized("Compact Conversation"),
+            image: UIImage(systemName: "rectangle.compress.vertical"),
+            children: [
+                UIAction(
+                    title: upToTitle,
+                    image: UIImage(systemName: "arrow.up.to.line.compact")
+                ) { [weak self] _ in
+                    self?.onPartialCompact?(messageID, .upTo)
+                },
+                UIAction(
+                    title: fromTitle,
+                    image: UIImage(systemName: "arrow.down.to.line.compact")
+                ) { [weak self] _ in
+                    self?.onPartialCompact?(messageID, .from)
+                },
+            ]
+        )
+    }
+
     private func entryForRow(at index: Int) -> Entry? {
         dataSource.snapshot().item(at: index)
     }
@@ -178,7 +201,8 @@ extension MessageListView: ListViewAdapter {
                         ) { _ in
                             self?.onRollbackUserQuery?(messageID, text)
                         },
-                    ])
+                        self?.compactConversationMenu(messageID: messageID),
+                    ].compactMap { $0 })
                 }
             }
         } else if let userAttachmentView = rowView as? UserAttachmentView {
@@ -193,7 +217,7 @@ extension MessageListView: ListViewAdapter {
                 responseView.markdownView.setMarkdown(package)
                 // Copy / Select All menu
                 let text = message.content
-                responseView.contextMenuProvider = { [weak responseView] _ in
+                responseView.contextMenuProvider = { [weak self, weak responseView] _ in
                     UIMenu(children: [
                         UIAction(
                             title: String.localized("Copy"),
@@ -207,7 +231,8 @@ extension MessageListView: ListViewAdapter {
                         ) { _ in
                             responseView?.markdownView.textView.selectAllText()
                         },
-                    ])
+                        self?.compactConversationMenu(messageID: message.messageID),
+                    ].compactMap { $0 })
                 }
             }
         } else if let mediaMessageView = rowView as? MediaMessageView {
@@ -305,7 +330,19 @@ extension MessageListView: ListViewAdapter {
         } else if let toolHintView = rowView as? ToolHintView {
             if case let .toolCallHint(_, toolCallRepresentation) = entry {
                 toolHintView.theme = theme
-                toolHintView.toolName = toolCallRepresentation.toolCall.toolName
+                let displayName = toolCallRepresentation.toolCall.toolName
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let apiName = toolCallRepresentation.toolCall.apiName
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                toolHintView.toolName = {
+                    if !displayName.isEmpty {
+                        return displayName
+                    }
+                    if !apiName.isEmpty {
+                        return apiName
+                    }
+                    return "tool"
+                }()
                 toolHintView.text = toolCallRepresentation.toolCall.parameters
                 toolHintView.state = toolCallRepresentation.toolCall.state
                 toolHintView.hasResult = toolCallRepresentation.hasResult

@@ -112,16 +112,164 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ConversationCompactionTests: XCTestCase {
+    func testManualCompactBuildsBoundarySummaryAndHiddenAttachments() async throws {
+        let storage = DisposableStorageProvider()
+        let toolProvider = StubToolProvider()
+        let session = ConversationSession(
+            id: "compact-session",
+            configuration: .init(storage: storage, tools: toolProvider)
+        )
+        let originalIDs = seedConversation(into: session, turnCount: 8)
+
+        let client = StubChatClient(
+            responseText: """
+            <analysis>scratch work</analysis>
+            <summary>
+            1. Primary request and intent: align compact behavior.
+            2. Key technical concepts: boundary markers, summaries, PTL retry.
+            </summary>
+            """
+        )
+        let model = ConversationSession.Model(
+            client: client,
+            capabilities: [.tool],
+            contextLength: 32_000,
+            autoCompactEnabled: true
+        )
+
+        try await session.compact(model: model)
+
+        XCTAssertEqual(client.chatCallCount, 1)
+        XCTAssertEqual(session.messages.filter(\.isCompactBoundary).count, 1)
+        XCTAssertEqual(session.messages.filter(\.isCompactionSummary).count, 1)
+        XCTAssertEqual(session.messages.filter(\.isCompactAttachment).count, 3)
+
+        let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactionSummary }))
+        XCTAssertFalse(summary.textContent.contains("<analysis>"))
+        XCTAssertTrue(summary.textContent.contains("align compact behavior"))
+
+        let preservedIDs = session.messages
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+        XCTAssertEqual(preservedIDs, Array(originalIDs.suffix(4)))
+    }
+
+    func testManualCompactRetriesWhenPromptTooLong() async throws {
+        let storage = DisposableStorageProvider()
+        let session = ConversationSession(id: "compact-retry", configuration: .init(storage: storage))
+        _ = seedConversation(into: session, turnCount: 10)
+
+        let client = StubChatClient(scriptedResponses: [
+            .failure("PROMPT TOO LONG: reduce the length of the messages"),
+            .success("<summary>Recovered compact summary.</summary>"),
+        ])
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+
+        try await session.compact(model: model)
+
+        XCTAssertEqual(client.chatCallCount, 2)
+        let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactionSummary }))
+        XCTAssertTrue(summary.textContent.contains("Recovered compact summary."))
+    }
+
+    func testPartialCompactFromKeepsEarlierMessagesBeforeSummary() async throws {
+        let storage = DisposableStorageProvider()
+        let session = ConversationSession(id: "partial-from", configuration: .init(storage: storage))
+        let ids = seedConversation(into: session, turnCount: 6)
+        let pivotID = ids[4]
+
+        let client = StubChatClient(responseText: "<summary>Later work compacted.</summary>")
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+
+        try await session.partialCompact(around: pivotID, direction: .from, model: model)
+
+        let visibleIDs = session.messages
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+        XCTAssertEqual(visibleIDs, Array(ids.prefix(4)))
+        XCTAssertFalse(visibleIDs.contains(pivotID))
+
+        let summaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactionSummary }))
+        let boundaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactBoundary }))
+        XCTAssertGreaterThan(summaryIndex, boundaryIndex)
+    }
+
+    func testReloadRestoresFullTranscriptHistoryAfterCompact() async throws {
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
+            try? FileManager.default.removeItem(at: runtimeRoot)
+        }
+
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRoot)
+        let sessionID = "transcript-reload"
+        let session = ConversationSession(id: sessionID, configuration: .init(storage: storage))
+        let originalIDs = seedConversation(into: session, turnCount: 8)
+
+        let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32_000, autoCompactEnabled: true)
+
+        try await session.compact(model: model)
+
+        let compactedContextIDs = storage.messages(in: sessionID)
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+        XCTAssertLessThan(compactedContextIDs.count, originalIDs.count)
+
+        let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
+        let reloadedIDs = reloaded.messages
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+
+        XCTAssertEqual(reloadedIDs, originalIDs)
+        XCTAssertTrue(reloaded.messages.contains(where: { $0.isCompactBoundary }))
+    }
+
+    private func seedConversation(into session: ConversationSession, turnCount: Int) -> [String] {
+        var ids: [String] = []
+        for index in 0 ..< turnCount {
+            let role: MessageRole = index.isMultiple(of: 2) ? .user : .assistant
+            let message = session.appendNewMessage(role: role)
+            message.textContent = "message-\(index)"
+            message.createdAt = Date(timeIntervalSince1970: TimeInterval(index))
+            ids.append(message.id)
+        }
+        session.persistMessages()
+        return ids
+    }
+}
+
+private enum StubChatClientResponse {
+    case success(String)
+    case failure(String)
+}
+
+private struct StubChatClientError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        message
+    }
+}
+
 private final class StubChatClient: ChatClient, @unchecked Sendable {
     let errorCollector = ErrorCollector.new()
 
-    private let responseText: String
+    private var scriptedResponses: [StubChatClientResponse]
     private let lock = NSLock()
     private var calls = 0
     private var streamingCalls = 0
 
     init(responseText: String) {
-        self.responseText = responseText
+        scriptedResponses = [.success(responseText)]
+    }
+
+    init(scriptedResponses: [StubChatClientResponse]) {
+        self.scriptedResponses = scriptedResponses
     }
 
     var chatCallCount: Int {
@@ -139,8 +287,20 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
     func chat(body _: ChatRequestBody) async throws -> ChatResponse {
         lock.lock()
         calls += 1
+        let response: StubChatClientResponse
+        if scriptedResponses.count > 1 {
+            response = scriptedResponses.removeFirst()
+        } else {
+            response = scriptedResponses.first ?? .success("")
+        }
         lock.unlock()
-        return ChatResponse(reasoning: "", text: responseText, images: [], tools: [])
+        switch response {
+        case let .success(text):
+            return ChatResponse(reasoning: "", text: text, images: [], tools: [])
+        case let .failure(message):
+            await errorCollector.collect(message)
+            throw StubChatClientError(message: message)
+        }
     }
 
     func streamingChat(body _: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
@@ -150,5 +310,29 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
         return AsyncStream<ChatResponseChunk> { continuation in
             continuation.finish()
         }.eraseToAnyAsyncSequence()
+    }
+}
+
+private final class StubToolProvider: ToolProvider, @unchecked Sendable {
+    func enabledTools() async -> [ChatRequestBody.Tool] {
+        [
+            .function(
+                name: "Read",
+                description: "Read a file",
+                parameters: nil,
+                strict: nil
+            ),
+        ]
+    }
+
+    func findTool(for _: ToolRequest) async -> ToolExecutor? {
+        nil
+    }
+
+    func executeTool(
+        _: ToolExecutor,
+        parameters _: String
+    ) async throws -> ToolResult {
+        ToolResult(text: "")
     }
 }

@@ -182,7 +182,11 @@ public final class ConversationSession: Identifiable, Sendable {
 
     func refreshContentsFromDatabase(scrolling: Bool = true) {
         messages.removeAll()
-        messages = storageProvider.messages(in: id)
+        if let transcriptStorageProvider = storageProvider as? TranscriptStorageProvider {
+            messages = transcriptStorageProvider.fullHistoryMessages(in: id)
+        } else {
+            messages = storageProvider.messages(in: id)
+        }
         notifyMessagesDidChange(scrolling: scrolling)
     }
 

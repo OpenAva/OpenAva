@@ -83,6 +83,36 @@
         }
       }
     },
+    "Compact Conversation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩对话"
+          }
+        }
+      }
+    },
+    "Compact From Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从此处开始压缩"
+          }
+        }
+      }
+    },
+    "Compact Up to Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩至此处"
+          }
+        }
+      }
+    },
     "Context --%" : {
       "extractionState" : "stale",
       "localizations" : {

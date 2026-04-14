@@ -131,7 +131,7 @@ extension MessageListView {
         }
 
         for message in messages {
-            if message.isCompactionSummary {
+            if message.isCompactionSummary || message.isCompactAttachment {
                 continue
             }
 
@@ -393,12 +393,17 @@ extension MessageListView {
 
 extension ToolCallContentPart: Hashable {
     public static func == (lhs: ToolCallContentPart, rhs: ToolCallContentPart) -> Bool {
-        lhs.id == rhs.id && lhs.state == rhs.state
+        lhs.id == rhs.id
+            && lhs.state == rhs.state
+            && lhs.toolName == rhs.toolName
+            && lhs.apiName == rhs.apiName
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(state)
+        hasher.combine(toolName)
+        hasher.combine(apiName)
     }
 }
 

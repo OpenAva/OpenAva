@@ -29,6 +29,7 @@ public final class MessageListView: UIView {
     private let autoScrollTolerance: CGFloat = 2
 
     public var onRollbackUserQuery: ((String, String) -> Void)?
+    public var onPartialCompact: ((String, PartialCompactDirection) -> Void)?
     public var onToggleReasoningCollapse: ((String) -> Void)?
     public var onToggleToolResultCollapse: ((String, String) -> Void)?
     public var onRetryInterruptedInference: (() -> Void)?

@@ -3,6 +3,7 @@ import Foundation
 public enum ConversationMarkers {
     public static let compactBoundaryPrefix = "[Compact Boundary]"
     public static let contextSummaryPrefix = "[Context Summary]"
+    public static let compactAttachmentPrefix = "[Compact Attachment]"
     public static let toolUseSummaryPrefix = "[Tool Use Summary]"
 
     public static func isContextSummary(_ text: String) -> Bool {
@@ -20,6 +21,11 @@ public enum ConversationMarkers {
             .replacingOccurrences(of: contextSummaryPrefix, with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+public enum PartialCompactDirection: String, Sendable {
+    case from
+    case upTo = "up_to"
 }
 
 public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
@@ -68,6 +74,10 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
 public extension ConversationMessage {
     var isCompactionSummary: Bool {
         metadata["isCompactionSummary"] == "true"
+    }
+
+    var isCompactAttachment: Bool {
+        metadata["isCompactAttachment"] == "true" || subtype == "compact_attachment"
     }
 
     var subtype: String? {

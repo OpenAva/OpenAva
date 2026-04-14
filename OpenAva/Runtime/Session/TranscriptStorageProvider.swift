@@ -95,6 +95,11 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         var preview: String?
     }
 
+    private enum ReplayMode {
+        case compactedContext
+        case fullHistory
+    }
+
     private static let providersLock = NSLock()
     private static var providersByRootPath: [String: TranscriptStorageProvider] = [:]
 
@@ -214,6 +219,13 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         lock.lock()
         ensureSessionLoadedLocked(sessionID)
         let messages = messagesBySession[sessionID] ?? []
+        lock.unlock()
+        return messages.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func fullHistoryMessages(in sessionID: String) -> [ConversationMessage] {
+        lock.lock()
+        let messages = replayStateLocked(for: sessionID, mode: .fullHistory).messages
         lock.unlock()
         return messages.sorted { $0.createdAt < $1.createdAt }
     }
@@ -360,7 +372,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func ensureSessionLoadedLocked(_ sessionID: String) {
         guard !loadedSessions.contains(sessionID) else { return }
-        let replayState = replayStateLocked(for: sessionID)
+        let replayState = replayStateLocked(for: sessionID, mode: .compactedContext)
         messagesBySession[sessionID] = replayState.messages
         nextSequenceByConversation[sessionID] = replayState.updatedAtMs == 0 ? 0 : loadTranscriptEntriesLocked(sessionID).last?.sequence ?? 0
         if replayState.title != nil || replayState.preview != nil {
@@ -375,7 +387,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         loadedSessions.insert(sessionID)
     }
 
-    private func replayStateLocked(for sessionID: String) -> ReplayState {
+    private func replayStateLocked(for sessionID: String, mode: ReplayMode) -> ReplayState {
         var state = ReplayState()
         for entry in loadTranscriptEntriesLocked(sessionID) {
             state.updatedAtMs = max(state.updatedAtMs, timestampMs(from: entry.timestamp))
@@ -388,7 +400,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 )
                 state.preview = previewText(from: state.messages)
             case "summary":
-                if let messageUUIDs = entry.messageUUIDs, !messageUUIDs.isEmpty {
+                if mode == .compactedContext,
+                   let messageUUIDs = entry.messageUUIDs,
+                   !messageUUIDs.isEmpty
+                {
                     state.messages.removeAll { messageUUIDs.contains($0.id) }
                 }
                 if let record = entry.message {
@@ -399,7 +414,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 }
                 state.preview = previewText(from: state.messages)
             case "messages-deleted":
-                if let messageUUIDs = entry.messageUUIDs, !messageUUIDs.isEmpty {
+                if mode == .compactedContext,
+                   let messageUUIDs = entry.messageUUIDs,
+                   !messageUUIDs.isEmpty
+                {
                     state.messages.removeAll { messageUUIDs.contains($0.id) }
                     state.preview = previewText(from: state.messages)
                 }
