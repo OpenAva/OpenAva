@@ -244,7 +244,8 @@ final class HeartbeatService {
             baseSystemPrompt: configuration.baseSystemPrompt,
             chatClient: configuration.chatClient,
             agentName: configuration.agentName,
-            agentEmoji: configuration.agentEmoji
+            agentEmoji: configuration.agentEmoji,
+            shouldExtractDurableMemory: false
         )
         let sessionConfiguration = ConversationSession.Configuration(
             storage: storageProvider,

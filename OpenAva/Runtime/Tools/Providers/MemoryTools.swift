@@ -57,6 +57,17 @@ final class MemoryTools: ToolDefinitionProvider {
                             "type": "string",
                             "description": "Optional stable slug / filename stem for updates",
                         ],
+                        "expiresAt": [
+                            "type": "string",
+                            "description": "Optional ISO 8601 expiration timestamp after which this memory becomes inactive",
+                        ],
+                        "conflictsWith": [
+                            "type": "array",
+                            "description": "Optional list of memory slugs that should be marked inactive due to conflict with this memory",
+                            "items": [
+                                "type": "string",
+                            ],
+                        ],
                     ],
                     "required": ["name", "type", "description", "content"],
                     "additionalProperties": false,

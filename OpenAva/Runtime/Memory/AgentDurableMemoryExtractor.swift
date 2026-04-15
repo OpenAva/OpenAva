@@ -10,6 +10,8 @@ actor AgentDurableMemoryExtractor {
             let description: String
             let content: String
             let slug: String?
+            let expiresAt: String?
+            let conflictsWith: [String]?
         }
 
         let memories: [MemoryCandidate]
@@ -72,12 +74,30 @@ actor AgentDurableMemoryExtractor {
                 guard !name.isEmpty, !description.isEmpty, !content.isEmpty else {
                     continue
                 }
+                let resolvedSlug = preferredSlug(
+                    for: candidate,
+                    type: type,
+                    name: name,
+                    description: description,
+                    existingEntries: existingEntries
+                )
+                let conflictSlugs = inferredConflictSlugs(
+                    for: candidate,
+                    type: type,
+                    name: name,
+                    description: description,
+                    content: content,
+                    resolvedSlug: resolvedSlug,
+                    existingEntries: existingEntries
+                )
                 _ = try await memoryStore.upsert(
                     name: name,
                     type: type,
                     description: description,
                     content: content,
-                    slug: candidate.slug
+                    slug: resolvedSlug,
+                    expiresAt: candidate.expiresAt,
+                    conflictsWith: conflictSlugs
                 )
             }
             saveLastProcessedMessageID(lastProcessedMessageID, for: sessionID)
@@ -133,7 +153,9 @@ actor AgentDurableMemoryExtractor {
               "type": "user|feedback|project|reference",
               "description": "string",
               "content": "string",
-              "slug": "string or omitted"
+              "slug": "string or omitted",
+              "expiresAt": "ISO 8601 string or omitted",
+              "conflictsWith": ["slug", "..."]
             }
           ]
         }
@@ -144,6 +166,10 @@ actor AgentDurableMemoryExtractor {
         - Allowed types are exactly: user, feedback, project, reference.
         - Do not save code structure, file paths, implementation details derivable from the repo, temporary task progress, compact summaries, or transient search results.
         - Prefer updating an existing memory topic by reusing its slug when the topic already exists.
+        - If an existing memory already covers the same durable topic, reuse that slug instead of creating a new topic.
+        - If a new user preference, feedback preference, or project policy directly contradicts an existing active memory, include the old slug in conflictsWith.
+        - Use conflictsWith only for genuinely incompatible memories that should stop being active.
+        - Use expiresAt only when the conversation explicitly makes the memory time-bounded.
         - If there is nothing worth remembering, return {"memories":[]}.
         - Keep descriptions concise and contents specific.
         """
@@ -347,8 +373,84 @@ actor AgentDurableMemoryExtractor {
             } else {
                 truncatedExcerpt = excerpt
             }
-            return "- slug=\(entry.slug) | type=\(entry.type.rawValue) | name=\(entry.name) | description=\(entry.description) | content=\(truncatedExcerpt)"
+            let versionPart = "version=\(entry.version)"
+            return "- slug=\(entry.slug) | \(versionPart) | type=\(entry.type.rawValue) | name=\(entry.name) | description=\(entry.description) | content=\(truncatedExcerpt)"
         }.joined(separator: "\n")
+    }
+
+    private func preferredSlug(
+        for candidate: ExtractionResponse.MemoryCandidate,
+        type: AgentMemoryStore.MemoryType,
+        name: String,
+        description: String,
+        existingEntries: [AgentMemoryStore.Entry]
+    ) -> String? {
+        let explicitSlug = candidate.slug?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if explicitSlug?.isEmpty == false {
+            return explicitSlug
+        }
+
+        let activeEntries = existingEntries.filter { $0.isActive && $0.type == type }
+        let normalizedName = Self.normalizedComparableText(name)
+        let normalizedDescription = Self.normalizedComparableText(description)
+
+        if let exactNameMatch = activeEntries.first(where: { Self.normalizedComparableText($0.name) == normalizedName }) {
+            return exactNameMatch.slug
+        }
+        if let exactDescriptionMatch = activeEntries.first(where: {
+            Self.normalizedComparableText($0.description) == normalizedDescription
+        }) {
+            return exactDescriptionMatch.slug
+        }
+        if let overlappingMatch = activeEntries.first(where: {
+            let existingName = Self.normalizedComparableText($0.name)
+            return !normalizedName.isEmpty && !existingName.isEmpty && (
+                existingName.contains(normalizedName) || normalizedName.contains(existingName)
+            )
+        }) {
+            return overlappingMatch.slug
+        }
+        return nil
+    }
+
+    private func inferredConflictSlugs(
+        for candidate: ExtractionResponse.MemoryCandidate,
+        type: AgentMemoryStore.MemoryType,
+        name _: String,
+        description: String,
+        content: String,
+        resolvedSlug: String?,
+        existingEntries: [AgentMemoryStore.Entry]
+    ) -> [String] {
+        let explicitConflicts = Set(
+            (candidate.conflictsWith ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+
+        guard type == .user || type == .feedback || type == .project else {
+            return Array(explicitConflicts).sorted()
+        }
+
+        let normalizedDescription = Self.normalizedComparableText(description)
+        let normalizedContent = Self.normalizedComparableText(content)
+        let inferredConflicts = existingEntries.compactMap { entry -> String? in
+            guard entry.isActive else { return nil }
+            guard entry.type == type else { return nil }
+            guard entry.slug != resolvedSlug else { return nil }
+            guard Self.normalizedComparableText(entry.description) == normalizedDescription else { return nil }
+            let existingContent = Self.normalizedComparableText(entry.content)
+            guard !existingContent.isEmpty, existingContent != normalizedContent else { return nil }
+            return entry.slug
+        }
+
+        return Array(explicitConflicts.union(inferredConflicts)).sorted()
+    }
+
+    private static func normalizedComparableText(_ raw: String) -> String {
+        raw.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func isModelVisibleMessage(_ message: ConversationMessage) -> Bool {

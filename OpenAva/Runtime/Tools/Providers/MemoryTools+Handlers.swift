@@ -83,6 +83,8 @@ extension MemoryTools {
             var description: String
             var content: String
             var slug: String?
+            var expiresAt: String?
+            var conflictsWith: [String]?
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
@@ -107,9 +109,12 @@ extension MemoryTools {
             type: type,
             description: params.description,
             content: params.content,
-            slug: params.slug
+            slug: params.slug,
+            expiresAt: params.expiresAt,
+            conflictsWith: params.conflictsWith ?? []
         )
-        let text = "## Memory Upsert\n- status: updated\n- type: \(entry.type.rawValue)\n- slug: \(entry.slug)\n- file: \(entry.fileURL.path)"
+        let expiresAtLine = entry.expiresAt.map { "\n- expiresAt: \(Self.renderDate($0))" } ?? ""
+        let text = "## Memory Upsert\n- status: \(entry.status.rawValue)\n- type: \(entry.type.rawValue)\n- slug: \(entry.slug)\n- version: \(entry.version)\(expiresAtLine)\n- file: \(entry.fileURL.path)"
         return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
     }
 
@@ -171,5 +176,11 @@ extension MemoryTools {
         let body = lines.isEmpty ? "- (empty)" : lines.joined(separator: "\n")
         let text = "## Memory Transcript Search\n- query: \(params.query)\n- hits: \(hits.count)\n\(body)"
         return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+    }
+
+    private static func renderDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
