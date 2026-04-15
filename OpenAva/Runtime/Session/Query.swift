@@ -335,6 +335,27 @@ private func executeQueryTurn(
             await textEmitter.wait()
             pendingToolCalls.append(call)
 
+            let alreadyHasToolCallPart = message.parts.contains { part in
+                guard case let .toolCall(toolCallPart) = part else { return false }
+                return toolCallPart.id == call.id
+            }
+            if !alreadyHasToolCallPart {
+                let normalizedToolName = call.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                message.parts.append(
+                    .toolCall(
+                        ToolCallContentPart(
+                            id: call.id,
+                            toolName: normalizedToolName.isEmpty ? "tool" : normalizedToolName,
+                            apiName: call.name,
+                            parameters: call.arguments,
+                            state: .running
+                        )
+                    )
+                )
+                continuation.yield(.refresh(scrolling: true))
+                session.persistMessages()
+            }
+
         case .image:
             await reasoningEmitter.wait()
             await textEmitter.wait()
@@ -442,19 +463,34 @@ private func executeToolCalls(
     for request in pendingToolCalls {
         try toolUseContext.session.checkCancellation()
 
-        let partIndex = assistantMessage.parts.count
         let normalizedRequestName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        assistantMessage.parts.append(
-            .toolCall(
-                ToolCallContentPart(
-                    id: request.id,
-                    toolName: normalizedRequestName.isEmpty ? "tool" : normalizedRequestName,
-                    apiName: request.name,
-                    parameters: request.arguments,
-                    state: .running
+        let existingPartIndex = assistantMessage.parts.firstIndex { part in
+            guard case let .toolCall(toolCallPart) = part else { return false }
+            return toolCallPart.id == request.id
+        }
+        let partIndex = existingPartIndex ?? assistantMessage.parts.count
+        if let existingPartIndex,
+           case var .toolCall(toolCallPart) = assistantMessage.parts[existingPartIndex]
+        {
+            toolCallPart.toolName = normalizedRequestName.isEmpty ? "tool" : normalizedRequestName
+            toolCallPart.apiName = request.name
+            toolCallPart.parameters = request.arguments
+            toolCallPart.state = .running
+            assistantMessage.parts[existingPartIndex] = .toolCall(toolCallPart)
+        } else {
+            assistantMessage.parts.append(
+                .toolCall(
+                    ToolCallContentPart(
+                        id: request.id,
+                        toolName: normalizedRequestName.isEmpty ? "tool" : normalizedRequestName,
+                        apiName: request.name,
+                        parameters: request.arguments,
+                        state: .running
+                    )
                 )
             )
-        )
+            toolUseContext.session.persistMessages()
+        }
         continuation.yield(.refresh(scrolling: true))
 
         logger.notice(
