@@ -20,10 +20,10 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
 
     private let sessionID: String
     private let workspaceRootURL: URL
+    private let runtimeRootURL: URL
     private let baseSystemPrompt: String?
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
     private let transcriptStorageProvider: TranscriptStorageProvider
-    private let memoryStore: AgentMemoryStore
     private let durableMemoryExtractor: AgentDurableMemoryExtractor
     private let shouldExtractDurableMemory: Bool
     private let hapticLock = NSLock()
@@ -56,8 +56,8 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         self.agentEmoji = agentEmoji
         self.shouldExtractDurableMemory = shouldExtractDurableMemory
         let resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
+        self.runtimeRootURL = resolvedRuntimeRootURL
         transcriptStorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
-        memoryStore = AgentMemoryStore(runtimeRootURL: resolvedRuntimeRootURL)
         durableMemoryExtractor = AgentDurableMemoryExtractor(
             runtimeRootURL: resolvedRuntimeRootURL,
             chatClient: chatClient
@@ -67,12 +67,14 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     /// Compose the full system prompt at inference time so the tool list
     /// is always current (ToolRegistry may change between sessions).
     func composeSystemPrompt() async -> String? {
-        let memoryContext = try? await memoryStore.promptContext()
-        return await AgentContextLoader.composeSystemPrompt(
+        AgentContextLoader.composeSystemPrompt(
             baseSystemPrompt: baseSystemPrompt,
-            memoryContext: memoryContext,
             workspaceRootURL: workspaceRootURL
         )
+    }
+
+    func activeRuntimeRootURL() -> URL? {
+        runtimeRootURL
     }
 
     func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async {

@@ -88,6 +88,7 @@ final class ToolRuntime: @unchecked Sendable {
     static func makeDefault(
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil,
+        teamsRootURL: URL? = nil,
         modelConfig: AppConfig.LLMModel? = nil,
         configureTeamSwarm: Bool = true
     ) -> ToolRuntime {
@@ -143,6 +144,7 @@ final class ToolRuntime: @unchecked Sendable {
             arxivSearchService: ArxivSearchService(),
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL,
+            teamsRootURL: teamsRootURL,
             configureTeamSwarm: configureTeamSwarm
         )
     }
@@ -178,6 +180,7 @@ final class ToolRuntime: @unchecked Sendable {
         arxivSearchService: ArxivSearchService = ArxivSearchService(),
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil,
+        teamsRootURL: URL? = nil,
         configureTeamSwarm: Bool = true
     ) {
         self.cameraService = cameraService
@@ -213,7 +216,7 @@ final class ToolRuntime: @unchecked Sendable {
         if configureTeamSwarm {
             TeamSwarmCoordinator.shared.configure(
                 runtimeRootURL: runtimeRootURL,
-                workspaceRootURL: workspaceRootURL,
+                agentStoreRootURL: teamsRootURL,
                 modelConfig: modelConfig,
                 executeTool: { [weak self] teamName, memberID, sessionID, request in
                     guard let self else {

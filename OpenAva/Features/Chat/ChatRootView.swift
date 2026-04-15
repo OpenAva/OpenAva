@@ -150,6 +150,14 @@ struct ChatRootView: View {
         chatScreenView
     }
 
+    private var isMainChatActive: Bool {
+        !showsAgentOnboarding &&
+            !showsLocalAgentCreation &&
+            !showsRemoteControl &&
+            teamToManageAgents == nil &&
+            destinationPath.isEmpty
+    }
+
     private var chatScreenView: some View {
         let sessionKey = primarySessionKey
         return ChatScreen(
@@ -179,7 +187,7 @@ struct ChatRootView: View {
             onCreateAgentForTeam: handleCreateAgentForTeam,
             onDeleteTeam: handleDeleteTeamRequest,
             autoCompactEnabled: autoCompactEnabled,
-            showsSystemTopBar: !showsAgentOnboarding && !showsLocalAgentCreation,
+            showsSystemTopBar: isMainChatActive,
             onToggleAutoCompact: toggleAutoCompact
         )
         .id(containerAgent)

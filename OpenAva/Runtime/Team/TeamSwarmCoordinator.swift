@@ -104,7 +104,7 @@ final class TeamSwarmCoordinator {
 
     private let colors = ["blue", "green", "orange", "pink", "purple", "teal"]
     private var runtimeRootURL: URL?
-    private var agentWorkspaceRootURL: URL?
+    private var agentStoreRootURL: URL?
     private var teamsByName: [String: TeamRecord] = [:]
     private var memberSignals: [String: AsyncStream<Void>.Continuation] = [:]
     private var memberTasks: [String: Task<Void, Never>] = [:]
@@ -115,24 +115,24 @@ final class TeamSwarmCoordinator {
 
     func configure(
         runtimeRootURL: URL?,
-        workspaceRootURL: URL?,
+        agentStoreRootURL: URL?,
         modelConfig _: AppConfig.LLMModel?,
         executeTool _: (@Sendable (String, String, String?, BridgeInvokeRequest) async -> BridgeInvokeResponse)? = nil
     ) {
         let normalizedRuntimeRootURL = runtimeRootURL?.standardizedFileURL
-        let normalizedAgentWorkspaceRootURL = workspaceRootURL?.standardizedFileURL
+        let normalizedAgentStoreRootURL = agentStoreRootURL?.standardizedFileURL
         let configurationSignature = [
             normalizedRuntimeRootURL?.path ?? "",
-            normalizedAgentWorkspaceRootURL?.path ?? "",
+            normalizedAgentStoreRootURL?.path ?? "",
         ].joined(separator: "|")
         if loadedConfigurationSignature != configurationSignature {
             loadedConfigurationSignature = configurationSignature
             self.runtimeRootURL = normalizedRuntimeRootURL
-            self.agentWorkspaceRootURL = normalizedAgentWorkspaceRootURL
+            self.agentStoreRootURL = normalizedAgentStoreRootURL
             loadPersistedTeams()
         } else {
             self.runtimeRootURL = normalizedRuntimeRootURL
-            self.agentWorkspaceRootURL = normalizedAgentWorkspaceRootURL
+            self.agentStoreRootURL = normalizedAgentStoreRootURL
         }
     }
 
@@ -692,11 +692,15 @@ final class TeamSwarmCoordinator {
 
     private func agentProfile(for member: TeamMember) throws -> AgentProfile {
         guard let memberUUID = UUID(uuidString: member.id),
-              let agent = AgentStore.load(workspaceRootURL: agentWorkspaceRootURL).agents.first(where: { $0.id == memberUUID })
+              let agent = loadAgentState().agents.first(where: { $0.id == memberUUID })
         else {
             throw TeamError("TEAMMATE_AGENT_NOT_FOUND: \(member.name)")
         }
         return agent
+    }
+
+    private func loadAgentState() -> AgentStateSnapshot {
+        AgentStore.load(workspaceRootURL: agentStoreRootURL)
     }
 
     private func resolvedModelConfig(for agent: AgentProfile, memberName: String) throws -> AppConfig.LLMModel {
@@ -984,7 +988,7 @@ final class TeamSwarmCoordinator {
 
         let persistedFiles = loadTeamFilesFromDirectories() ?? [:]
         let teamProfiles = TeamStore.load().teams
-        let agentByID = Dictionary(uniqueKeysWithValues: AgentStore.load(workspaceRootURL: agentWorkspaceRootURL).agents.map { ($0.id, $0) })
+        let agentByID = Dictionary(uniqueKeysWithValues: loadAgentState().agents.map { ($0.id, $0) })
         let loadedTeams = teamProfiles.compactMap { teamRecord(for: $0, persisted: persistedFiles[$0.name], agentByID: agentByID) }
 
         guard !loadedTeams.isEmpty else {
@@ -1019,7 +1023,7 @@ final class TeamSwarmCoordinator {
     }
 
     private func synchronizeTeamDirectories() {
-        guard let rootURL = teamRootURL else { return }
+        guard let rootURL = teamsRootURL else { return }
         try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
 
         let currentNames = Set(teamsByName.keys)
@@ -1062,7 +1066,7 @@ final class TeamSwarmCoordinator {
     }
 
     private func loadTeamFilesFromDirectories() -> [String: TeamFile]? {
-        guard let rootURL = teamRootURL,
+        guard let rootURL = teamsRootURL,
               let directoryURLs = try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)
         else {
             return nil
@@ -1128,12 +1132,12 @@ final class TeamSwarmCoordinator {
         )
     }
 
-    private var teamRootURL: URL? {
+    private var teamsRootURL: URL? {
         TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)
     }
 
     private func teamDirectoryURL(teamName: String) -> URL? {
-        teamRootURL?.appendingPathComponent(teamName, isDirectory: true)
+        teamsRootURL?.appendingPathComponent(teamName, isDirectory: true)
     }
 
     private func notifyChanged() {
@@ -1272,5 +1276,9 @@ private final class TeamExecutionSessionDelegate: SessionDelegate, @unchecked Se
 
     func composeSystemPrompt() async -> String? {
         await base.composeSystemPrompt()
+    }
+
+    func activeRuntimeRootURL() -> URL? {
+        base.activeRuntimeRootURL()
     }
 }

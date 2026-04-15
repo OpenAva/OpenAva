@@ -30,6 +30,7 @@ struct AppContainer {
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
             runtimeRootURL: config.agent.runtimeRootURL,
+            teamsRootURL: try? AgentStore.workspaceRootDirectory(fileManager: .default),
             modelConfig: config.selectedLLMModel
         )
         let localization = LocalizationService()

@@ -93,6 +93,36 @@
         }
       }
     },
+    "Automatic compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动压缩边界"
+          }
+        }
+      }
+    },
+    "Compacted %lld earlier messages" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩范围：%1$lld 条较早消息"
+          }
+        }
+      }
+    },
+    "Conversation compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史压缩边界"
+          }
+        }
+      }
+    },
     "Compact From Here" : {
       "localizations" : {
         "zh-Hans" : {
@@ -151,6 +181,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制"
+          }
+        }
+      }
+    },
+    "Manual compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动压缩边界"
           }
         }
       }

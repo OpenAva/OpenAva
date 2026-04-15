@@ -3,13 +3,16 @@ import XCTest
 @testable import OpenAva
 
 final class TeamRuntimePersistenceTests: XCTestCase {
+    private var originalStateData: Data?
+
     override func setUp() {
         super.setUp()
-        removeTeamStoreFile()
+        originalStateData = try? Data(contentsOf: stateFileURL())
+        removeStateFile()
     }
 
     override func tearDown() {
-        removeTeamStoreFile()
+        restoreStateFile()
         super.tearDown()
     }
 
@@ -83,9 +86,9 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertNotNil(created)
         XCTAssertEqual(created?.emoji, "🛰️")
         XCTAssertEqual(TeamStore.load().teams.first?.agentPoolIDs, [])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: teamStoreFileURL().path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stateFileURL().path))
 
-        let rawContent = try String(contentsOf: teamStoreFileURL(), encoding: .utf8)
+        let rawContent = try String(contentsOf: stateFileURL(), encoding: .utf8)
         XCTAssertTrue(rawContent.contains("Default Team"))
 
         _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id))
@@ -97,24 +100,23 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])
     }
 
+    func testTeamStoreUsesTeamsWorkspaceDirectory() throws {
+        let storageURL = try XCTUnwrap(TeamStore.storageDirectoryURL(fileManager: .default, createDirectoryIfNeeded: false))
+        let runtimeURL = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: false))
+
+        XCTAssertEqual(storageURL.lastPathComponent, "teams")
+        XCTAssertEqual(runtimeURL.deletingLastPathComponent().path, storageURL.path)
+        XCTAssertEqual(runtimeURL.lastPathComponent, ".runtime")
+    }
+
     @MainActor
     func testSendMessageToTeamMemberDoesNotAppendUserTranscriptEntry() throws {
         let transcriptRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let agentStateFileURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
-            .appendingPathComponent(".agents.json", isDirectory: false)
-        let originalAgentState = agentStateFileURL.flatMap { try? Data(contentsOf: $0) }
         try FileManager.default.createDirectory(at: transcriptRuntimeURL, withIntermediateDirectories: true)
         TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
         defer {
             TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
             try? FileManager.default.removeItem(at: transcriptRuntimeURL)
-            if let agentStateFileURL {
-                if let originalAgentState {
-                    try? originalAgentState.write(to: agentStateFileURL, options: [.atomic])
-                } else {
-                    try? FileManager.default.removeItem(at: agentStateFileURL)
-                }
-            }
         }
 
         let agentName = "Worker-\(UUID().uuidString)"
@@ -164,7 +166,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(runtimeRootURL: transcriptRuntimeURL, workspaceRootURL: nil, modelConfig: nil)
+        coordinator.configure(runtimeRootURL: transcriptRuntimeURL, agentStoreRootURL: nil, modelConfig: nil)
         coordinator.reload()
 
         let transcriptProvider = TranscriptStorageProvider.provider(runtimeRootURL: transcriptRuntimeURL)
@@ -192,18 +194,83 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testCoordinatorUsesExplicitAgentStoreRootForTeamLoading() throws {
+        let transcriptRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: transcriptRuntimeURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+            try? FileManager.default.removeItem(at: transcriptRuntimeURL)
+        }
+
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+
+        let team = try XCTUnwrap(TeamStore.createTeam(name: "Team-\(UUID().uuidString)", emoji: "👥", fileManager: .default))
+        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
+        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
+
+        let agentStoreRootURL = try AgentStore.workspaceRootDirectory(fileManager: .default)
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(
+            runtimeRootURL: transcriptRuntimeURL,
+            agentStoreRootURL: agentStoreRootURL,
+            modelConfig: nil
+        )
+        coordinator.reload()
+
+        let snapshot = coordinator.snapshot(
+            teamName: nil,
+            context: .init(sessionID: "\(agent.id.uuidString)::main", senderMemberID: nil)
+        )
+
+        XCTAssertEqual(snapshot?.team.name, team.name)
+        XCTAssertEqual(snapshot?.team.members.map(\.id), [agent.id.uuidString])
+    }
+
+    func testTeamMutationsPreserveAgentStateInUnifiedFile() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+
+        _ = TeamStore.createTeam(name: "Team-\(UUID().uuidString)", emoji: "👥", fileManager: .default)
+
+        let snapshot = AgentStore.load(fileManager: .default)
+        XCTAssertEqual(snapshot.activeAgent?.id, agent.id)
+        XCTAssertTrue(snapshot.agents.contains(where: { $0.id == agent.id }))
+    }
+
     private func makeTemporaryTeamDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
-    private func removeTeamStoreFile() {
-        try? FileManager.default.removeItem(at: teamStoreFileURL())
+    private func removeStateFile() {
+        try? FileManager.default.removeItem(at: stateFileURL())
     }
 
-    private func teamStoreFileURL() -> URL {
-        let rootURL = TeamStore.storageDirectoryURL(fileManager: .default)
-        return rootURL?.appendingPathComponent("teams.json", isDirectory: false) ?? FileManager.default.temporaryDirectory.appendingPathComponent("teams.json", isDirectory: false)
+    private func restoreStateFile() {
+        let url = stateFileURL()
+        if let originalStateData {
+            try? originalStateData.write(to: url, options: [.atomic])
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func stateFileURL() -> URL {
+        let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
+        return rootURL?.appendingPathComponent(".openava.json", isDirectory: false)
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent(".openava.json", isDirectory: false)
     }
 }
