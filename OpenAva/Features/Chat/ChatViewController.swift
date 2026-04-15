@@ -33,14 +33,19 @@ open class ChatViewController: UIViewController {
             }
 
             private let toolbar = NSToolbar(identifier: "openava.chat.titlebar")
-            let leadingBarButtonItem: UIBarButtonItem
             let titleBarButtonItem: UIBarButtonItem
-            let trailingBarButtonItem: UIBarButtonItem
+            private var leadingImage: UIImage?
+            private var leadingTitle = ""
+            private var leadingMenu: UIMenu?
+            private var trailingImage: UIImage?
+            private var trailingTitle = ""
+            private var trailingMenu: UIMenu?
 
-            init(leadingBarButtonItem: UIBarButtonItem, titleBarButtonItem: UIBarButtonItem, trailingBarButtonItem: UIBarButtonItem) {
-                self.leadingBarButtonItem = leadingBarButtonItem
+            private var leadingToolbarItem: NSMenuToolbarItem?
+            private var trailingToolbarItem: NSMenuToolbarItem?
+
+            init(titleBarButtonItem: UIBarButtonItem) {
                 self.titleBarButtonItem = titleBarButtonItem
-                self.trailingBarButtonItem = trailingBarButtonItem
 
                 super.init()
                 toolbar.delegate = self
@@ -63,6 +68,34 @@ open class ChatViewController: UIViewController {
             func uninstall(from titlebar: UITitlebar) {
                 if titlebar.toolbar === toolbar {
                     titlebar.toolbar = nil
+                }
+            }
+
+            func update(
+                leadingImage: UIImage?,
+                leadingTitle: String = "",
+                leadingMenu: UIMenu?,
+                trailingImage: UIImage?,
+                trailingTitle: String = "",
+                trailingMenu: UIMenu?
+            ) {
+                self.leadingImage = leadingImage
+                self.leadingTitle = leadingTitle
+                self.leadingMenu = leadingMenu
+                self.trailingImage = trailingImage
+                self.trailingTitle = trailingTitle
+                self.trailingMenu = trailingMenu
+
+                leadingToolbarItem?.image = leadingImage
+                leadingToolbarItem?.title = leadingTitle
+                if let leadingMenu {
+                    leadingToolbarItem?.itemMenu = leadingMenu
+                }
+
+                trailingToolbarItem?.image = trailingImage
+                trailingToolbarItem?.title = trailingTitle
+                if let trailingMenu {
+                    trailingToolbarItem?.itemMenu = trailingMenu
                 }
             }
 
@@ -92,11 +125,27 @@ open class ChatViewController: UIViewController {
             ) -> NSToolbarItem? {
                 switch itemIdentifier {
                 case Item.leading:
-                    return NSToolbarItem(itemIdentifier: Item.leading, barButtonItem: leadingBarButtonItem)
+                    let item = NSMenuToolbarItem(itemIdentifier: Item.leading)
+                    item.image = leadingImage
+                    item.title = leadingTitle
+                    if let leadingMenu {
+                        item.itemMenu = leadingMenu
+                    }
+                    item.showsIndicator = false
+                    leadingToolbarItem = item
+                    return item
                 case Item.title:
                     return NSToolbarItem(itemIdentifier: Item.title, barButtonItem: titleBarButtonItem)
                 case Item.trailing:
-                    return NSToolbarItem(itemIdentifier: Item.trailing, barButtonItem: trailingBarButtonItem)
+                    let item = NSMenuToolbarItem(itemIdentifier: Item.trailing)
+                    item.image = trailingImage
+                    item.title = trailingTitle
+                    if let trailingMenu {
+                        item.itemMenu = trailingMenu
+                    }
+                    item.showsIndicator = false
+                    trailingToolbarItem = item
+                    return item
                 default:
                     return nil
                 }
@@ -184,25 +233,9 @@ open class ChatViewController: UIViewController {
             .withRenderingMode(.alwaysTemplate)
     }
 
-    private lazy var leadingBarButtonItem = UIBarButtonItem(
-        image: Self.toolbarIcon("users", fallback: "person.2"),
-        style: .plain,
-        target: nil,
-        action: nil
-    )
-
-    private lazy var trailingBarButtonItem = UIBarButtonItem(
-        image: Self.toolbarIcon("menu", fallback: "ellipsis"),
-        style: .plain,
-        target: nil,
-        action: nil
-    )
-
     #if targetEnvironment(macCatalyst)
         private lazy var catalystTitlebarToolbarCoordinator = CatalystTitlebarToolbarCoordinator(
-            leadingBarButtonItem: leadingBarButtonItem,
-            titleBarButtonItem: titleBarButtonItem,
-            trailingBarButtonItem: trailingBarButtonItem
+            titleBarButtonItem: titleBarButtonItem
         )
     #endif
 
@@ -398,13 +431,14 @@ open class ChatViewController: UIViewController {
     private func configureNavigationItems() {
         configureLeadingMenuButton()
 
-        leadingBarButtonItem.image = resolvedButtonImage(from: avatarButton)
-        leadingBarButtonItem.menu = avatarButton.menu
-        trailingBarButtonItem.menu = menuDelegate?.chatViewControllerMenu(self)
+        let trailingImage = Self.toolbarIcon("menu", fallback: "ellipsis")
+        let trailingMenu = menuDelegate?.chatViewControllerMenu(self)
+        let trailingNavigationItem = UIBarButtonItem(image: trailingImage, style: .plain, target: nil, action: nil)
+        trailingNavigationItem.menu = trailingMenu
 
         let item = navigationItem
         item.leftBarButtonItem = UIBarButtonItem(customView: avatarButton)
-        item.rightBarButtonItem = trailingBarButtonItem
+        item.rightBarButtonItem = trailingNavigationItem
         updateCatalystTitlebarToolbarIfNeeded()
 
         if isViewLoaded {
@@ -618,6 +652,12 @@ open class ChatViewController: UIViewController {
 
     private func updateCatalystTitlebarToolbarIfNeeded() {
         #if targetEnvironment(macCatalyst)
+            catalystTitlebarToolbarCoordinator.update(
+                leadingImage: resolvedButtonImage(from: avatarButton),
+                leadingMenu: avatarButton.menu,
+                trailingImage: Self.toolbarIcon("menu", fallback: "ellipsis"),
+                trailingMenu: menuDelegate?.chatViewControllerMenu(self)
+            )
             guard let titlebar = view.window?.windowScene?.titlebar else { return }
             if showsSystemTopBar {
                 catalystTitlebarToolbarCoordinator.install(on: titlebar)
