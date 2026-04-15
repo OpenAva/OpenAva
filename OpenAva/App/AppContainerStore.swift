@@ -11,8 +11,8 @@ final class AppContainerStore {
     private(set) var preferredLanguageCode: String?
     private(set) var resolvedLanguageCode: String
     private(set) var usageSnapshot: UsageSnapshot = .init()
-    private let defaults: UserDefaults
     private let fileManager: FileManager
+    private let agentWorkspaceRootURL: URL?
     private var usageCancellable: AnyCancellable?
 
     var activeAgent: AgentProfile? {
@@ -37,13 +37,14 @@ final class AppContainerStore {
 
     init(
         container: AppContainer,
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        defaults _: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        agentWorkspaceRootURL: URL? = nil
     ) {
         self.container = container
-        self.defaults = defaults
         self.fileManager = fileManager
-        agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
+        self.agentWorkspaceRootURL = agentWorkspaceRootURL
+        agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         teamState = TeamStore.load(fileManager: fileManager)
         // Migration: clear stale explicit "en" override left from early development.
         // English is the fallback — storing it explicitly blocks system language negotiation.
@@ -95,7 +96,12 @@ final class AppContainerStore {
 
         // Persist agent-scoped selection when an active agent exists.
         if let activeAgentID = activeAgent?.id {
-            _ = AgentStore.setSelectedModel(id, for: activeAgentID, defaults: defaults)
+            _ = AgentStore.setSelectedModel(
+                id,
+                for: activeAgentID,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )
         }
         rebuildContainer(with: config)
     }
@@ -121,7 +127,8 @@ final class AppContainerStore {
         AgentStore.repairSelectedModel(
             afterDeleting: id,
             replacement: updatedCollection.models.first?.id,
-            defaults: defaults
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
         )
         var config = container.config
         config.llmCollection = updatedCollection
@@ -139,10 +146,20 @@ final class AppContainerStore {
     }
 
     func createAgent(name: String, emoji: String) throws -> AgentProfile {
-        let profile = try AgentStore.createAgent(name: name, emoji: emoji, defaults: defaults, fileManager: fileManager)
+        let profile = try AgentStore.createAgent(
+            name: name,
+            emoji: emoji,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
         // Seed new agent with the current model as its initial preference.
-        _ = AgentStore.setSelectedModel(container.config.selectedLLMModelID, for: profile.id, defaults: defaults)
-        _ = AgentStore.setActiveAgent(profile.id, defaults: defaults)
+        _ = AgentStore.setSelectedModel(
+            container.config.selectedLLMModelID,
+            for: profile.id,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
+        _ = AgentStore.setActiveAgent(profile.id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         try AgentTemplateWriter.writeAgentFile(
             at: profile.workspaceURL,
             name: profile.name,
@@ -160,8 +177,8 @@ final class AppContainerStore {
                 let profile = try AgentStore.createAgent(
                     name: preset.agentName,
                     emoji: preset.agentEmoji,
-                    defaults: defaults,
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    workspaceRootURL: agentWorkspaceRootURL
                 )
                 try AgentTemplateWriter.writeUserFile(
                     at: profile.workspaceURL,
@@ -178,19 +195,28 @@ final class AppContainerStore {
                     emoji: preset.agentEmoji,
                     vibe: preset.agentVibe
                 )
-                _ = AgentStore.setSelectedModel(container.config.selectedLLMModelID, for: profile.id, defaults: defaults)
+                _ = AgentStore.setSelectedModel(
+                    container.config.selectedLLMModelID,
+                    for: profile.id,
+                    fileManager: fileManager,
+                    workspaceRootURL: agentWorkspaceRootURL
+                )
                 createdProfiles.append(profile)
             }
         } catch {
             for profile in createdProfiles.reversed() {
-                _ = AgentStore.deleteAgent(profile.id, defaults: defaults, fileManager: fileManager)
+                _ = AgentStore.deleteAgent(
+                    profile.id,
+                    fileManager: fileManager,
+                    workspaceRootURL: agentWorkspaceRootURL
+                )
             }
             rebuildContainer(with: container.config)
             throw error
         }
 
         if let firstCreated = createdProfiles.first {
-            _ = AgentStore.setActiveAgent(firstCreated.id, defaults: defaults)
+            _ = AgentStore.setActiveAgent(firstCreated.id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         }
 
         rebuildContainer(with: container.config)
@@ -262,7 +288,7 @@ final class AppContainerStore {
 
     @discardableResult
     func setActiveAgent(_ agentID: UUID) -> Bool {
-        let changed = AgentStore.setActiveAgent(agentID, defaults: defaults)
+        let changed = AgentStore.setActiveAgent(agentID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if changed {
             rebuildContainer(with: container.config)
         }
@@ -272,16 +298,21 @@ final class AppContainerStore {
     @discardableResult
     func setAutoCompact(_ enabled: Bool) -> Bool {
         guard let activeAgentID = activeAgent?.id else { return false }
-        let changed = AgentStore.setAutoCompact(enabled, for: activeAgentID, defaults: defaults)
+        let changed = AgentStore.setAutoCompact(
+            enabled,
+            for: activeAgentID,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
         if changed {
-            agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
+            agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         }
         return changed
     }
 
     @discardableResult
     func deleteAgent(_ agentID: UUID) -> Bool {
-        let changed = AgentStore.deleteAgent(agentID, defaults: defaults, fileManager: fileManager)
+        let changed = AgentStore.deleteAgent(agentID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if changed {
             TeamStore.removeAgentReferences(agentID, fileManager: fileManager)
             reloadTeamState()
@@ -298,8 +329,8 @@ final class AppContainerStore {
         guard let renamedProfile = AgentStore.renameAgent(
             agentID: activeAgent.id,
             name: name,
-            defaults: defaults,
-            fileManager: fileManager
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
         ) else {
             return false
         }
@@ -316,8 +347,8 @@ final class AppContainerStore {
             _ = AgentStore.renameAgent(
                 agentID: activeAgent.id,
                 name: previousName,
-                defaults: defaults,
-                fileManager: fileManager
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
             )
             rebuildContainer(with: container.config)
             return false
@@ -325,7 +356,7 @@ final class AppContainerStore {
     }
 
     private func rebuildContainer(with baseConfig: AppConfig) {
-        agentState = AgentStore.load(defaults: defaults, fileManager: fileManager)
+        agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         let resolvedConfig = Self.applyAgent(to: baseConfig, state: agentState)
         container = AppContainer.make(config: resolvedConfig)
         SkillLauncherCatalogPublisher.publish(activeAgent: agentState.activeAgent)

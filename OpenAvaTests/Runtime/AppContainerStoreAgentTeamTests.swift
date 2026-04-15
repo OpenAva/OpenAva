@@ -15,12 +15,20 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
     }
 
     func testCreateAgentsFromPresetsCreatesProfilesAndFiles() throws {
+        let fileManager = FileManager.default
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? fileManager.removeItem(at: workspaceRootURL) }
+
         let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let fileManager = FileManager.default
-        let containerStore = AppContainerStore(container: .makeDefault(), defaults: defaults, fileManager: fileManager)
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: fileManager,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
 
         let presets = [
             AgentPreset(
@@ -43,7 +51,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
             ),
         ]
 
-        let beforeAgents = AgentStore.load(defaults: defaults, fileManager: fileManager).agents.map(\.id)
+        let beforeAgents = AgentStore.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL).agents.map(\.id)
 
         let profiles = try containerStore.createAgents(
             from: presets,
@@ -54,7 +62,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(profiles.count, 2)
         XCTAssertEqual(profiles.map(\.name), ["增长营销", "销售顾问"])
 
-        let snapshot = AgentStore.load(defaults: defaults, fileManager: fileManager)
+        let snapshot = AgentStore.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         let newProfiles = snapshot.agents.filter { !beforeAgents.contains($0.id) }
         XCTAssertEqual(newProfiles.count, 2)
         XCTAssertEqual(snapshot.activeAgent?.id, profiles.first?.id)
@@ -78,17 +86,25 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         }
 
         for profile in newProfiles {
-            _ = AgentStore.deleteAgent(profile.id, defaults: defaults, fileManager: fileManager)
+            _ = AgentStore.deleteAgent(profile.id, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         }
     }
 
     func testCreateTeamAndAddAgentToExistingTeam() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
         let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let fileManager = FileManager.default
-        let containerStore = AppContainerStore(container: .makeDefault(), defaults: defaults, fileManager: fileManager)
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: fileManager,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
 
         let team = try XCTUnwrap(containerStore.createTeam(name: "Core Team", emoji: "🧭", description: "Main coordination team"))
         XCTAssertEqual(containerStore.teams.map(\.name), ["Core Team"])
@@ -103,5 +119,11 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
     private func removeTeamStoreFile() {
         guard let rootURL = TeamStore.storageDirectoryURL(fileManager: .default) else { return }
         try? FileManager.default.removeItem(at: rootURL.appendingPathComponent("teams.json", isDirectory: false))
+    }
+
+    private func makeTemporaryWorkspaceRoot() -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

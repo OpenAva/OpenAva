@@ -7,6 +7,10 @@ extension Notification.Name {
     static let OpenAvaIntentAutoSend = Notification.Name("com.day1-labs.openava.intentAutoSend")
 }
 
+private func currentAppAgent() -> AgentProfile? {
+    AgentStore.load().activeAgent
+}
+
 struct RunSkillIntent: AppIntent {
     static let title: LocalizedStringResource = "intent.runSkill.meta.title"
     static let description = IntentDescription("intent.runSkill.meta.description")
@@ -56,7 +60,7 @@ struct OpenAvaAppShortcuts: AppShortcutsProvider {
 
 struct SkillNameOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> [String] {
-        let workspaceRoot = AgentStore.load().activeAgent?.workspaceURL
+        let workspaceRoot = currentAppAgent()?.workspaceURL
         return AgentSkillsLoader
             .listSkills(filterUnavailable: true, visibility: .userInvocable, workspaceRootURL: workspaceRoot)
             .map(\.name)
@@ -89,7 +93,7 @@ enum SkillLaunchService {
             throw SkillInvocationError.emptySkill
         }
         guard let resolvedSkill = resolveSkillDefinition(named: normalizedSkillID) else {
-            throw AgentStore.load().activeAgent == nil
+            throw currentAppAgent() == nil
                 ? SkillInvocationError.agentUnavailable
                 : SkillInvocationError.skillNotFound(normalizedSkillID)
         }
@@ -113,7 +117,7 @@ enum SkillLaunchService {
         var queue = PendingChatLaunchRequestStore.loadQueue()
         guard !queue.isEmpty else { return nil }
 
-        let activeAgent = AgentStore.load().activeAgent
+        let activeAgent = currentAppAgent()
         let workspaceRootURL = activeAgent?.workspaceURL
         var index = 0
         var mutated = false
@@ -182,7 +186,7 @@ enum SkillLaunchService {
 
     private static func resolveSkillDefinition(
         named requestedName: String,
-        workspaceRootURL: URL? = AgentStore.load().activeAgent?.workspaceURL
+        workspaceRootURL: URL? = currentAppAgent()?.workspaceURL
     ) -> AgentSkillsLoader.SkillDefinition? {
         AgentSkillsLoader.resolveSkill(
             named: requestedName,

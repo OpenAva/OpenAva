@@ -77,48 +77,26 @@ struct AgentStateSnapshot: Equatable {
 
 enum AgentStore {
     private struct PersistedState: Codable {
-        var version: Int
         var agents: [AgentProfile]
         var activeAgentID: UUID?
     }
 
-    private enum DefaultsKey {
-        static let state = "agent.state.v1"
+    private enum FileName {
+        static let state = ".agents.json"
     }
 
     static func load(
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> AgentStateSnapshot {
-        guard let data = defaults.data(forKey: DefaultsKey.state),
-              let decoded = try? JSONDecoder().decode(PersistedState.self, from: data),
-              decoded.version == 1
+        guard let stateFileURL = stateFileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+              let data = try? Data(contentsOf: stateFileURL),
+              let decoded = try? JSONDecoder().decode(PersistedState.self, from: data)
         else {
             return AgentStateSnapshot(agents: [], activeAgentID: nil)
         }
 
-        var agents = decoded.agents
-        var didNormalizePaths = false
-        #if !targetEnvironment(macCatalyst)
-            // Keep iOS paths canonical so each agent always maps to
-            // Documents/<agent-name> for workspace and
-            // Documents/<agent-name>/.runtime for runtime state.
-            var usedWorkspacePaths: Set<String> = []
-            for index in agents.indices {
-                let normalized = normalizedStoragePaths(
-                    for: agents[index],
-                    usedWorkspacePaths: &usedWorkspacePaths,
-                    fileManager: fileManager
-                )
-                if normalized.workspacePath != agents[index].workspacePath ||
-                    normalized.localRuntimePath != agents[index].localRuntimePath
-                {
-                    didNormalizePaths = true
-                }
-                agents[index] = normalized
-            }
-        #endif
-
+        let agents = decoded.agents
         var activeAgentID = decoded.activeAgentID
         if let selectedActiveAgentID = activeAgentID,
            !agents.contains(where: { $0.id == selectedActiveAgentID })
@@ -126,13 +104,14 @@ enum AgentStore {
             activeAgentID = agents.first?.id
         }
 
-        if didNormalizePaths || activeAgentID != decoded.activeAgentID {
+        if activeAgentID != decoded.activeAgentID {
             persist(
                 state: AgentStateSnapshot(
                     agents: agents,
                     activeAgentID: activeAgentID
                 ),
-                defaults: defaults
+                fileManager: fileManager,
+                workspaceRootURL: workspaceRootURL
             )
         }
 
@@ -145,17 +124,18 @@ enum AgentStore {
     static func createAgent(
         name: String,
         emoji: String,
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) throws -> AgentProfile {
-        var state = load(defaults: defaults)
+        let rootURL = try resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        var state = load(fileManager: fileManager, workspaceRootURL: rootURL)
         let agentID = UUID()
         let normalizedAgentName = normalizedName(name)
         var usedWorkspacePaths = Set(state.agents.map { $0.workspaceURL.standardizedFileURL.path })
         let workspaceURL = try nextWorkspaceDirectory(
             for: normalizedAgentName,
-            usedWorkspacePaths: &usedWorkspacePaths,
-            fileManager: fileManager
+            rootURL: rootURL,
+            usedWorkspacePaths: &usedWorkspacePaths
         )
 
         let runtimeURL = workspaceURL.appendingPathComponent(".runtime", isDirectory: true)
@@ -175,7 +155,7 @@ enum AgentStore {
         if state.activeAgentID == nil {
             state.activeAgentID = profile.id
         }
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: rootURL)
         return profile
     }
 
@@ -183,9 +163,10 @@ enum AgentStore {
         agentID: UUID,
         name: String,
         emoji: String,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> AgentProfile? {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
             return nil
         }
@@ -193,17 +174,20 @@ enum AgentStore {
         state.agents[index].name = normalizedName(name)
         state.agents[index].emoji = normalizedEmoji(emoji)
         let profile = state.agents[index]
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return profile
     }
 
     static func renameAgent(
         agentID: UUID,
         name: String,
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> AgentProfile? {
-        var state = load(defaults: defaults, fileManager: fileManager)
+        guard let rootURL = try? resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
+            return nil
+        }
+        var state = load(fileManager: fileManager, workspaceRootURL: rootURL)
         guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
             return nil
         }
@@ -220,8 +204,8 @@ enum AgentStore {
 
         guard let workspaceURL = try? nextWorkspaceDirectory(
             for: normalizedAgentName,
-            usedWorkspacePaths: &usedWorkspacePaths,
-            fileManager: fileManager
+            rootURL: rootURL,
+            usedWorkspacePaths: &usedWorkspacePaths
         ) else {
             return nil
         }
@@ -246,32 +230,33 @@ enum AgentStore {
         state.agents[index].localRuntimePath = runtimeURL.path
 
         let profile = state.agents[index]
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: rootURL)
         return profile
     }
 
     @discardableResult
     static func setActiveAgent(
         _ agentID: UUID,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> Bool {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         guard state.agents.contains(where: { $0.id == agentID }) else {
             return false
         }
 
         state.activeAgentID = agentID
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return true
     }
 
     @discardableResult
     static func deleteAgent(
         _ agentID: UUID,
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> Bool {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
             return false
         }
@@ -283,7 +268,7 @@ enum AgentStore {
             state.activeAgentID = state.agents.first?.id
         }
 
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
 
         // Best-effort cleanup for deleted agent workspace directory.
         let workspaceURL = removed.workspaceURL
@@ -298,15 +283,16 @@ enum AgentStore {
     static func setSelectedModel(
         _ selectedModelID: UUID?,
         for agentID: UUID,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> Bool {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
             return false
         }
 
         state.agents[index].selectedModelID = selectedModelID
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return true
     }
 
@@ -314,21 +300,27 @@ enum AgentStore {
     static func setAutoCompact(
         _ enabled: Bool,
         for agentID: UUID,
-        defaults: UserDefaults = .standard
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
     ) -> Bool {
-        var state = load(defaults: defaults)
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         guard let index = state.agents.firstIndex(where: { $0.id == agentID }) else {
             return false
         }
 
         state.agents[index].autoCompactEnabled = enabled
-        persist(state: state, defaults: defaults)
+        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return true
     }
 
     /// Repair per-agent selections after a model is deleted.
-    static func repairSelectedModel(afterDeleting deletedModelID: UUID, replacement: UUID?, defaults: UserDefaults = .standard) {
-        var state = load(defaults: defaults)
+    static func repairSelectedModel(
+        afterDeleting deletedModelID: UUID,
+        replacement: UUID?,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) {
+        var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         var didChange = false
 
         for index in state.agents.indices where state.agents[index].selectedModelID == deletedModelID {
@@ -337,19 +329,34 @@ enum AgentStore {
         }
 
         if didChange {
-            persist(state: state, defaults: defaults)
+            persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         }
     }
 
-    private static func persist(state: AgentStateSnapshot, defaults: UserDefaults) {
+    private static func persist(
+        state: AgentStateSnapshot,
+        fileManager: FileManager,
+        workspaceRootURL: URL?
+    ) {
         let payload = PersistedState(
-            version: 1,
             agents: state.agents,
             activeAgentID: state.activeAgentID
         )
-        if let data = try? JSONEncoder().encode(payload) {
-            defaults.set(data, forKey: DefaultsKey.state)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let stateFileURL = stateFileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+              let data = try? encoder.encode(payload)
+        else {
+            return
         }
+        try? data.write(to: stateFileURL, options: [.atomic])
+    }
+
+    private static func stateFileURL(fileManager: FileManager, workspaceRootURL: URL?) -> URL? {
+        guard let rootURL = try? resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
+            return nil
+        }
+        return rootURL.appendingPathComponent(FileName.state, isDirectory: false)
     }
 
     static func workspaceRootDirectory(fileManager: FileManager) throws -> URL {
@@ -369,12 +376,25 @@ enum AgentStore {
         return rootURL
     }
 
+    private static func resolvedWorkspaceRootDirectory(
+        fileManager: FileManager,
+        workspaceRootURL: URL?
+    ) throws -> URL {
+        let rootURL: URL
+        if let workspaceRootURL {
+            rootURL = workspaceRootURL.standardizedFileURL
+        } else {
+            rootURL = try workspaceRootDirectory(fileManager: fileManager)
+        }
+        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return rootURL
+    }
+
     private static func nextWorkspaceDirectory(
         for agentName: String,
-        usedWorkspacePaths: inout Set<String>,
-        fileManager: FileManager
+        rootURL: URL,
+        usedWorkspacePaths: inout Set<String>
     ) throws -> URL {
-        let rootURL = try workspaceRootDirectory(fileManager: fileManager)
         let baseName = sanitizedWorkspaceDirectoryName(agentName)
         var suffix = 1
 
@@ -403,39 +423,6 @@ enum AgentStore {
             .trimmingCharacters(in: CharacterSet(charactersIn: " ."))
 
         return sanitized.isEmpty ? "Agent" : sanitized
-    }
-
-    private static func normalizedStoragePaths(
-        for profile: AgentProfile,
-        usedWorkspacePaths: inout Set<String>,
-        fileManager: FileManager
-    ) -> AgentProfile {
-        guard let workspaceURL = try? nextWorkspaceDirectory(
-            for: normalizedName(profile.name),
-            usedWorkspacePaths: &usedWorkspacePaths,
-            fileManager: fileManager
-        )
-        else {
-            return profile
-        }
-
-        let oldWorkspaceURL = profile.workspaceURL.standardizedFileURL
-        if oldWorkspaceURL.path != workspaceURL.path,
-           fileManager.fileExists(atPath: oldWorkspaceURL.path),
-           !fileManager.fileExists(atPath: workspaceURL.path)
-        {
-            try? fileManager.moveItem(at: oldWorkspaceURL, to: workspaceURL)
-        }
-
-        let runtimeURL = workspaceURL.appendingPathComponent(".runtime", isDirectory: true)
-        // Ensure canonical directories exist before exposing the profile.
-        try? fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-        try? fileManager.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
-
-        var normalized = profile
-        normalized.workspacePath = workspaceURL.path
-        normalized.localRuntimePath = runtimeURL.path
-        return normalized
     }
 
     private static func normalizedName(_ value: String) -> String {

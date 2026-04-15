@@ -4,18 +4,16 @@ import XCTest
 
 final class IdentityStoreTests: XCTestCase {
     func testAgentStoreLoadReturnsCreatedAgentAsActive() throws {
-        let suiteName = "IdentityStoreCompatTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
         let profile = try AgentStore.createAgent(
             name: "Nova",
             emoji: "🦊",
-            defaults: defaults
+            workspaceRootURL: workspaceRootURL
         )
-        defer { try? FileManager.default.removeItem(at: profile.workspaceURL) }
 
-        let snapshot = AgentStore.load(defaults: defaults)
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(snapshot.agents.count, 1)
         XCTAssertEqual(snapshot.activeAgent?.id, profile.id)
         XCTAssertTrue(FileManager.default.fileExists(atPath: profile.workspaceURL.path))
@@ -23,23 +21,32 @@ final class IdentityStoreTests: XCTestCase {
     }
 
     func testAgentStoreUpdateAgentChangesNameAndEmoji() throws {
-        let suiteName = "IdentityStoreCompatTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
         let profile = try AgentStore.createAgent(
             name: "Atlas",
             emoji: "🤖",
-            defaults: defaults
+            workspaceRootURL: workspaceRootURL
         )
-        defer { try? FileManager.default.removeItem(at: profile.workspaceURL) }
 
-        let updated = AgentStore.updateAgent(agentID: profile.id, name: "Luna", emoji: "🌙", defaults: defaults)
+        let updated = AgentStore.updateAgent(
+            agentID: profile.id,
+            name: "Luna",
+            emoji: "🌙",
+            workspaceRootURL: workspaceRootURL
+        )
         XCTAssertEqual(updated?.name, "Luna")
         XCTAssertEqual(updated?.emoji, "🌙")
 
-        let snapshot = AgentStore.load(defaults: defaults)
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(snapshot.activeAgent?.name, "Luna")
         XCTAssertEqual(snapshot.activeAgent?.emoji, "🌙")
+    }
+
+    private func makeTemporaryWorkspaceRoot() -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }
