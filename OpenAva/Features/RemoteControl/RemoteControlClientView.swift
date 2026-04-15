@@ -380,8 +380,7 @@ struct RemoteControlClientView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 settingsCard(
-                    title: L10n.tr("settings.remoteControl.discovery.title"),
-                    tint: .blue
+                    title: L10n.tr("settings.remoteControl.discovery.title")
                 ) {
                     cardField(L10n.tr("settings.remoteControl.discovery.device")) {
                         HStack(spacing: 8) {
@@ -438,8 +437,7 @@ struct RemoteControlClientView: View {
                 }
 
                 settingsCard(
-                    title: L10n.tr("settings.remoteControl.agents.title"),
-                    tint: .green
+                    title: L10n.tr("settings.remoteControl.agents.title")
                 ) {
                     if viewModel.agents.isEmpty {
                         Text(L10n.tr("settings.remoteControl.refresh"))
@@ -463,8 +461,7 @@ struct RemoteControlClientView: View {
                 }
 
                 settingsCard(
-                    title: L10n.tr("settings.remoteControl.message.title"),
-                    tint: .purple
+                    title: L10n.tr("settings.remoteControl.message.title")
                 ) {
                     cardField(L10n.tr("settings.remoteControl.message.placeholder")) {
                         TextField(L10n.tr("settings.remoteControl.message.placeholder"), text: $viewModel.messageText, axis: .vertical)
@@ -562,25 +559,12 @@ struct RemoteControlClientView: View {
 
     private func settingsCard<Content: View>(
         title: String,
-        tint: Color,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(tint.opacity(0.16))
-                        .frame(width: 18, height: 18)
-
-                    Circle()
-                        .fill(tint)
-                        .frame(width: 8, height: 8)
-                }
-
-                Text(title)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-            }
+            Text(title)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             content()
         }
@@ -610,11 +594,7 @@ struct RemoteControlClientView: View {
     }
 
     private func agentButton(_ agent: LocalControlAgentSummary) -> some View {
-        let backgroundColor = agent.isActive
-            ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.12)
-            : Color(uiColor: ChatUIDesign.Color.warmCream)
-
-        return Button {
+        Button {
             Task { await viewModel.selectAgent(agent) }
         } label: {
             HStack(spacing: 12) {
@@ -629,6 +609,20 @@ struct RemoteControlClientView: View {
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
                 }
             }
+        }
+        .buttonStyle(RemoteAgentButtonStyle(isActive: agent.isActive))
+    }
+}
+
+struct RemoteAgentButtonStyle: ButtonStyle {
+    let isActive: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let backgroundColor = isActive
+            ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.12)
+            : Color(uiColor: ChatUIDesign.Color.pureWhite)
+
+        configuration.label
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -636,8 +630,12 @@ struct RemoteControlClientView: View {
                 RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
                     .fill(backgroundColor)
             )
-        }
-        .buttonStyle(.plain)
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.interactiveSpring(), value: configuration.isPressed)
     }
 }
 
@@ -649,9 +647,10 @@ struct RemotePrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .background(Color(uiColor: ChatUIDesign.Color.offBlack))
-            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .background(configuration.isPressed ? Color(red: 0x2C / 255, green: 0x64 / 255, blue: 0x15 / 255) : Color(uiColor: ChatUIDesign.Color.offBlack))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.interactiveSpring(), value: configuration.isPressed)
     }
 }
 
@@ -664,12 +663,13 @@ struct RemoteSecondaryButtonStyle: ButtonStyle {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .stroke(Color(uiColor: ChatUIDesign.Color.offBlack), lineWidth: 1)
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.interactiveSpring(), value: configuration.isPressed)
     }
 }
 

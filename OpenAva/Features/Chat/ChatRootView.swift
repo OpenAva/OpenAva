@@ -179,6 +179,7 @@ struct ChatRootView: View {
             onCreateAgentForTeam: handleCreateAgentForTeam,
             onDeleteTeam: handleDeleteTeamRequest,
             autoCompactEnabled: autoCompactEnabled,
+            showsSystemTopBar: !showsAgentOnboarding && !showsLocalAgentCreation,
             onToggleAutoCompact: toggleAutoCompact
         )
         .id(containerAgent)
@@ -515,6 +516,7 @@ private struct ChatScreen: View {
     private let onCreateAgentForTeam: ((UUID) -> Void)?
     private let onDeleteTeam: ((UUID) -> Void)?
     private let autoCompactEnabled: Bool
+    private let showsSystemTopBar: Bool
     private let onToggleAutoCompact: (() -> Void)?
 
     @State private var showsRenameAlert = false
@@ -544,6 +546,7 @@ private struct ChatScreen: View {
         onCreateAgentForTeam: ((UUID) -> Void)? = nil,
         onDeleteTeam: ((UUID) -> Void)? = nil,
         autoCompactEnabled: Bool = true,
+        showsSystemTopBar: Bool = true,
         onToggleAutoCompact: (() -> Void)? = nil
     ) {
         self.container = container
@@ -569,6 +572,7 @@ private struct ChatScreen: View {
         self.onCreateAgentForTeam = onCreateAgentForTeam
         self.onDeleteTeam = onDeleteTeam
         self.autoCompactEnabled = autoCompactEnabled
+        self.showsSystemTopBar = showsSystemTopBar
         self.onToggleAutoCompact = onToggleAutoCompact
     }
 
@@ -654,6 +658,7 @@ private struct ChatScreen: View {
             onDeleteTeam: onDeleteTeam,
             modelConfig: container.config.selectedLLMModel,
             autoCompactEnabled: autoCompactEnabled,
+            showsSystemTopBar: showsSystemTopBar,
             onToggleAutoCompact: onToggleAutoCompact
         )
         .id(scopedSessionID)

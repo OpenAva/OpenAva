@@ -245,6 +245,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let onDeleteTeam: ((UUID) -> Void)?
     let modelConfig: AppConfig.LLMModel?
     let autoCompactEnabled: Bool
+    let showsSystemTopBar: Bool
     let onToggleAutoCompact: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -347,6 +348,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         }
 
         chatViewController.definesPresentationContext = true
+        chatViewController.showsSystemTopBar = showsSystemTopBar
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
@@ -438,6 +440,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
         context.coordinator.chatViewController = chatViewController
         chatViewController.menuDelegate = context.coordinator
+        chatViewController.showsSystemTopBar = showsSystemTopBar
         chatViewController.refreshNavigationMenus()
         chatViewController.updateAutoCompactEnabled(autoCompactEnabled)
 

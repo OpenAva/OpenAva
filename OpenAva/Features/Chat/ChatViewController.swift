@@ -60,6 +60,12 @@ open class ChatViewController: UIViewController {
                 }
             }
 
+            func uninstall(from titlebar: UITitlebar) {
+                if titlebar.toolbar === toolbar {
+                    titlebar.toolbar = nil
+                }
+            }
+
             func toolbarAllowedItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
                 [
                     Item.leading,
@@ -603,10 +609,21 @@ open class ChatViewController: UIViewController {
         menuDelegate?.chatViewControllerDidTapModelTitle(self)
     }
 
+    public var showsSystemTopBar: Bool = true {
+        didSet {
+            guard oldValue != showsSystemTopBar else { return }
+            updateCatalystTitlebarToolbarIfNeeded()
+        }
+    }
+
     private func updateCatalystTitlebarToolbarIfNeeded() {
         #if targetEnvironment(macCatalyst)
             guard let titlebar = view.window?.windowScene?.titlebar else { return }
-            catalystTitlebarToolbarCoordinator.install(on: titlebar)
+            if showsSystemTopBar {
+                catalystTitlebarToolbarCoordinator.install(on: titlebar)
+            } else {
+                catalystTitlebarToolbarCoordinator.uninstall(from: titlebar)
+            }
         #endif
     }
 

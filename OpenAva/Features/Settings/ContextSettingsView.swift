@@ -7,36 +7,13 @@ struct ContextSettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                ForEach(AgentContextDocumentKind.allCases) { kind in
-                    NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill(sectionTint(for: kind).opacity(0.16))
-                                        .frame(width: 16, height: 16)
-                                    Circle()
-                                        .fill(sectionTint(for: kind))
-                                        .frame(width: 6, height: 6)
-                                }
-
-                                Text(kind.fileName)
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                                    .tracking(-0.2)
-                            }
-
-                            Text(kind.localizedPurpose)
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                                .lineSpacing(2)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    .listRowBackground(Color(uiColor: ChatUIDesign.Color.pureWhite))
+            #if targetEnvironment(macCatalyst)
+                contextRows
+            #else
+                Section {
+                    contextRows
                 }
-            }
+            #endif
 
             if let errorText = viewModel.errorText {
                 Section {
@@ -47,6 +24,11 @@ struct ContextSettingsView: View {
                 .listRowBackground(Color.clear)
             }
         }
+        #if targetEnvironment(macCatalyst)
+        .listStyle(.plain)
+        #else
+        .listStyle(.insetGrouped)
+        #endif
         .scrollContentBackground(.hidden)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
         .navigationTitle(L10n.tr("settings.context.navigationTitle"))
@@ -59,15 +41,66 @@ struct ContextSettingsView: View {
         }
     }
 
-    private func sectionTint(for kind: AgentContextDocumentKind) -> Color {
-        switch kind {
-        case .agents: return .blue
-        case .heartbeat: return .orange
-        case .soul: return .purple
-        case .tools: return .green
-        case .identity: return .indigo
-        case .user: return .pink
+    private var contextRows: some View {
+        ForEach(AgentContextDocumentKind.allCases) { kind in
+            ZStack {
+                NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
+                    EmptyView()
+                }
+                .opacity(0)
+
+                ContextDocumentRow(kind: kind)
+            }
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         }
+    }
+}
+
+private struct ContextDocumentRow: View {
+    let kind: AgentContextDocumentKind
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.black60).opacity(0.05))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: "doc.text")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(kind.fileName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .tracking(-0.2)
+
+                Text(kind.localizedPurpose)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .lineSpacing(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
     }
 }
 

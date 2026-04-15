@@ -44,21 +44,9 @@ struct RemoteControlSettingsView: View {
     #if targetEnvironment(macCatalyst)
         private var hostCard: some View {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.blue.opacity(0.16))
-                            .frame(width: 18, height: 18)
-
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 8, height: 8)
-                    }
-
-                    Text(L10n.tr("settings.remoteControl.host.title"))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                }
+                Text(L10n.tr("settings.remoteControl.host.title"))
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
                 VStack(alignment: .leading, spacing: 12) {
                     if let advertiseStatusText = statusStore.advertiseStatusText {
@@ -122,18 +110,8 @@ struct RemoteControlSettingsView: View {
         ) -> some View {
             Button(action: action) {
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(RemoteActionButtonStyle())
         }
 
         private func statusPill(
@@ -158,3 +136,23 @@ struct RemoteControlSettingsView: View {
         }
     #endif
 }
+
+#if targetEnvironment(macCatalyst)
+    struct RemoteActionButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                )
+                .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
+                .animation(.interactiveSpring(), value: configuration.isPressed)
+        }
+    }
+#endif
