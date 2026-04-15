@@ -185,12 +185,9 @@ extension TeamTools {
             "## Team Status",
             "- team_name: \(team.name)",
             team.description.map { "- description: \($0)" },
-            "- coordinator_session_id: \(team.coordinatorSessionID)",
             "- created_at: \(iso8601(team.createdAt))",
             "- updated_at: \(iso8601(team.updatedAt))",
             "- pending_permission_requests: \(pendingPermissions.count)",
-            "- coordinator_mailbox_unread: \(snapshot.coordinatorUnreadCount)",
-            snapshot.coordinatorMailboxPreview.map { "- coordinator_mailbox_preview: \($0)" },
             "",
             "### Members",
         ].compactMap { $0 }
@@ -198,12 +195,9 @@ extension TeamTools {
             lines.append("- none")
         } else {
             lines.append(contentsOf: team.members.map { member in
-                let backend = member.backendType?.rawValue ?? "in-process"
-                let queued = member.queuedMessageCount ?? 0
                 let planMode = member.planModeRequired ? "required" : "off"
-                let preview = member.lastMailboxPreview ?? "none"
                 let error = member.lastError ?? "none"
-                return "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | backend=\(backend) | plan_mode=\(planMode) | queued=\(queued) | session_id=\(member.sessionID) | inbox=\(preview) | error=\(error)"
+                return "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | plan_mode=\(planMode) | error=\(error)"
             })
         }
 

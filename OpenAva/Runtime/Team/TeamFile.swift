@@ -1,9 +1,5 @@
 import Foundation
 
-enum TeamBackendType: String, Codable {
-    case inProcess = "in-process"
-}
-
 struct TeamAllowedPath: Codable, Equatable {
     let path: String
     let toolName: String
@@ -13,40 +9,13 @@ struct TeamAllowedPath: Codable, Equatable {
 
 struct TeamFileMember: Codable, Equatable {
     let agentId: String
-    let name: String
-    let agentType: String?
-    let model: String?
+    let agentType: String
     let prompt: String?
-    let color: String?
-    let planModeRequired: Bool?
-    let joinedAt: Date
-    let sessionId: String?
-    let subscriptions: [String]
-    let backendType: TeamBackendType?
-    let isActive: Bool?
+    let planModeRequired: Bool
+    let sessionId: String
     let mode: String?
-    let queuedMessageCount: Int?
-    let lastStatus: String?
+    let lastStatus: String
     let pendingPlanRequestID: String?
-
-    enum CodingKeys: String, CodingKey {
-        case agentId
-        case name
-        case agentType
-        case model
-        case prompt
-        case color
-        case planModeRequired
-        case joinedAt
-        case sessionId
-        case subscriptions
-        case backendType
-        case isActive
-        case mode
-        case queuedMessageCount
-        case lastStatus
-        case pendingPlanRequestID = "pendingPlanRequestId"
-    }
 }
 
 struct TeamFile: Codable, Equatable {
@@ -61,18 +30,4 @@ struct TeamFile: Codable, Equatable {
     let nextTaskID: Int
     let tasks: [TeamSwarmCoordinator.TeamTask]
     let members: [TeamFileMember]
-
-    enum CodingKeys: String, CodingKey {
-        case name
-        case description
-        case createdAt
-        case updatedAt
-        case coordinatorId = "leadAgentId"
-        case coordinatorSessionId = "leadSessionId"
-        case hiddenPaneIds
-        case teamAllowedPaths
-        case nextTaskID
-        case tasks
-        case members
-    }
 }

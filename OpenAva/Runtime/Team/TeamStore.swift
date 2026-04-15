@@ -13,14 +13,51 @@ enum TeamStore {
     private enum Storage {
         static let directoryName = "team"
         static let fileName = "teams.json"
+        static let runtimeDirectoryName = ".runtime"
     }
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
     static func load(fileManager: FileManager = .default) -> TeamStateSnapshot {
         loadFromFile(fileManager: fileManager) ?? TeamStateSnapshot(teams: [])
     }
 
     private static func decodedState(from data: Data) -> TeamStateSnapshot? {
-        guard let decoded = try? JSONDecoder().decode(PersistedState.self, from: data), decoded.version == 1 else {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            if let value = try? container.decode(String.self) {
+                if let date = iso8601WithFractionalSeconds.date(from: value) {
+                    return date
+                }
+                if let date = iso8601.date(from: value) {
+                    return date
+                }
+            }
+            if let legacyValue = try? container.decode(Double.self) {
+                // Backward compatibility with historical Date encoding in teams.json.
+                return Date(timeIntervalSinceReferenceDate: legacyValue)
+            }
+            if let legacyValue = try? container.decode(Int.self) {
+                return Date(timeIntervalSinceReferenceDate: TimeInterval(legacyValue))
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported team date format"
+            )
+        }
+
+        guard let decoded = try? decoder.decode(PersistedState.self, from: data), decoded.version == 1 else {
             return nil
         }
         return TeamStateSnapshot(
@@ -77,8 +114,19 @@ enum TeamStore {
 
     static func deleteTeam(_ teamID: UUID, fileManager: FileManager = .default) {
         var state = load(fileManager: fileManager)
+        let removedTeamName = state.teams.first { $0.id == teamID }?.name
         state.teams.removeAll { $0.id == teamID }
         persist(state: state, fileManager: fileManager)
+
+        guard let removedTeamName,
+              let runtimeDirectoryURL = teamRuntimeDirectoryURL(for: removedTeamName, fileManager: fileManager)
+        else {
+            return
+        }
+
+        if fileManager.fileExists(atPath: runtimeDirectoryURL.path) {
+            try? fileManager.removeItem(at: runtimeDirectoryURL)
+        }
     }
 
     static func teams(containing agentID: UUID, fileManager: FileManager = .default) -> [TeamProfile] {
@@ -197,6 +245,10 @@ enum TeamStore {
         guard let url = storageURL(fileManager: fileManager, createDirectoryIfNeeded: true) else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(iso8601WithFractionalSeconds.string(from: date))
+        }
         guard let data = try? encoder.encode(payload) else { return }
         try? data.write(to: url, options: [.atomic])
     }
@@ -210,6 +262,22 @@ enum TeamStore {
             try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         }
         return directoryURL
+    }
+
+    static func runtimeDirectoryURL(fileManager: FileManager = .default, createDirectoryIfNeeded: Bool = false) -> URL? {
+        guard let storageURL = storageDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: createDirectoryIfNeeded) else {
+            return nil
+        }
+        let runtimeURL = storageURL.appendingPathComponent(Storage.runtimeDirectoryName, isDirectory: true)
+        if createDirectoryIfNeeded {
+            try? fileManager.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
+        }
+        return runtimeURL
+    }
+
+    private static func teamRuntimeDirectoryURL(for teamName: String, fileManager: FileManager) -> URL? {
+        return runtimeDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: false)?
+            .appendingPathComponent(teamName, isDirectory: true)
     }
 
     private static func storageURL(fileManager: FileManager, createDirectoryIfNeeded: Bool = false) -> URL? {

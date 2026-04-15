@@ -97,6 +97,101 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])
     }
 
+    @MainActor
+    func testSendMessageToTeamMemberDoesNotAppendUserTranscriptEntry() throws {
+        let transcriptRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let agentStateFileURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
+            .appendingPathComponent(".agents.json", isDirectory: false)
+        let originalAgentState = agentStateFileURL.flatMap { try? Data(contentsOf: $0) }
+        try FileManager.default.createDirectory(at: transcriptRuntimeURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+            try? FileManager.default.removeItem(at: transcriptRuntimeURL)
+            if let agentStateFileURL {
+                if let originalAgentState {
+                    try? originalAgentState.write(to: agentStateFileURL, options: [.atomic])
+                } else {
+                    try? FileManager.default.removeItem(at: agentStateFileURL)
+                }
+            }
+        }
+
+        let agentName = "Worker-\(UUID().uuidString)"
+        let teamName = "Team-\(UUID().uuidString)"
+        let messageBody = "Please continue execution"
+
+        let agent = try AgentStore.createAgent(
+            name: agentName,
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+
+        let team = try XCTUnwrap(TeamStore.createTeam(name: teamName, emoji: "👥", fileManager: .default))
+        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
+        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
+
+        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
+        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamFile(
+            name: team.name,
+            description: nil,
+            createdAt: team.createdAt,
+            updatedAt: team.updatedAt,
+            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
+            coordinatorSessionId: team.name,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 1,
+            tasks: [],
+            members: [
+                TeamFileMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    prompt: "Existing approved plan context",
+                    planModeRequired: true,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.awaitingPlanApproval.rawValue,
+                    pendingPlanRequestID: "pending-plan"
+                )
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(runtimeRootURL: transcriptRuntimeURL, workspaceRootURL: nil, modelConfig: nil)
+        coordinator.reload()
+
+        let transcriptProvider = TranscriptStorageProvider.provider(runtimeRootURL: transcriptRuntimeURL)
+        XCTAssertTrue(transcriptProvider.messages(in: TeamSwarmCoordinator.mainSessionID).isEmpty)
+
+        try coordinator.sendMessage(
+            to: agent.name,
+            message: messageBody,
+            messageType: "message",
+            teamName: team.name,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        let transcriptMessages = transcriptProvider.messages(in: TeamSwarmCoordinator.mainSessionID)
+        XCTAssertFalse(transcriptMessages.contains(where: {
+            $0.role == .user && $0.textContent == "[\(TeamSwarmCoordinator.coordinatorName)] \(messageBody)"
+        }))
+
+        let snapshot = coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))
+        let updatedMember = try XCTUnwrap(snapshot?.team.members.first)
+        XCTAssertEqual(updatedMember.pendingPlanRequestID, "pending-plan")
+        XCTAssertEqual(
+            updatedMember.pendingExecutionPrompt,
+            "Existing approved plan context\n\nAdditional message from coordinator: \(messageBody)"
+        )
+    }
+
     private func makeTemporaryTeamDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

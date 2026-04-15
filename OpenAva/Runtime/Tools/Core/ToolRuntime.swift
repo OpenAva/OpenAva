@@ -76,7 +76,7 @@ final class ToolRuntime: @unchecked Sendable {
             return DeviceTools.MediaFile(path: file.path, sizeBytes: file.sizeBytes)
         },
         activeAgentWorkspaceURL: { [weak self] in
-            self?.activeAgentWorkspaceURL()
+            self?.executionWorkspaceRootURL()
         }
     )
 
@@ -85,7 +85,12 @@ final class ToolRuntime: @unchecked Sendable {
     private lazy var teamProvider = TeamTools()
     private lazy var skillProvider = SkillTools()
 
-    static func makeDefault(workspaceRootURL: URL? = nil, runtimeRootURL: URL? = nil, modelConfig: AppConfig.LLMModel? = nil) -> ToolRuntime {
+    static func makeDefault(
+        workspaceRootURL: URL? = nil,
+        runtimeRootURL: URL? = nil,
+        modelConfig: AppConfig.LLMModel? = nil,
+        configureTeamSwarm: Bool = true
+    ) -> ToolRuntime {
         let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
         let notificationCenter = LiveNotificationCenter()
         let cameraService = CameraController()
@@ -137,7 +142,8 @@ final class ToolRuntime: @unchecked Sendable {
             aShareMarketService: AShareMarketService(),
             arxivSearchService: ArxivSearchService(),
             workspaceRootURL: workspaceRootURL,
-            runtimeRootURL: runtimeRootURL
+            runtimeRootURL: runtimeRootURL,
+            configureTeamSwarm: configureTeamSwarm
         )
     }
 
@@ -171,7 +177,8 @@ final class ToolRuntime: @unchecked Sendable {
         aShareMarketService: AShareMarketService = AShareMarketService(),
         arxivSearchService: ArxivSearchService = ArxivSearchService(),
         workspaceRootURL: URL? = nil,
-        runtimeRootURL: URL? = nil
+        runtimeRootURL: URL? = nil,
+        configureTeamSwarm: Bool = true
     ) {
         self.cameraService = cameraService
         self.screenRecordingService = screenRecordingService
@@ -196,18 +203,34 @@ final class ToolRuntime: @unchecked Sendable {
         self.javaScriptService = javaScriptService
         self.textImageRenderService = textImageRenderService
         self.fileSystemService = fileSystemService
-        self.workspaceRootURL = workspaceRootURL
-        self.runtimeRootURL = runtimeRootURL
+        self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
+        self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
         self.modelConfig = modelConfig
         self.weatherService = weatherService
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
         self.arxivSearchService = arxivSearchService
-        TeamSwarmCoordinator.shared.configure(
-            runtimeRootURL: runtimeRootURL,
-            workspaceRootURL: workspaceRootURL,
-            modelConfig: modelConfig
-        )
+        if configureTeamSwarm {
+            TeamSwarmCoordinator.shared.configure(
+                runtimeRootURL: runtimeRootURL,
+                workspaceRootURL: workspaceRootURL,
+                modelConfig: modelConfig,
+                executeTool: { [weak self] teamName, memberID, sessionID, request in
+                    guard let self else {
+                        return BridgeInvokeResponse(
+                            id: request.id,
+                            ok: false,
+                            error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
+                        )
+                    }
+                    return await self.handle(
+                        request,
+                        sessionID: sessionID,
+                        teamContext: TeamInvocationContext(teamName: teamName, memberID: memberID)
+                    )
+                }
+            )
+        }
 
         // Inject closures into self-registering providers
         Task { [weak self] in
@@ -254,7 +277,7 @@ final class ToolRuntime: @unchecked Sendable {
             workspaceRootURL: workspaceRootURL,
             modelConfig: modelConfig,
             activeRuntimeRootURLProvider: { [weak self] in
-                self?.activeAgentRuntimeRootURL()
+                self?.executionRuntimeRootURL()
             },
             toolInvoker: { [weak self] request, sessionID in
                 guard let self else {
@@ -415,19 +438,19 @@ final class ToolRuntime: @unchecked Sendable {
     }
 
     private nonisolated func mediaOutputDirectoryURL() throws -> URL {
-        let baseURL = activeAgentWorkspaceURL() ?? FileManager.default.temporaryDirectory
+        let baseURL = executionWorkspaceRootURL() ?? FileManager.default.temporaryDirectory
         let directoryURL = baseURL
             .appendingPathComponent("media", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         return directoryURL
     }
 
-    private nonisolated func activeAgentWorkspaceURL() -> URL? {
-        AgentStore.load().activeAgent?.workspaceURL
+    private nonisolated func executionWorkspaceRootURL() -> URL? {
+        workspaceRootURL
     }
 
-    private nonisolated func activeAgentRuntimeRootURL() -> URL? {
-        AgentStore.load().activeAgent?.runtimeURL ?? runtimeRootURL?.standardizedFileURL
+    private nonisolated func executionRuntimeRootURL() -> URL? {
+        runtimeRootURL
     }
 
     // MARK: - Response Helpers

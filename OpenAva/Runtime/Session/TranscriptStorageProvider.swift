@@ -326,6 +326,30 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         lock.unlock()
     }
 
+    func removeSessions(_ sessionIDs: [String]) {
+        let targets = Set(sessionIDs)
+        guard !targets.isEmpty else { return }
+
+        lock.lock()
+        loadSessionsIfNeededLocked()
+
+        var didChange = false
+        for sessionID in targets {
+            messagesBySession.removeValue(forKey: sessionID)
+            loadedSessions.remove(sessionID)
+            nextSequenceByConversation.removeValue(forKey: sessionID)
+            if sessionsByKey.removeValue(forKey: sessionID) != nil {
+                didChange = true
+            }
+            try? FileManager.default.removeItem(at: sessionDirectory(for: sessionID))
+        }
+
+        if didChange {
+            persistSessionsLocked()
+        }
+        lock.unlock()
+    }
+
     private func recordLifecycleEntry(
         type: String,
         subtype: String,
