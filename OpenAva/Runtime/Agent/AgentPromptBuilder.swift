@@ -243,7 +243,9 @@ enum AgentPromptBuilder {
             return PromptSection(
                 title: "## Memory",
                 content: """
-                No durable runtime memories are indexed yet.
+                No fixed durable memory index is injected for this turn.
+
+                Relevant memories may be recalled dynamically for the current request or fetched with memory tools when needed.
 
                 \(sharedGuidance)
                 """

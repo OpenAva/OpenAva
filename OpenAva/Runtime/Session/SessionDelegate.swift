@@ -66,6 +66,9 @@ public protocol SessionDelegate: AnyObject, Sendable {
     ///
     /// Returning nil falls back to the built-in behavior.
     func composeSystemPrompt() async -> String?
+
+    /// Provide the active runtime root used for request-scoped dynamic memory recall.
+    func activeRuntimeRootURL() -> URL?
 }
 
 // MARK: - Default Implementations
@@ -88,6 +91,10 @@ public extension SessionDelegate {
     }
 
     func composeSystemPrompt() async -> String? {
+        nil
+    }
+
+    func activeRuntimeRootURL() -> URL? {
         nil
     }
 }
