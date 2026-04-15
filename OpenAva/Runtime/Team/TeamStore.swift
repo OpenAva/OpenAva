@@ -5,73 +5,14 @@ struct TeamStateSnapshot: Equatable {
 }
 
 enum TeamStore {
-    private struct PersistedState: Codable {
-        let version: Int
-        var teams: [TeamProfile]
-    }
-
     private enum Storage {
-        static let directoryName = "team"
-        static let fileName = "teams.json"
+        static let directoryName = "teams"
         static let runtimeDirectoryName = ".runtime"
     }
 
-    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let iso8601: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
     static func load(fileManager: FileManager = .default) -> TeamStateSnapshot {
-        loadFromFile(fileManager: fileManager) ?? TeamStateSnapshot(teams: [])
-    }
-
-    private static func decodedState(from data: Data) -> TeamStateSnapshot? {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            if let value = try? container.decode(String.self) {
-                if let date = iso8601WithFractionalSeconds.date(from: value) {
-                    return date
-                }
-                if let date = iso8601.date(from: value) {
-                    return date
-                }
-            }
-            if let legacyValue = try? container.decode(Double.self) {
-                // Backward compatibility with historical Date encoding in teams.json.
-                return Date(timeIntervalSinceReferenceDate: legacyValue)
-            }
-            if let legacyValue = try? container.decode(Int.self) {
-                return Date(timeIntervalSinceReferenceDate: TimeInterval(legacyValue))
-            }
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Unsupported team date format"
-            )
-        }
-
-        guard let decoded = try? decoder.decode(PersistedState.self, from: data), decoded.version == 1 else {
-            return nil
-        }
-        return TeamStateSnapshot(
-            teams: decoded.teams.sorted { $0.createdAt < $1.createdAt }
-        )
-    }
-
-    private static func loadFromFile(fileManager: FileManager) -> TeamStateSnapshot? {
-        guard let url = storageURL(fileManager: fileManager),
-              let data = try? Data(contentsOf: url)
-        else {
-            return nil
-        }
-        return decodedState(from: data)
+        let teams = OpenAvaStateFile.load(fileManager: fileManager)?.teams ?? []
+        return TeamStateSnapshot(teams: teams.sorted { $0.createdAt < $1.createdAt })
     }
 
     static func team(id teamID: UUID, fileManager: FileManager = .default) -> TeamProfile? {
@@ -241,16 +182,9 @@ enum TeamStore {
     }
 
     private static func persist(state: TeamStateSnapshot, fileManager: FileManager) {
-        let payload = PersistedState(version: 1, teams: state.teams)
-        guard let url = storageURL(fileManager: fileManager, createDirectoryIfNeeded: true) else { return }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .custom { date, encoder in
-            var container = encoder.singleValueContainer()
-            try container.encode(iso8601WithFractionalSeconds.string(from: date))
-        }
-        guard let data = try? encoder.encode(payload) else { return }
-        try? data.write(to: url, options: [.atomic])
+        var payload = OpenAvaStateFile.load(fileManager: fileManager) ?? OpenAvaPersistedState()
+        payload.teams = state.teams
+        OpenAvaStateFile.persist(payload, fileManager: fileManager)
     }
 
     static func storageDirectoryURL(fileManager: FileManager = .default, createDirectoryIfNeeded: Bool = false) -> URL? {
@@ -278,11 +212,6 @@ enum TeamStore {
     private static func teamRuntimeDirectoryURL(for teamName: String, fileManager: FileManager) -> URL? {
         return runtimeDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: false)?
             .appendingPathComponent(teamName, isDirectory: true)
-    }
-
-    private static func storageURL(fileManager: FileManager, createDirectoryIfNeeded: Bool = false) -> URL? {
-        storageDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: createDirectoryIfNeeded)?
-            .appendingPathComponent(Storage.fileName, isDirectory: false)
     }
 
     private static func nextUniqueName(baseName: String, existingNames: [String]) -> String {

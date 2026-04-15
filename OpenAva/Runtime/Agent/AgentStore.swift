@@ -75,24 +75,132 @@ struct AgentStateSnapshot: Equatable {
     }
 }
 
-enum AgentStore {
-    private struct PersistedState: Codable {
-        var agents: [AgentProfile]
-        var activeAgentID: UUID?
+struct OpenAvaUserInfoDefaults: Codable, Equatable {
+    var callName: String
+    var context: String
+}
+
+struct OpenAvaPersistedState: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case activeAgentID
+        case userInfo
+        case teams
     }
 
-    private enum FileName {
-        static let state = ".agents.json"
+    var agents: [AgentProfile]
+    var activeAgentID: UUID?
+    var userInfo: OpenAvaUserInfoDefaults?
+    var teams: [TeamProfile]
+
+    init(
+        agents: [AgentProfile] = [],
+        activeAgentID: UUID? = nil,
+        userInfo: OpenAvaUserInfoDefaults? = nil,
+        teams: [TeamProfile] = []
+    ) {
+        self.agents = agents
+        self.activeAgentID = activeAgentID
+        self.userInfo = userInfo
+        self.teams = teams
     }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([AgentProfile].self, forKey: .agents) ?? []
+        activeAgentID = try container.decodeIfPresent(UUID.self, forKey: .activeAgentID)
+        userInfo = try container.decodeIfPresent(OpenAvaUserInfoDefaults.self, forKey: .userInfo)
+        teams = try container.decodeIfPresent([TeamProfile].self, forKey: .teams) ?? []
+    }
+}
+
+enum OpenAvaStateFile {
+    private static let fileName = ".openava.json"
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    static func load(
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> OpenAvaPersistedState? {
+        guard let url = fileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+              let data = try? Data(contentsOf: url)
+        else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            if let date = iso8601WithFractionalSeconds.date(from: value) {
+                return date
+            }
+            if let date = iso8601.date(from: value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported team date format"
+            )
+        }
+        return try? decoder.decode(OpenAvaPersistedState.self, from: data)
+    }
+
+    static func persist(
+        _ state: OpenAvaPersistedState,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(iso8601WithFractionalSeconds.string(from: date))
+        }
+
+        guard let url = fileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+              let data = try? encoder.encode(state)
+        else {
+            return
+        }
+
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    static func fileURL(fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> URL? {
+        let rootURL: URL
+        if let workspaceRootURL {
+            rootURL = workspaceRootURL.standardizedFileURL
+            try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        } else {
+            guard let resolved = try? AgentStore.workspaceRootDirectory(fileManager: fileManager) else {
+                return nil
+            }
+            rootURL = resolved
+        }
+        return rootURL.appendingPathComponent(fileName, isDirectory: false)
+    }
+}
+
+enum AgentStore {
+    typealias UserInfoDefaults = OpenAvaUserInfoDefaults
 
     static func load(
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) -> AgentStateSnapshot {
-        guard let stateFileURL = stateFileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
-              let data = try? Data(contentsOf: stateFileURL),
-              let decoded = try? JSONDecoder().decode(PersistedState.self, from: data)
-        else {
+        guard var decoded = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
             return AgentStateSnapshot(agents: [], activeAgentID: nil)
         }
 
@@ -105,20 +213,45 @@ enum AgentStore {
         }
 
         if activeAgentID != decoded.activeAgentID {
-            persist(
-                state: AgentStateSnapshot(
-                    agents: agents,
-                    activeAgentID: activeAgentID
-                ),
-                fileManager: fileManager,
-                workspaceRootURL: workspaceRootURL
-            )
+            decoded.activeAgentID = activeAgentID
+            OpenAvaStateFile.persist(decoded, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         }
 
         return AgentStateSnapshot(
             agents: agents,
             activeAgentID: activeAgentID
         )
+    }
+
+    static func loadUserInfoDefaults(
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> UserInfoDefaults? {
+        OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.userInfo
+    }
+
+    static func saveUserInfoDefaults(
+        callName: String,
+        context: String,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) {
+        let normalizedCallName = callName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedContext = context.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var payload = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            ?? OpenAvaPersistedState()
+
+        if normalizedCallName.isEmpty, normalizedContext.isEmpty {
+            payload.userInfo = nil
+        } else {
+            payload.userInfo = UserInfoDefaults(
+                callName: normalizedCallName,
+                context: normalizedContext
+            )
+        }
+
+        OpenAvaStateFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
     static func createAgent(
@@ -338,25 +471,11 @@ enum AgentStore {
         fileManager: FileManager,
         workspaceRootURL: URL?
     ) {
-        let payload = PersistedState(
-            agents: state.agents,
-            activeAgentID: state.activeAgentID
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let stateFileURL = stateFileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
-              let data = try? encoder.encode(payload)
-        else {
-            return
-        }
-        try? data.write(to: stateFileURL, options: [.atomic])
-    }
-
-    private static func stateFileURL(fileManager: FileManager, workspaceRootURL: URL?) -> URL? {
-        guard let rootURL = try? resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
-            return nil
-        }
-        return rootURL.appendingPathComponent(FileName.state, isDirectory: false)
+        var payload = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            ?? OpenAvaPersistedState()
+        payload.agents = state.agents
+        payload.activeAgentID = state.activeAgentID
+        OpenAvaStateFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
     static func workspaceRootDirectory(fileManager: FileManager) throws -> URL {

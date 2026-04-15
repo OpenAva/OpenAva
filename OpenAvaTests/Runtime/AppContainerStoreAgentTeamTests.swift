@@ -4,13 +4,16 @@ import XCTest
 
 @MainActor
 final class AppContainerStoreAgentTeamTests: XCTestCase {
+    private var originalStateData: Data?
+
     override func setUp() {
         super.setUp()
-        removeTeamStoreFile()
+        originalStateData = try? Data(contentsOf: stateFileURL())
+        removeStateFile()
     }
 
     override func tearDown() {
-        removeTeamStoreFile()
+        restoreStateFile()
         super.tearDown()
     }
 
@@ -116,9 +119,23 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
     }
 
-    private func removeTeamStoreFile() {
-        guard let rootURL = TeamStore.storageDirectoryURL(fileManager: .default) else { return }
-        try? FileManager.default.removeItem(at: rootURL.appendingPathComponent("teams.json", isDirectory: false))
+    private func removeStateFile() {
+        try? FileManager.default.removeItem(at: stateFileURL())
+    }
+
+    private func restoreStateFile() {
+        let url = stateFileURL()
+        if let originalStateData {
+            try? originalStateData.write(to: url, options: [.atomic])
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func stateFileURL() -> URL {
+        let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
+        return rootURL?.appendingPathComponent(".openava.json", isDirectory: false)
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent(".openava.json", isDirectory: false)
     }
 
     private func makeTemporaryWorkspaceRoot() -> URL {

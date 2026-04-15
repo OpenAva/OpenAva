@@ -23,7 +23,7 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: profile.workspaceURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: profile.runtimeURL.path))
 
-        let stateText = try String(contentsOf: workspaceRootURL.appendingPathComponent(".agents.json", isDirectory: false), encoding: .utf8)
+        let stateText = try String(contentsOf: workspaceRootURL.appendingPathComponent(".openava.json", isDirectory: false), encoding: .utf8)
         XCTAssertTrue(stateText.contains(profile.id.uuidString))
         XCTAssertTrue(stateText.contains("\"activeAgentID\""))
     }
@@ -48,6 +48,28 @@ final class AgentStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(active.selectedModelID, modelID)
+    }
+
+    func testAgentMutationsPreserveUserInfoDefaults() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        AgentStore.saveUserInfoDefaults(
+            callName: "Yuan",
+            context: "简洁、直接、可执行",
+            workspaceRootURL: workspaceRootURL
+        )
+
+        let profile = try AgentStore.createAgent(
+            name: "Atlas",
+            emoji: "🤖",
+            workspaceRootURL: workspaceRootURL
+        )
+        _ = AgentStore.setSelectedModel(UUID(), for: profile.id, workspaceRootURL: workspaceRootURL)
+
+        let userInfo = AgentStore.loadUserInfoDefaults(workspaceRootURL: workspaceRootURL)
+        XCTAssertEqual(userInfo?.callName, "Yuan")
+        XCTAssertEqual(userInfo?.context, "简洁、直接、可执行")
     }
 
     func testDeleteAgentRemovesProfileAndDirectory() throws {
@@ -191,7 +213,7 @@ final class AgentStoreTests: XCTestCase {
         }
         """
         try stalePayload.write(
-            to: workspaceRootURL.appendingPathComponent(".agents.json", isDirectory: false),
+            to: workspaceRootURL.appendingPathComponent(".openava.json", isDirectory: false),
             atomically: true,
             encoding: .utf8
         )
