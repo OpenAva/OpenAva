@@ -16,6 +16,7 @@ private extension MessageListView {
         case responseContent
         case mediaContent
         case hint
+        case compactBoundary
         case toolCallHint
         case toolResultContent
         case chartContent
@@ -62,6 +63,7 @@ extension MessageListView: ListViewAdapter {
         case .responseContent: RowType.responseContent
         case .mediaContent: RowType.mediaContent
         case .hint: RowType.hint
+        case .compactBoundary: RowType.compactBoundary
         case .toolCallHint: RowType.toolCallHint
         case .toolResultContent: RowType.toolResultContent
         case .chartContent: RowType.chartContent
@@ -87,6 +89,8 @@ extension MessageListView: ListViewAdapter {
             MediaMessageView()
         case .hint:
             HintMessageView()
+        case .compactBoundary:
+            CompactBoundaryMessageView()
         case .toolCallHint:
             ToolHintView()
         case .toolResultContent:
@@ -145,6 +149,8 @@ extension MessageListView: ListViewAdapter {
                 return MediaMessageView.contentHeight(for: media, containerWidth: containerWidth)
             case .hint:
                 return ceil(theme.fonts.footnote.lineHeight + 16)
+            case let .compactBoundary(_, boundary):
+                return CompactBoundaryMessageView.contentHeight(for: theme, detail: boundary.detail, maxWidth: containerWidth)
             case let .toolResultContent(_, text):
                 // Match ReasoningContentView text sizing (footnote, leading inset 14)
                 let attributed = NSAttributedString(string: text, attributes: [
@@ -266,6 +272,12 @@ extension MessageListView: ListViewAdapter {
             if case let .hint(_, content) = entry {
                 hintMessageView.theme = theme
                 hintMessageView.text = content
+            }
+        } else if let compactBoundaryView = rowView as? CompactBoundaryMessageView {
+            if case let .compactBoundary(_, boundary) = entry {
+                compactBoundaryView.theme = theme
+                compactBoundaryView.title = boundary.title
+                compactBoundaryView.detail = boundary.detail
             }
         } else if let activityReportingView = rowView as? ActivityReportingView {
             if case let .activityReporting(content) = entry {

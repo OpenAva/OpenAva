@@ -57,6 +57,13 @@ extension MessageListView {
         let altText: String?
     }
 
+    struct CompactBoundaryRepresentation: Hashable {
+        let id: String
+        let createdAt: Date
+        let title: String
+        let detail: String?
+    }
+
     /// Displayable entries for the list view.
     enum Entry: Hashable, Identifiable {
         case userContent(String, MessageRepresentation)
@@ -69,6 +76,7 @@ extension MessageListView {
         case chartContent(String, ChartRepresentation)
         case mapContent(String, MapRepresentation)
         case mediaContent(String, MediaRepresentation)
+        case compactBoundary(String, CompactBoundaryRepresentation)
         case interruptionRetry(String)
         case activityReporting(String)
 
@@ -84,6 +92,7 @@ extension MessageListView {
             case let .chartContent(id, _): "chart-\(id)"
             case let .mapContent(id, _): "map-\(id)"
             case let .mediaContent(id, _): "media-\(id)"
+            case let .compactBoundary(id, _): "compact-boundary-\(id)"
             case .interruptionRetry: "interruption-retry"
             case let .activityReporting(msg): "activity-\(msg)"
             }
@@ -94,6 +103,30 @@ extension MessageListView {
     func entries(from messages: [ConversationMessage]) -> [Entry] {
         var entries: [Entry] = []
         var latestDisplayedDay: Date?
+
+        func compactBoundaryTitle(for metadata: CompactBoundaryMetadata?) -> String {
+            switch metadata?.trigger {
+            case "auto":
+                return String.localized("Automatic compaction boundary")
+            case "manual":
+                return String.localized("Manual compaction boundary")
+            default:
+                return String.localized("Conversation compaction boundary")
+            }
+        }
+
+        func localizedCompactBoundaryMetric(_ key: String, _ value: Int64) -> String {
+            let format = NSLocalizedString(key, tableName: nil, bundle: .module, value: key, comment: "")
+            return String(format: format, locale: Locale.current, value)
+        }
+
+        func compactBoundaryDetail(for metadata: CompactBoundaryMetadata?) -> String? {
+            guard let metadata else { return nil }
+            if let messagesSummarized = metadata.messagesSummarized, messagesSummarized > 0 {
+                return localizedCompactBoundaryMetric("Compacted %lld earlier messages", Int64(messagesSummarized))
+            }
+            return nil
+        }
 
         func isReasoningStillStreaming(in message: ConversationMessage) -> Bool {
             var hasVisibleReasoning = false
@@ -370,8 +403,18 @@ extension MessageListView {
                 }
 
             case .system:
-                // System messages are not displayed in the list
-                break
+                guard message.isCompactBoundary else { break }
+                entries.append(
+                    .compactBoundary(
+                        message.id,
+                        CompactBoundaryRepresentation(
+                            id: message.id,
+                            createdAt: message.createdAt,
+                            title: compactBoundaryTitle(for: message.compactBoundaryMetadata),
+                            detail: compactBoundaryDetail(for: message.compactBoundaryMetadata)
+                        )
+                    )
+                )
 
             default:
                 // Custom roles: display as hint

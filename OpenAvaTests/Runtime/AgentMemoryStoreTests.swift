@@ -149,8 +149,11 @@ final class AgentMemoryStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(expired.status, .expired)
-        XCTAssertTrue(try await store.listEntries().isEmpty)
-        XCTAssertTrue(try await store.recall(query: "campaign", limit: 3).isEmpty)
-        XCTAssertEqual(try await store.promptContext(), "")
+        let entries = try await store.listEntries()
+        XCTAssertTrue(entries.isEmpty)
+        let recallHits = try await store.recall(query: "campaign", limit: 3)
+        XCTAssertTrue(recallHits.isEmpty)
+        let promptContext = try await store.promptContext()
+        XCTAssertEqual(promptContext, "")
     }
 }

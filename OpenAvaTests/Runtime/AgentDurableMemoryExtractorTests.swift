@@ -293,7 +293,7 @@ final class ConversationCompactionTests: XCTestCase {
         XCTAssertGreaterThan(summaryIndex, boundaryIndex)
     }
 
-    func testReloadRestoresFullTranscriptHistoryAfterCompact() async throws {
+    func testReloadKeepsCompactedContextAfterCompact() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -322,7 +322,43 @@ final class ConversationCompactionTests: XCTestCase {
             .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
             .map(\.id)
 
-        XCTAssertEqual(reloadedIDs, originalIDs)
+        XCTAssertEqual(reloadedIDs, compactedContextIDs)
+        XCTAssertTrue(reloaded.messages.contains(where: { $0.isCompactBoundary }))
+    }
+
+    func testRollbackAfterCompactDoesNotRestoreDeletedTranscriptMessages() async throws {
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
+            try? FileManager.default.removeItem(at: runtimeRoot)
+        }
+
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRoot)
+        let sessionID = "transcript-rollback"
+        let session = ConversationSession(id: sessionID, configuration: .init(storage: storage))
+        let originalIDs = seedConversation(into: session, turnCount: 8)
+
+        let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
+
+        try await session.compact(model: model)
+
+        let rollbackTargetID = originalIDs[4]
+        session.delete(after: rollbackTargetID)
+        session.delete(rollbackTargetID)
+
+        let remainingVisibleIDs = session.messages
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+        XCTAssertTrue(remainingVisibleIDs.isEmpty)
+
+        let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
+        let reloadedVisibleIDs = reloaded.messages
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .map(\.id)
+        XCTAssertTrue(reloadedVisibleIDs.isEmpty)
         XCTAssertTrue(reloaded.messages.contains(where: { $0.isCompactBoundary }))
     }
 
