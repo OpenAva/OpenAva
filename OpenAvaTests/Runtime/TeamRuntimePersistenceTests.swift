@@ -157,7 +157,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
                     mode: nil,
                     lastStatus: TeamSwarmCoordinator.MemberStatus.awaitingPlanApproval.rawValue,
                     pendingPlanRequestID: "pending-plan"
-                )
+                ),
             ]
         )
         let persistedData = try JSONEncoder().encode(persistedTeam)

@@ -233,6 +233,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let pendingAutoSendMessage: String?
     /// Forces `updateUIViewController` after team swarm notifications so menus pull fresh data.
     let menuRefreshToken: Int
+    let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
@@ -422,6 +423,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             // Use the same submission path as manual user input.
             let content = ChatInputContent(text: message)
             chatViewController.chatInputDidSubmit(chatViewController.chatInputView, object: content) { _ in }
+            onConsumePendingAutoSend?(id)
         }
 
         context.coordinator.onAgentSwitch = onAgentSwitch

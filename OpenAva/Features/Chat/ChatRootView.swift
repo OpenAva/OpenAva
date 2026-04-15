@@ -118,9 +118,14 @@ struct ChatRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
             // Team creation/editing can happen in another Catalyst window.
-            // Reload persisted state first, then force one SwiftUI update so the wrapper
-            // receives the latest teams/agents and menu snapshot.
+            // Reload persisted state first. Menu refresh is driven by the actual teams/agents
+            // state change handlers below so same-window and cross-window changes share one path.
             containerStore.refreshPersistedState()
+        }
+        .onChange(of: containerStore.teams) { _, _ in
+            teamMenuRefreshToken &+= 1
+        }
+        .onChange(of: containerStore.agents) { _, _ in
             teamMenuRefreshToken &+= 1
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
@@ -163,6 +168,7 @@ struct ChatRootView: View {
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
             menuRefreshToken: teamMenuRefreshToken,
+            onConsumePendingAutoSend: consumePendingAutoSend,
             onMenuAction: handleMenuAction,
             onAgentSwitch: handleAgentSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
@@ -233,6 +239,12 @@ struct ChatRootView: View {
         let message = request.message
         pendingAutoSendID = id
         pendingAutoSendMessage = message
+    }
+
+    private func consumePendingAutoSend(_ id: String) {
+        guard pendingAutoSendID == id else { return }
+        pendingAutoSendID = nil
+        pendingAutoSendMessage = nil
     }
 
     private func handleAgentSwitch(_ agentID: UUID) {
@@ -492,6 +504,7 @@ private struct ChatScreen: View {
     private let pendingAutoSendID: String?
     private let pendingAutoSendMessage: String?
     private let menuRefreshToken: Int
+    private let onConsumePendingAutoSend: ((String) -> Void)?
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     private let onAgentSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
@@ -520,6 +533,7 @@ private struct ChatScreen: View {
         pendingAutoSendID: String? = nil,
         pendingAutoSendMessage: String? = nil,
         menuRefreshToken: Int = 0,
+        onConsumePendingAutoSend: ((String) -> Void)? = nil,
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
         onAgentSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
@@ -544,6 +558,7 @@ private struct ChatScreen: View {
         self.pendingAutoSendID = pendingAutoSendID
         self.pendingAutoSendMessage = pendingAutoSendMessage
         self.menuRefreshToken = menuRefreshToken
+        self.onConsumePendingAutoSend = onConsumePendingAutoSend
         self.onMenuAction = onMenuAction
         self.onAgentSwitch = onAgentSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
@@ -627,6 +642,7 @@ private struct ChatScreen: View {
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
             menuRefreshToken: menuRefreshToken,
+            onConsumePendingAutoSend: onConsumePendingAutoSend,
             onMenuAction: onMenuAction,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,

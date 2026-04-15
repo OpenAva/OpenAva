@@ -115,9 +115,6 @@ public extension ConversationSession {
                         await messageListView.loading()
                     }
                 case let .refresh(scrolling):
-                    logger.debug(
-                        "query refresh session=\(self.id, privacy: .public) scrolling=\(String(scrolling), privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
-                    )
                     await requestUpdate(view: messageListView, scrolling: scrolling)
                 case let .result(result):
                     logger.notice(

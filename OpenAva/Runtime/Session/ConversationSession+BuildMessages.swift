@@ -132,7 +132,7 @@ extension ConversationSession {
                 let dataURL = "data:\(imagePart.mediaType);base64,\(base64)"
                 if let url = URL(string: dataURL) {
                     parts.append(.imageURL(url))
-                    requestBuildLogger.info(
+                    requestBuildLogger.debug(
                         "appended image part mediaType=\(imagePart.mediaType) bytes=\(imagePart.data.count) previewBytes=\(imagePart.previewData?.count ?? 0)"
                     )
                 } else {
@@ -175,7 +175,7 @@ extension ConversationSession {
         let textPartsCount = parts.reduce(into: 0) { count, part in
             if case .text = part { count += 1 }
         }
-        requestBuildLogger.info(
+        requestBuildLogger.debug(
             "built user request content parts textChars=\(trimmedText.count) attachments=\(attachments.count) outputParts=\(parts.count) textParts=\(textPartsCount) imageParts=\(imagePartsCount) audioParts=\(audioPartsCount)"
         )
 
