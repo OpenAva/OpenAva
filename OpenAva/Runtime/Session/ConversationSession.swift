@@ -157,6 +157,9 @@ public final class ConversationSession: Identifiable, Sendable {
         collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
         models = .init()
         refreshContentsFromDatabase()
+        if let transcriptStorageProvider = storageProvider as? TranscriptStorageProvider {
+            showsInterruptedRetryAction = transcriptStorageProvider.sessionStatus(for: id) == "interrupted"
+        }
     }
 
     // MARK: - Message Management
@@ -190,6 +193,34 @@ public final class ConversationSession: Identifiable, Sendable {
         storageProvider.save(messages)
     }
 
+    /// Persist a single new message immediately (incremental append).
+    /// Falls back to full save() if the storage provider doesn't support incremental writes.
+    func appendMessageToTranscript(_ message: ConversationMessage) {
+        if let transcriptStorage = storageProvider as? TranscriptStorageProvider {
+            transcriptStorage.appendMessage(message, to: id)
+        } else {
+            persistMessages()
+        }
+    }
+
+    /// Persist an update to an existing message immediately.
+    /// Falls back to full save() if the storage provider doesn't support incremental writes.
+    func updateMessageInTranscript(_ message: ConversationMessage) {
+        if let transcriptStorage = storageProvider as? TranscriptStorageProvider {
+            transcriptStorage.appendMessageUpdate(message, to: id)
+        } else {
+            persistMessages()
+        }
+    }
+
+    /// Flush all buffered writes to disk immediately.
+    /// Ensures durability at turn boundaries and during graceful shutdown.
+    func flushTranscript() {
+        if let transcriptStorage = storageProvider as? TranscriptStorageProvider {
+            transcriptStorage.flush()
+        }
+    }
+
     func message(for messageID: String) -> ConversationMessage? {
         messages.first { $0.id == messageID }
     }
@@ -204,6 +235,7 @@ public final class ConversationSession: Identifiable, Sendable {
             if case var .reasoning(reasoningPart) = part {
                 reasoningPart.isCollapsed.toggle()
                 conversationMessage.parts[index] = .reasoning(reasoningPart)
+                persistMessages()
                 notifyMessagesDidChange(scrolling: false)
                 return
             }
@@ -224,6 +256,7 @@ public final class ConversationSession: Identifiable, Sendable {
             didToggle = true
         }
         guard didToggle else { return }
+        persistMessages()
         notifyMessagesDidChange(scrolling: false)
     }
 

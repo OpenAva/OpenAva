@@ -59,6 +59,19 @@ final class ConversationSessionManagerTests: XCTestCase {
         manager.markSessionCompleted("main")
         XCTAssertFalse(manager.hasExecutingSession())
     }
+
+    func testIsSessionExecutingChecksSpecificSessionOnly() {
+        let manager = ConversationSessionManager.shared
+        manager.removeAllSessions()
+
+        manager.markSessionExecuting("main")
+
+        XCTAssertTrue(manager.isSessionExecuting("main"))
+        XCTAssertFalse(manager.isSessionExecuting("other"))
+
+        manager.markSessionCompleted("main")
+        XCTAssertFalse(manager.isSessionExecuting("main"))
+    }
 }
 
 private final class TestStorageProvider: StorageProvider {

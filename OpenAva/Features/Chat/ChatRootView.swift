@@ -127,11 +127,12 @@ struct ChatRootView: View {
         }
         .onChange(of: containerStore.agents) { _, _ in
             teamMenuRefreshToken &+= 1
+            updateHeartbeatService()
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
                 showsAgentOnboarding = true
-                HeartbeatService.shared.stop()
+                HeartbeatRuntimeRegistry.shared.stopAll()
                 return
             }
             drainPendingAutoSend()
@@ -193,8 +194,8 @@ struct ChatRootView: View {
         .id(containerAgent)
         #if targetEnvironment(macCatalyst)
             .toolbar(.hidden, for: .navigationBar)
-        #endif
             .ignoresSafeArea(edges: .top)
+        #endif
     }
 
     /// Recreate the chat screen when runtime config changes.
@@ -318,31 +319,29 @@ struct ChatRootView: View {
     }
 
     private func updateHeartbeatService() {
-        guard scenePhase == .active,
-              let activeAgent = containerStore.activeAgent,
-              let workspaceRootURL = containerStore.container.config.agent.workspaceRootURL,
-              let runtimeRootURL = containerStore.container.config.agent.runtimeRootURL,
-              let selectedModel = containerStore.container.config.selectedLLMModel,
-              let chatClient = containerStore.container.services.chatClient
-        else {
-            HeartbeatService.shared.stop()
-            return
+        let llmCollection = LLMConfigStore.loadCollection()
+        let configurations = containerStore.agents.compactMap { agent -> HeartbeatRuntimeConfiguration? in
+            guard let model = llmCollection.selectedModel(preferredID: agent.selectedModelID),
+                  model.isConfigured
+            else {
+                return nil
+            }
+
+            return .init(
+                agent: agent,
+                agentID: agent.id.uuidString,
+                mainSessionID: scopedSessionID(for: primarySessionKey, agentID: agent.id),
+                agentName: agent.name,
+                agentEmoji: agent.emoji,
+                workspaceRootURL: agent.workspaceURL,
+                runtimeRootURL: agent.runtimeURL,
+                modelConfig: model
+            )
         }
 
-        HeartbeatService.shared.reconfigure(
-            .init(
-                agentID: activeAgent.id.uuidString,
-                mainSessionID: scopedSessionID(for: primarySessionKey, agentID: activeAgent.id),
-                agentName: activeAgent.name,
-                agentEmoji: activeAgent.emoji,
-                workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: runtimeRootURL,
-                baseSystemPrompt: selectedModel.systemPrompt,
-                chatClient: chatClient,
-                modelConfig: selectedModel,
-                toolRuntime: containerStore.container.services.toolRuntime,
-                autoCompactEnabled: autoCompactEnabled
-            )
+        HeartbeatRuntimeRegistry.shared.sync(
+            configurations: configurations,
+            schedulingEnabled: scenePhase == .active
         )
     }
 
@@ -442,7 +441,8 @@ struct ChatRootView: View {
     private func triggerHeartbeatNow() {
         updateHeartbeatService()
         Task { @MainActor in
-            _ = await HeartbeatService.shared.requestRunNow()
+            guard let agentID = containerStore.activeAgent?.id.uuidString else { return }
+            _ = await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
         }
     }
 

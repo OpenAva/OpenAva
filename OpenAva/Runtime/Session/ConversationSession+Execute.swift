@@ -16,12 +16,47 @@ private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.
 public extension ConversationSession {
     /// Input object representing what the user typed/attached.
     struct UserInput: Sendable {
-        public var text: String
-        public var attachments: [ContentPart]
+        public enum Source: String, Sendable {
+            case user
+            case heartbeat
+        }
 
-        public init(text: String = "", attachments: [ContentPart] = []) {
+        public static let sourceMetadataKey = "turnSource"
+        public static let requestTextMetadataKey = "turnRequestText"
+
+        public var text: String
+        public var displayText: String?
+        public var attachments: [ContentPart]
+        public var source: Source
+        public var metadata: [String: String]
+
+        public init(
+            text: String = "",
+            displayText: String? = nil,
+            attachments: [ContentPart] = [],
+            source: Source = .user,
+            metadata: [String: String] = [:]
+        ) {
             self.text = text
+            self.displayText = AppConfig.nonEmpty(displayText)
             self.attachments = attachments
+            self.source = source
+
+            var normalizedMetadata = metadata
+            normalizedMetadata[Self.sourceMetadataKey] = source.rawValue
+            self.metadata = normalizedMetadata
+        }
+
+        var transcriptText: String {
+            displayText ?? text
+        }
+
+        var transcriptMetadata: [String: String] {
+            var result = metadata
+            if transcriptText != text {
+                result[Self.requestTextMetadataKey] = text
+            }
+            return result
         }
     }
 
@@ -159,7 +194,10 @@ public extension ConversationSession {
 
         stopThinkingForAll()
         await requestUpdate(view: messageListView)
+        // Final persist: flush the write queue to guarantee all buffered
+        // entries are on disk before we signal completion.
         persistMessages()
+        flushTranscript()
         let persistedMessages = messages
         let sessionID = id
 

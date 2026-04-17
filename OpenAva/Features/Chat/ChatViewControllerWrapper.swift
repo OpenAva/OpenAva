@@ -274,22 +274,51 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
+        let providedSession: ConversationSession?
+        let models: ConversationSession.Models
+        var serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?
         if let runtimeRootURL, activeAgentID != nil {
-            // Reuse one provider per runtime root so chat history survives view recreation.
-            storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
-            sessionDelegate = AgentSessionDelegate(
-                sessionID: sessionID,
-                workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: runtimeRootURL,
-                baseSystemPrompt: systemPrompt,
-                chatClient: chatClient,
-                agentName: activeAgentName,
-                agentEmoji: activeAgentEmoji
-            )
+            if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
+                let invocationSessionID = "\(activeAgentID!.uuidString)::\(sessionID)"
+                let resources = AgentMainSessionRegistry.shared.sessionResources(
+                    for: agent,
+                    modelConfig: modelConfig,
+                    invocationSessionID: invocationSessionID
+                )
+                storageProvider = resources.storageProvider
+                sessionDelegate = resources.sessionDelegate
+                providedSession = resources.session
+                models = resources.session.models
+                serializedExecutionContext = (agent, modelConfig, invocationSessionID)
+            } else {
+                storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+                sessionDelegate = AgentSessionDelegate(
+                    sessionID: sessionID,
+                    workspaceRootURL: workspaceRootURL,
+                    runtimeRootURL: runtimeRootURL,
+                    baseSystemPrompt: systemPrompt,
+                    chatClient: chatClient,
+                    agentName: activeAgentName,
+                    agentEmoji: activeAgentEmoji
+                )
+                var fallbackModels = ConversationSession.Models()
+                if let chatClient {
+                    fallbackModels.chat = ConversationSession.Model(
+                        client: chatClient,
+                        capabilities: [.visual, .tool],
+                        contextLength: modelConfig?.contextTokens ?? 128_000,
+                        autoCompactEnabled: autoCompactEnabled
+                    )
+                }
+                providedSession = nil
+                models = fallbackModels
+            }
         } else {
             // New install / no active agent: avoid touching any runtime-root based agent pipeline.
             storageProvider = DisposableStorageProvider.shared
             sessionDelegate = nil
+            providedSession = nil
+            models = .init()
         }
 
         // Create session configuration
@@ -300,17 +329,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             systemPrompt: systemPrompt ?? "You are a helpful assistant.",
             collapseReasoningWhenComplete: true
         )
-
-        // Create models with ChatClient
-        var models = ConversationSession.Models()
-        if let chatClient {
-            models.chat = ConversationSession.Model(
-                client: chatClient,
-                capabilities: [.visual, .tool],
-                contextLength: modelConfig?.contextTokens ?? 128_000,
-                autoCompactEnabled: autoCompactEnabled
-            )
-        }
 
         // Create and configure ChatViewController
         let inputConfiguration = ChatInputConfiguration(
@@ -323,23 +341,44 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         let chatViewController: ChatViewController
 
         #if targetEnvironment(macCatalyst)
-            let catalystController = CatalystChatViewController(
-                sessionID: sessionID,
-                models: models,
-                sessionConfiguration: sessionConfiguration,
-                configuration: viewConfiguration
-            )
+            let catalystController: CatalystChatViewController
+            if let providedSession {
+                catalystController = CatalystChatViewController(
+                    session: providedSession,
+                    sessionID: sessionID,
+                    models: models,
+                    sessionConfiguration: sessionConfiguration,
+                    configuration: viewConfiguration
+                )
+            } else {
+                catalystController = CatalystChatViewController(
+                    sessionID: sessionID,
+                    models: models,
+                    sessionConfiguration: sessionConfiguration,
+                    configuration: viewConfiguration
+                )
+            }
             catalystController.onOpenModelSettings = { [weak coordinator = context.coordinator] in
                 coordinator?.onMenuAction?(.openLLM)
             }
             chatViewController = catalystController
         #else
-            chatViewController = ChatViewController(
-                sessionID: sessionID,
-                models: models,
-                sessionConfiguration: sessionConfiguration,
-                configuration: viewConfiguration
-            )
+            if let providedSession {
+                chatViewController = ChatViewController(
+                    session: providedSession,
+                    sessionID: sessionID,
+                    models: models,
+                    sessionConfiguration: sessionConfiguration,
+                    configuration: viewConfiguration
+                )
+            } else {
+                chatViewController = ChatViewController(
+                    sessionID: sessionID,
+                    models: models,
+                    sessionConfiguration: sessionConfiguration,
+                    configuration: viewConfiguration
+                )
+            }
         #endif
 
         // Persist input draft per agent so it survives app restarts and is isolated between agents.
@@ -352,6 +391,35 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
+        if let serializedExecutionContext {
+            chatViewController.inferenceHandler = { _, _, messageListView, userInput, completion in
+                Task { @MainActor in
+                    do {
+                        try await AgentMainSessionRegistry.shared.submitToMainSession(
+                            for: serializedExecutionContext.agent,
+                            modelConfig: serializedExecutionContext.modelConfig,
+                            invocationSessionID: serializedExecutionContext.invocationSessionID
+                        ) { resources in
+                            guard let model = resources.session.models.chat else {
+                                completion(false)
+                                return
+                            }
+                            await awaitInference(
+                                session: resources.session,
+                                model: model,
+                                messageListView: messageListView,
+                                input: userInput
+                            )
+                            completion(true)
+                        }
+                    } catch {
+                        completion(false)
+                    }
+                }
+            }
+        } else {
+            chatViewController.inferenceHandler = nil
+        }
         chatViewController.updateHeader(.init(
             agentName: activeAgentName,
             agentEmoji: activeAgentEmoji,

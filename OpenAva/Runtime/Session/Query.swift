@@ -144,7 +144,10 @@ private func queryLoop(
             continuation: continuation
         )
 
-        session.persistMessages()
+        // After a turn completes, flush the write queue to ensure durability.
+        // The streaming persistence already wrote incremental updates, but we
+        // need to guarantee all buffered entries are on disk before proceeding.
+        session.flushTranscript()
 
         guard !turn.pendingToolCalls.isEmpty else {
             logger.notice(
@@ -170,7 +173,8 @@ private func queryLoop(
             toolUseContext: toolUseContext,
             continuation: continuation
         )
-        session.persistMessages()
+        // After tool calls complete, flush the write queue for durability.
+        session.flushTranscript()
     }
 
     flushPendingToolUseSummary(session: session, state: &state)
@@ -179,9 +183,9 @@ private func queryLoop(
         msg.textContent = String.localized("Reached maximum number of turns.")
         msg.finishReason = .length
     }
-    _ = message
+    session.appendMessageToTranscript(message)
     continuation.yield(.refresh(scrolling: true))
-    session.persistMessages()
+    session.flushTranscript()
 
     return QueryResult(
         finishReason: FinishReason.length,
@@ -289,6 +293,11 @@ private func executeQueryTurn(
         }
     }
 
+    // Counter for periodic streaming persistence.
+    // Every `streamingPersistInterval` characters, we flush the message to transcript.
+    var streamingPersistCounter = 0
+    let streamingPersistInterval = 500 // flush to transcript every 500 chars
+
     let reasoningEmitter = BalancedEmitter(duration: 1.0, frequency: 30) { chunk in
         let current = message.reasoningContent ?? ""
         message.reasoningContent = current + chunk
@@ -299,6 +308,13 @@ private func executeQueryTurn(
         message.textContent += chunk
         updateVisibleState()
         continuation.yield(.refresh(scrolling: true))
+
+        // Streaming persistence: periodically flush to disk during inference.
+        streamingPersistCounter += chunk.count
+        if streamingPersistCounter >= streamingPersistInterval {
+            streamingPersistCounter = 0
+            session.updateMessageInTranscript(message)
+        }
     }
     defer {
         reasoningEmitter.cancel()
@@ -353,7 +369,7 @@ private func executeQueryTurn(
                     )
                 )
                 continuation.yield(.refresh(scrolling: true))
-                session.persistMessages()
+                session.updateMessageInTranscript(message)
             }
 
         case .image:
@@ -373,6 +389,9 @@ private func executeQueryTurn(
 
     session.stopThinking(for: message.id)
     continuation.yield(.refresh(scrolling: true))
+
+    // Streaming persistence: flush final message state after stream completes.
+    session.updateMessageInTranscript(message)
 
     collapseReasoning()
     if collapseAfterReasoningComplete {
@@ -489,7 +508,7 @@ private func executeToolCalls(
                     )
                 )
             )
-            toolUseContext.session.persistMessages()
+            toolUseContext.session.updateMessageInTranscript(assistantMessage)
         }
         continuation.yield(.refresh(scrolling: true))
 
@@ -586,6 +605,7 @@ private func executeToolCalls(
                 toolCallID: entry.request.id
             )
         )
+        toolUseContext.session.updateMessageInTranscript(assistantMessage)
         continuation.yield(.refresh(scrolling: true))
     }
 

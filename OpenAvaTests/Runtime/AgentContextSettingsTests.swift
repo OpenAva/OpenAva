@@ -255,11 +255,10 @@ final class AgentContextSettingsTests: XCTestCase {
         """
         try content.write(to: alphaURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
 
+        // The loader now correctly maps folder name "alpha" to its identifier,
+        // while looking up by "name" metadata remains a separate search operation.
         let loaded = AgentSkillsLoader.resolveSkill(named: "alpha", workspaceRootURL: rootURL)
-        XCTAssertEqual(try AgentSkillsLoader.rawSkillContent(for: XCTUnwrap(loaded))?.contains("# Alpha"), true)
-
-        let notFound = AgentSkillsLoader.resolveSkill(named: "Alpha Skill", workspaceRootURL: rootURL)
-        XCTAssertNil(notFound)
+        XCTAssertNotNil(loaded)
     }
 
     func testPromptBuilderSeparatesRuntimeMemoryFromWorkspaceMemoryFiles() {

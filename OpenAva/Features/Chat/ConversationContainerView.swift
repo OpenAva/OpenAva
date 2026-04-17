@@ -27,6 +27,7 @@ open class ConversationContainerView: UIView {
     private var activeSessionConfiguration: ConversationSession.Configuration?
     private weak var currentSession: ConversationSession?
     private var sessionCancellables = Set<AnyCancellable>()
+    public var inferenceHandler: ConversationInferenceHandler?
     public var conversationModels: ConversationSession.Models = .init()
     public var newSessionIDProvider: @MainActor () -> String = { UUID().uuidString }
 
@@ -119,12 +120,17 @@ extension ConversationContainerView: ChatInputDelegate {
         draftInputObject = nil
         messageListView.markNextUpdateAsUserInitiated()
         input.setExecuting(true)
-        session.runInference(model: model, messageListView: messageListView, input: userInput) {
+        let handler = inferenceHandler ?? { session, model, messageListView, userInput, completion in
+            session.runInference(model: model, messageListView: messageListView, input: userInput) {
+                completion(true)
+            }
+        }
+        handler(session, model, messageListView, userInput) { accepted in
             Task { @MainActor [weak input] in
                 logger.notice("submit completion session=\(session.id, privacy: .public)")
                 input?.setExecuting(false)
             }
-            completion(true)
+            completion(accepted)
         }
     }
 

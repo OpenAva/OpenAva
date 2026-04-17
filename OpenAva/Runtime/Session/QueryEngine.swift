@@ -60,14 +60,18 @@ final class QueryEngine {
 
         var requestMessages = session.buildRequestMessages(capabilities: modelCapabilities)
 
-        _ = session.appendNewMessage(role: .user) { message in
-            message.textContent = input.text
+        let userMessage = session.appendNewMessage(role: .user) { message in
+            message.textContent = input.transcriptText
             for attachment in input.attachments {
                 message.parts.append(attachment)
             }
+
+            for (key, value) in input.transcriptMetadata {
+                message.metadata[key] = value
+            }
         }
         continuation.yield(.refresh(scrolling: true))
-        session.persistMessages()
+        session.appendMessageToTranscript(userMessage)
 
         let latestUserMessage = session.buildUserRequestMessage(
             text: input.text,

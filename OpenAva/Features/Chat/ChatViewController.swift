@@ -210,6 +210,8 @@ open class ChatViewController: UIViewController {
     private var contextUsageRefreshTask: Task<Void, Never>?
 
     private var draftInputObject: ChatInputContent?
+    private var providedSession: ConversationSession?
+    var inferenceHandler: ConversationInferenceHandler?
 
     private var isExecutingCurrentTurn = false {
         didSet {
@@ -279,6 +281,22 @@ open class ChatViewController: UIViewController {
         self.configuration = configuration
         super.init(nibName: nil, bundle: nil)
         chatInputView.configuration = self.configuration.input
+    }
+
+    public convenience init(
+        session: ConversationSession,
+        sessionID: String,
+        models: ConversationSession.Models = .init(),
+        sessionConfiguration: ConversationSession.Configuration = .init(storage: DisposableStorageProvider.shared),
+        configuration: Configuration
+    ) {
+        self.init(
+            sessionID: sessionID,
+            models: models,
+            sessionConfiguration: sessionConfiguration,
+            configuration: configuration
+        )
+        providedSession = session
     }
 
     @available(*, unavailable)
@@ -449,6 +467,13 @@ open class ChatViewController: UIViewController {
     private func bindNavigationTitleUpdates(session: ConversationSession) {
         sessionCancellables.removeAll()
         isExecutingCurrentTurn = session.currentTask != nil
+        ConversationSessionManager.shared.executingSessionsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak session] executingSessionIDs in
+                guard let self, let session else { return }
+                self.isExecutingCurrentTurn = executingSessionIDs.contains(session.id)
+            }
+            .store(in: &sessionCancellables)
         session.messagesDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages, scrolling in
@@ -507,7 +532,7 @@ open class ChatViewController: UIViewController {
 
     private func configureSession(for id: String) {
         sessionID = id
-        let session = ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
+        let session = providedSession ?? ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
         applyConversationModels(conversationModels, to: session)
         currentSession = session
         isExecutingCurrentTurn = session.currentTask != nil
@@ -712,12 +737,17 @@ extension ChatViewController: ChatInputDelegate {
         clearPersistedDraft()
         messageListView.markNextUpdateAsUserInitiated()
         isExecutingCurrentTurn = true
-        session.runInference(model: model, messageListView: messageListView, input: userInput) {
+        let handler = inferenceHandler ?? { session, model, messageListView, userInput, completion in
+            session.runInference(model: model, messageListView: messageListView, input: userInput) {
+                completion(true)
+            }
+        }
+        handler(session, model, messageListView, userInput) { accepted in
             Task { @MainActor [weak self] in
                 logger.notice("submit completion session=\(session.id, privacy: .public)")
                 self?.isExecutingCurrentTurn = false
             }
-            completion(true)
+            completion(accepted)
         }
     }
 

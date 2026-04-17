@@ -5,6 +5,14 @@ import UniformTypeIdentifiers
 
 private let submissionLogger = Logger(subsystem: "ChatUI", category: "Submission")
 
+public typealias ConversationInferenceHandler = @MainActor (
+    _ session: ConversationSession,
+    _ model: ConversationSession.Model,
+    _ messageListView: MessageListView,
+    _ input: ConversationSession.UserInput,
+    _ completion: @escaping @Sendable (Bool) -> Void
+) -> Void
+
 @MainActor func applyConversationModels(
     _ models: ConversationSession.Models,
     to session: ConversationSession
@@ -29,6 +37,20 @@ func makeUserInput(from object: ChatInputContent) -> ConversationSession.UserInp
         text: object.text,
         attachments: object.attachments.map(makeContentPart)
     )
+}
+
+@MainActor
+func awaitInference(
+    session: ConversationSession,
+    model: ConversationSession.Model,
+    messageListView: MessageListView,
+    input: ConversationSession.UserInput
+) async {
+    await withCheckedContinuation { continuation in
+        session.runInference(model: model, messageListView: messageListView, input: input) {
+            continuation.resume()
+        }
+    }
 }
 
 private func makeContentPart(from attachment: ChatInputAttachment) -> ContentPart {

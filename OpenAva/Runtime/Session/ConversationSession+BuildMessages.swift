@@ -11,11 +11,54 @@ import Foundation
 import OSLog
 
 private let requestBuildLogger = Logger(subsystem: "ChatUI", category: "RequestBuild")
+private let requestHistoryKeepRecentMessageCount = 4
+private let requestHistoryContinuationWindow: TimeInterval = 12 * 60 * 60
 
 extension ConversationSession {
     /// Build request messages from conversation history.
     func buildRequestMessages(capabilities: Set<ModelCapability>) -> [ChatRequestBody.Message] {
-        messages.flatMap { buildRequestMessages(from: $0, capabilities: capabilities) }
+        requestHistoryMessages().flatMap { buildRequestMessages(from: $0, capabilities: capabilities) }
+    }
+
+    func requestHistoryMessages(referenceDate: Date = Date()) -> [ConversationMessage] {
+        let candidates = requestHistoryCandidates()
+        guard candidates.count > requestHistoryKeepRecentMessageCount else {
+            return candidates
+        }
+
+        var startIndex = candidates.count - requestHistoryKeepRecentMessageCount
+        while startIndex > 0 {
+            let previous = candidates[startIndex - 1]
+            let age = referenceDate.timeIntervalSince(previous.createdAt)
+            guard age <= requestHistoryContinuationWindow else {
+                break
+            }
+            startIndex -= 1
+        }
+
+        if let summaryIndex = latestCompactionSummaryIndex(in: candidates, before: startIndex) {
+            return [candidates[summaryIndex]] + Array(candidates[startIndex...])
+        }
+
+        return Array(candidates[startIndex...])
+    }
+
+    private func requestHistoryCandidates() -> [ConversationMessage] {
+        let boundaryIndex = messages.lastIndex(where: { $0.isCompactBoundary })
+        let startIndex = boundaryIndex.map { $0 + 1 } ?? 0
+        guard startIndex < messages.count else { return [] }
+
+        return Array(messages[startIndex...]).filter { message in
+            !message.isCompactBoundary && !message.isCompactAttachment
+        }
+    }
+
+    private func latestCompactionSummaryIndex(
+        in messages: [ConversationMessage],
+        before upperBound: Int
+    ) -> Int? {
+        guard upperBound > 0 else { return nil }
+        return messages[..<upperBound].lastIndex(where: { $0.isCompactionSummary })
     }
 
     func buildRequestMessages(
@@ -41,7 +84,7 @@ extension ConversationSession {
         case .user:
             return [
                 buildUserRequestMessage(
-                    text: message.textContent,
+                    text: userRequestText(for: message),
                     attachments: message.parts,
                     capabilities: capabilities
                 ),
@@ -180,5 +223,9 @@ extension ConversationSession {
         )
 
         return parts
+    }
+
+    func userRequestText(for message: ConversationMessage) -> String {
+        AppConfig.nonEmpty(message.metadata[UserInput.requestTextMetadataKey]) ?? message.textContent
     }
 }

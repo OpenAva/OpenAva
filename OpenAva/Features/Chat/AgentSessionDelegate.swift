@@ -155,6 +155,10 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         DispatchQueue.main.async {
             guard UIApplication.shared.applicationState != .active else { return }
 
+            if self.isLatestTurnHeartbeat(in: sessionID) {
+                return
+            }
+
             let lastAssistantReply = self.transcriptStorageProvider.messages(in: sessionID)
                 .filter { $0.role == .assistant }
                 .last?
@@ -175,6 +179,14 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
             )
             UNUserNotificationCenter.current().add(request)
         }
+    }
+
+    private func isLatestTurnHeartbeat(in sessionID: String) -> Bool {
+        let messages = transcriptStorageProvider.messages(in: sessionID)
+        let latestRelevantMessage = messages.reversed().first {
+            $0.role == .assistant || $0.role == .user
+        }
+        return latestRelevantMessage?.metadata[HeartbeatSupport.metadataSourceKey] == HeartbeatSupport.metadataSourceValue
     }
 
     private func triggerConversationHaptic(_ feedbackType: UINotificationFeedbackGenerator.FeedbackType) {

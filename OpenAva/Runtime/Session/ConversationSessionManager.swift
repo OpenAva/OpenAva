@@ -97,6 +97,11 @@ public final class ConversationSessionManager: @unchecked Sendable {
         return executingSessionCounts.keys.contains(where: { $0.hasPrefix(prefix) })
     }
 
+    public func isSessionExecuting(_ sessionID: String) -> Bool {
+        guard !sessionID.isEmpty else { return false }
+        return (executingSessionCounts[sessionID] ?? 0) > 0
+    }
+
     private func publishExecutingSessions() {
         executingSessionsSubject.send(Set(executingSessionCounts.keys))
     }
