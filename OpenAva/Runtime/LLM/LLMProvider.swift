@@ -11,7 +11,6 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     case grok
     case moonshot
     case openrouter
-    case openrouterFree = "openrouter-free"
     case custom = "openai-compatible"
 
     var id: String {
@@ -27,7 +26,6 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .grok: return "xAI (Grok)"
         case .moonshot: return "Moonshot (Kimi)"
         case .openrouter: return "OpenRouter"
-        case .openrouterFree: return "OpenRouter (Free)"
         case .custom: return "Custom (OpenAI Compatible)"
         }
     }
@@ -42,7 +40,6 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .grok: return "https://api.x.ai/v1"
         case .moonshot: return "https://api.moonshot.cn/v1"
         case .openrouter: return "https://openrouter.ai/api/v1"
-        case .openrouterFree: return "https://openrouter.ai/api/v1"
         case .custom: return ""
         }
     }
@@ -50,7 +47,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     /// API path for chat/completions endpoint
     var chatApiPath: String {
         switch self {
-        case .openai, .deepseek, .grok, .moonshot, .openrouter, .openrouterFree, .custom:
+        case .openai, .deepseek, .grok, .moonshot, .openrouter, .custom:
             return "/chat/completions"
         case .anthropic:
             return "/v1/messages"
@@ -62,7 +59,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     /// Default API key header name
     var defaultApiKeyHeader: String {
         switch self {
-        case .openai, .anthropic, .deepseek, .grok, .moonshot, .openrouter, .openrouterFree, .custom:
+        case .openai, .anthropic, .deepseek, .grok, .moonshot, .openrouter, .custom:
             return "Authorization"
         case .google:
             return "x-goog-api-key"
@@ -71,12 +68,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
 
     /// Built-in API key for providers that ship with a preset key
     var builtInApiKey: String? {
-        switch self {
-        case .openrouterFree:
-            return "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"
-        default:
-            return nil
-        }
+        nil
     }
 
     /// Recommended models for this provider
@@ -120,22 +112,10 @@ enum LLMProvider: String, CaseIterable, Identifiable {
                 .init(id: "anthropic/claude-sonnet-4-6", displayName: "Anthropic Claude Sonnet 4.6", maxContextTokens: 200_000),
                 .init(id: "google/gemini-3-flash-preview", displayName: "Google Gemini 3 Flash", maxContextTokens: 320_000),
             ]
-        case .openrouterFree:
-            return [
-                .init(id: "stepfun/step-3.5-flash:free", displayName: "StepFun Step 3.5 Flash (Free)", maxContextTokens: 256_000),
-                .init(id: "arcee-ai/trinity-large-preview:free", displayName: "Arcee Trinity Large Preview (Free)", maxContextTokens: 131_000),
-                .init(id: "z-ai/glm-4.5-air:free", displayName: "Z.ai GLM-4.5 Air (Free)", maxContextTokens: 131_000),
-            ]
         case .custom:
             return []
         }
     }
-
-    // OpenRouter Free
-    // ApiKey: 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
-    // stepfun/step-3.5-flash:free
-    // arcee-ai/trinity-large-preview:free
-    // z-ai/glm-4.5-air:free
 
     /// Default model ID for this provider
     var defaultModel: String {
@@ -174,7 +154,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
 
         // Check if the URL already contains the API path (backward compatibility)
         switch self {
-        case .openai, .deepseek, .grok, .moonshot, .openrouter, .openrouterFree, .custom:
+        case .openai, .deepseek, .grok, .moonshot, .openrouter, .custom:
             if baseString.contains("/chat/completions") {
                 return baseURL
             }
@@ -244,13 +224,6 @@ enum LLMProvider: String, CaseIterable, Identifiable {
             if normalizedEndpoint.contains("x.ai") { return .grok }
             if normalizedEndpoint.contains("moonshot.cn") { return .moonshot }
             if normalizedEndpoint.contains("openrouter.ai") {
-                if allCases
-                    .first(where: { provider in
-                        provider.recommendedModels.contains(where: { $0.id == normalizedModel })
-                    }) == .openrouterFree
-                {
-                    return .openrouterFree
-                }
                 return .openrouter
             }
         }

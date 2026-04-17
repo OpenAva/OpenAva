@@ -86,7 +86,7 @@ open class LLMChatClient: ChatClient, @unchecked Sendable {
             configureOpenAICompatibleEndpoint(client: client, requestURL: requestURL)
             applyAPIKeyHeaderOverride(client: client, apiKey: apiKey, apiKeyHeader: apiKeyHeader)
             return client
-        case .openrouter, .openrouterFree:
+        case .openrouter:
             let client = OpenRouterClient(model: model, apiKey: apiKey)
             configureOpenAICompatibleEndpoint(client: client, requestURL: requestURL)
             applyAPIKeyHeaderOverride(client: client, apiKey: apiKey, apiKeyHeader: apiKeyHeader)
