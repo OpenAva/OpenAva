@@ -661,6 +661,26 @@
         }
       }
     },
+    "Tool Arguments" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具参数"
+          }
+        }
+      }
+    },
+    "Tool Result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具返回"
+          }
+        }
+      }
+    },
     "Tool executed successfully with no output" : {
       "extractionState" : "stale",
       "localizations" : {

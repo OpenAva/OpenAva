@@ -32,6 +32,35 @@ extension MessageListView {
         let isExpanded: Bool
     }
 
+    struct ToolResultRepresentation: Hashable {
+        let parameters: String
+        let result: String
+
+        var displayText: String {
+            let trimmedParameters = parameters.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            switch (trimmedParameters.isEmpty, trimmedResult.isEmpty) {
+            case (false, false):
+                return [
+                    String.localized("Tool Arguments"),
+                    parameters,
+                    String.localized("Tool Result"),
+                    result,
+                ].joined(separator: "\n\n")
+            case (false, true):
+                return [
+                    String.localized("Tool Arguments"),
+                    parameters,
+                ].joined(separator: "\n\n")
+            case (true, false):
+                return result
+            case (true, true):
+                return ""
+            }
+        }
+    }
+
     struct ChartRepresentation: Hashable {
         let id: String
         let messageID: String
@@ -72,7 +101,7 @@ extension MessageListView {
         case responseContent(String, MessageRepresentation)
         case hint(String, String)
         case toolCallHint(String, ToolCallRepresentation)
-        case toolResultContent(String, String) // tool result plain text
+        case toolResultContent(String, ToolResultRepresentation)
         case chartContent(String, ChartRepresentation)
         case mapContent(String, MapRepresentation)
         case mediaContent(String, MediaRepresentation)
@@ -395,8 +424,21 @@ extension MessageListView {
                             }
                         }
                     case let .toolResult(toolResult):
-                        guard !toolResult.result.isEmpty, !toolResult.isCollapsed else { continue }
-                        entries.append(.toolResultContent(toolResult.id, toolResult.result))
+                        guard !toolResult.isCollapsed else { continue }
+                        let toolCall = message.parts.first { part in
+                            guard case let .toolCall(value) = part else { return false }
+                            return value.id == toolResult.toolCallID
+                        }
+                        let parameters: String = {
+                            guard case let .toolCall(value)? = toolCall else { return "" }
+                            return value.parameters
+                        }()
+                        let representation = ToolResultRepresentation(
+                            parameters: parameters,
+                            result: toolResult.result
+                        )
+                        guard !representation.displayText.isEmpty else { continue }
+                        entries.append(.toolResultContent(toolResult.id, representation))
                     case .image, .audio, .file:
                         continue
                     }

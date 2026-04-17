@@ -151,9 +151,9 @@ extension MessageListView: ListViewAdapter {
                 return ceil(theme.fonts.footnote.lineHeight + 16)
             case let .compactBoundary(_, boundary):
                 return CompactBoundaryMessageView.contentHeight(for: theme, detail: boundary.detail, maxWidth: containerWidth)
-            case let .toolResultContent(_, text):
+            case let .toolResultContent(_, toolResult):
                 // Match ReasoningContentView text sizing (footnote, leading inset 14)
-                let attributed = NSAttributedString(string: text, attributes: [
+                let attributed = NSAttributedString(string: toolResult.displayText, attributes: [
                     .font: theme.fonts.footnote,
                     .paragraphStyle: ToolResultContentView.paragraphStyle,
                 ])
@@ -296,9 +296,9 @@ extension MessageListView: ListViewAdapter {
                 }
             }
         } else if let toolResultContentView = rowView as? ToolResultContentView {
-            if case let .toolResultContent(_, text) = entry {
+            if case let .toolResultContent(_, toolResult) = entry {
                 toolResultContentView.theme = theme
-                toolResultContentView.text = text
+                toolResultContentView.text = toolResult.displayText
             }
         } else if let chartMessageView = rowView as? ChartMessageView {
             if case let .chartContent(_, chart) = entry {
