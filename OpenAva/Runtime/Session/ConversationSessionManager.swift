@@ -19,10 +19,10 @@ public final class ConversationSessionManager: @unchecked Sendable {
     }
 
     private var sessions: [SessionCacheKey: ConversationSession] = [:]
-    private var executingSessionCounts: [String: Int] = [:]
+    private var executingSessionCounts: [SessionCacheKey: Int] = [:]
 
-    private let executingSessionsSubject = CurrentValueSubject<Set<String>, Never>([])
-    public var executingSessionsPublisher: AnyPublisher<Set<String>, Never> {
+    private let executingSessionsSubject = CurrentValueSubject<Void, Never>(())
+    public var executingSessionsPublisher: AnyPublisher<Void, Never> {
         executingSessionsSubject.eraseToAnyPublisher()
     }
 
@@ -46,7 +46,7 @@ public final class ConversationSessionManager: @unchecked Sendable {
     public func removeSession(for sessionID: String) {
         let keysToRemove = sessions.keys.filter { $0.sessionID == sessionID }
         keysToRemove.forEach { sessions.removeValue(forKey: $0) }
-        executingSessionCounts.removeValue(forKey: sessionID)
+        keysToRemove.forEach { executingSessionCounts.removeValue(forKey: $0) }
         publishExecutingSessions()
     }
 
@@ -64,25 +64,35 @@ public final class ConversationSessionManager: @unchecked Sendable {
         let keysToRemove = sessions.keys.filter { $0.sessionID.hasPrefix(prefix) }
         for key in keysToRemove {
             sessions.removeValue(forKey: key)
-            executingSessionCounts.removeValue(forKey: key.sessionID)
+            executingSessionCounts.removeValue(forKey: key)
         }
         publishExecutingSessions()
     }
 
-    func markSessionExecuting(_ sessionID: String) {
-        let nextCount = (executingSessionCounts[sessionID] ?? 0) + 1
-        executingSessionCounts[sessionID] = nextCount
+    func markSessionExecuting(_ session: ConversationSession) {
+        markSessionExecuting(session.id, storage: session.storageProvider)
+    }
+
+    func markSessionExecuting(_ sessionID: String, storage: StorageProvider) {
+        let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
+        let nextCount = (executingSessionCounts[key] ?? 0) + 1
+        executingSessionCounts[key] = nextCount
         publishExecutingSessions()
     }
 
-    func markSessionCompleted(_ sessionID: String) {
-        guard let currentCount = executingSessionCounts[sessionID] else {
+    func markSessionCompleted(_ session: ConversationSession) {
+        markSessionCompleted(session.id, storage: session.storageProvider)
+    }
+
+    func markSessionCompleted(_ sessionID: String, storage: StorageProvider) {
+        let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
+        guard let currentCount = executingSessionCounts[key] else {
             return
         }
         if currentCount <= 1 {
-            executingSessionCounts.removeValue(forKey: sessionID)
+            executingSessionCounts.removeValue(forKey: key)
         } else {
-            executingSessionCounts[sessionID] = currentCount - 1
+            executingSessionCounts[key] = currentCount - 1
         }
         publishExecutingSessions()
     }
@@ -94,15 +104,20 @@ public final class ConversationSessionManager: @unchecked Sendable {
     /// Returns whether any executing session belongs to the given scoped prefix.
     public func hasExecutingSession(withPrefix prefix: String) -> Bool {
         guard !prefix.isEmpty else { return false }
-        return executingSessionCounts.keys.contains(where: { $0.hasPrefix(prefix) })
+        return executingSessionCounts.keys.contains(where: { $0.sessionID.hasPrefix(prefix) })
     }
 
-    public func isSessionExecuting(_ sessionID: String) -> Bool {
+    public func isSessionExecuting(_ session: ConversationSession) -> Bool {
+        isSessionExecuting(session.id, storage: session.storageProvider)
+    }
+
+    public func isSessionExecuting(_ sessionID: String, storage: StorageProvider) -> Bool {
         guard !sessionID.isEmpty else { return false }
-        return (executingSessionCounts[sessionID] ?? 0) > 0
+        let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
+        return (executingSessionCounts[key] ?? 0) > 0
     }
 
     private func publishExecutingSessions() {
-        executingSessionsSubject.send(Set(executingSessionCounts.keys))
+        executingSessionsSubject.send(())
     }
 }

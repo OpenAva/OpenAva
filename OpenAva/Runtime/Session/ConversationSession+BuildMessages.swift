@@ -36,6 +36,10 @@ extension ConversationSession {
             startIndex -= 1
         }
 
+        if let latestUserIndex = latestHistoricalUserMessageIndex(in: candidates, before: startIndex) {
+            startIndex = latestUserIndex
+        }
+
         if let summaryIndex = latestCompactionSummaryIndex(in: candidates, before: startIndex) {
             return [candidates[summaryIndex]] + Array(candidates[startIndex...])
         }
@@ -59,6 +63,16 @@ extension ConversationSession {
     ) -> Int? {
         guard upperBound > 0 else { return nil }
         return messages[..<upperBound].lastIndex(where: { $0.isCompactionSummary })
+    }
+
+    private func latestHistoricalUserMessageIndex(
+        in messages: [ConversationMessage],
+        before upperBound: Int
+    ) -> Int? {
+        guard upperBound > 0 else { return nil }
+        return messages[..<upperBound].lastIndex(where: { message in
+            message.role == .user && !message.isCompactionSummary
+        })
     }
 
     func buildRequestMessages(

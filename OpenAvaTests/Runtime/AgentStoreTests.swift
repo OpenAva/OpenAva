@@ -50,11 +50,11 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertEqual(active.selectedModelID, modelID)
     }
 
-    func testAgentMutationsPreserveUserInfoDefaults() throws {
+    func testAgentMutationsPreserveUserDefaults() throws {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
-        AgentStore.saveUserInfoDefaults(
+        AgentStore.saveUser(
             callName: "Yuan",
             context: "简洁、直接、可执行",
             workspaceRootURL: workspaceRootURL
@@ -67,9 +67,9 @@ final class AgentStoreTests: XCTestCase {
         )
         _ = AgentStore.setSelectedModel(UUID(), for: profile.id, workspaceRootURL: workspaceRootURL)
 
-        let userInfo = AgentStore.loadUserInfoDefaults(workspaceRootURL: workspaceRootURL)
-        XCTAssertEqual(userInfo?.callName, "Yuan")
-        XCTAssertEqual(userInfo?.context, "简洁、直接、可执行")
+        let user = AgentStore.loadUser(workspaceRootURL: workspaceRootURL)
+        XCTAssertEqual(user?.callName, "Yuan")
+        XCTAssertEqual(user?.context, "简洁、直接、可执行")
     }
 
     func testDeleteAgentRemovesProfileAndDirectory() throws {

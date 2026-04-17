@@ -23,7 +23,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private let runtimeRootURL: URL
     private let baseSystemPrompt: String?
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
-    private let transcriptStorageProvider: TranscriptStorageProvider
+    private let sessionLogStorage: any StorageProvider
     private let durableMemoryExtractor: AgentDurableMemoryExtractor
     private let shouldExtractDurableMemory: Bool
     private let hapticLock = NSLock()
@@ -57,7 +57,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         self.shouldExtractDurableMemory = shouldExtractDurableMemory
         let resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
         self.runtimeRootURL = resolvedRuntimeRootURL
-        transcriptStorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
+        sessionLogStorage = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
         durableMemoryExtractor = AgentDurableMemoryExtractor(
             runtimeRootURL: resolvedRuntimeRootURL,
             chatClient: chatClient
@@ -101,7 +101,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidStart(for sessionID: String) {
-        transcriptStorageProvider.recordTurnStarted(sessionID: sessionID)
+        sessionLogStorage.recordTranscript(.turnStarted, for: sessionID)
         backgroundCoordinator.markExecutionStarted(sessionID: sessionID)
         guard BackgroundExecutionPreferences.shared.isEnabled else { return }
         if #available(iOS 16.2, *), !Self.isMacCatalyst {
@@ -114,10 +114,9 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidFinish(for sessionID: String, success: Bool, errorDescription: String?) {
-        transcriptStorageProvider.recordTurnFinished(
-            sessionID: sessionID,
-            success: success,
-            errorDescription: errorDescription
+        sessionLogStorage.recordTranscript(
+            .turnFinished(success: success, errorDescription: errorDescription),
+            for: sessionID
         )
         backgroundCoordinator.markExecutionFinished(
             sessionID: sessionID,
@@ -134,7 +133,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidInterrupt(for sessionID: String, reason: String) {
-        transcriptStorageProvider.recordTurnInterrupted(sessionID: sessionID, reason: reason)
+        sessionLogStorage.recordTranscript(.turnInterrupted(reason: reason), for: sessionID)
         backgroundCoordinator.markExecutionInterrupted(sessionID: sessionID, reason: reason)
         if BackgroundExecutionPreferences.shared.isEnabled {
             if #available(iOS 16.2, *), !Self.isMacCatalyst {
@@ -145,7 +144,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionDidReportUsage(_ usage: TokenUsage, for _: String) {
-        transcriptStorageProvider.recordUsage(usage, sessionID: sessionID)
+        sessionLogStorage.recordTranscript(.usage(usage), for: sessionID)
         Task {
             await LLMUsageTracker.shared.record(usage)
         }
@@ -159,7 +158,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
                 return
             }
 
-            let lastAssistantReply = self.transcriptStorageProvider.messages(in: sessionID)
+            let lastAssistantReply = self.sessionLogStorage.messages(in: sessionID)
                 .filter { $0.role == .assistant }
                 .last?
                 .textContent ?? ""
@@ -182,7 +181,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     private func isLatestTurnHeartbeat(in sessionID: String) -> Bool {
-        let messages = transcriptStorageProvider.messages(in: sessionID)
+        let messages = sessionLogStorage.messages(in: sessionID)
         let latestRelevantMessage = messages.reversed().first {
             $0.role == .assistant || $0.role == .user
         }

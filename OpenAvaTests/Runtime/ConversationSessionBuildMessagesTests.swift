@@ -83,6 +83,28 @@ final class ConversationSessionBuildMessagesTests: XCTestCase {
         XCTAssertFalse(selectedIDs.contains(boundary.id))
     }
 
+    func testRequestHistoryKeepsLatestHistoricalUserMessageWhenRecentFourAreAssistantHeavy() {
+        let session = makeSession(id: "assistant-heavy-tail")
+        let now = Date()
+
+        let olderUser = appendMessage(
+            to: session,
+            role: .user,
+            text: "user-query",
+            createdAt: now.addingTimeInterval(-30 * 60)
+        )
+
+        let trailingIDs = [
+            appendMessage(to: session, role: .assistant, text: "assistant-step-1", createdAt: now.addingTimeInterval(-4 * 60)).id,
+            appendMessage(to: session, role: .assistant, text: "assistant-step-2", createdAt: now.addingTimeInterval(-3 * 60)).id,
+            appendMessage(to: session, role: .assistant, text: "assistant-step-3", createdAt: now.addingTimeInterval(-2 * 60)).id,
+            appendMessage(to: session, role: .assistant, text: "assistant-step-4", createdAt: now.addingTimeInterval(-60)).id,
+        ]
+
+        let selectedIDs = session.requestHistoryMessages(referenceDate: now).map(\.id)
+        XCTAssertEqual(selectedIDs, [olderUser.id] + trailingIDs)
+    }
+
     private func makeSession(id: String) -> ConversationSession {
         ConversationSession(id: id, configuration: .init(storage: DisposableStorageProvider()))
     }

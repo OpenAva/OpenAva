@@ -48,29 +48,49 @@ final class ConversationSessionManagerTests: XCTestCase {
     func testExecutionTrackingUsesReferenceCountForSameSessionID() {
         let manager = ConversationSessionManager.shared
         manager.removeAllSessions()
+        let storage = TestStorageProvider()
 
-        manager.markSessionExecuting("main")
-        manager.markSessionExecuting("main")
+        manager.markSessionExecuting("main", storage: storage)
+        manager.markSessionExecuting("main", storage: storage)
         XCTAssertTrue(manager.hasExecutingSession())
 
-        manager.markSessionCompleted("main")
+        manager.markSessionCompleted("main", storage: storage)
         XCTAssertTrue(manager.hasExecutingSession())
 
-        manager.markSessionCompleted("main")
+        manager.markSessionCompleted("main", storage: storage)
         XCTAssertFalse(manager.hasExecutingSession())
     }
 
     func testIsSessionExecutingChecksSpecificSessionOnly() {
         let manager = ConversationSessionManager.shared
         manager.removeAllSessions()
+        let storage = TestStorageProvider()
 
-        manager.markSessionExecuting("main")
+        manager.markSessionExecuting("main", storage: storage)
 
-        XCTAssertTrue(manager.isSessionExecuting("main"))
-        XCTAssertFalse(manager.isSessionExecuting("other"))
+        XCTAssertTrue(manager.isSessionExecuting("main", storage: storage))
+        XCTAssertFalse(manager.isSessionExecuting("other", storage: storage))
 
-        manager.markSessionCompleted("main")
-        XCTAssertFalse(manager.isSessionExecuting("main"))
+        manager.markSessionCompleted("main", storage: storage)
+        XCTAssertFalse(manager.isSessionExecuting("main", storage: storage))
+    }
+
+    func testExecutionTrackingSeparatesSameSessionIDAcrossDifferentStorageProviders() {
+        let manager = ConversationSessionManager.shared
+        manager.removeAllSessions()
+        let storageA = TestStorageProvider()
+        let storageB = TestStorageProvider()
+
+        manager.markSessionExecuting("main", storage: storageA)
+        manager.markSessionExecuting("main", storage: storageB)
+
+        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageA))
+        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageB))
+
+        manager.markSessionCompleted("main", storage: storageA)
+
+        XCTAssertFalse(manager.isSessionExecuting("main", storage: storageA))
+        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageB))
     }
 }
 

@@ -75,7 +75,7 @@ struct AgentStateSnapshot: Equatable {
     }
 }
 
-struct OpenAvaUserInfoDefaults: Codable, Equatable {
+struct OpenAvaUserDefaults: Codable, Equatable {
     var callName: String
     var context: String
 }
@@ -84,24 +84,24 @@ struct OpenAvaPersistedState: Codable {
     private enum CodingKeys: String, CodingKey {
         case agents
         case activeAgentID
-        case userInfo
+        case user
         case teams
     }
 
     var agents: [AgentProfile]
     var activeAgentID: UUID?
-    var userInfo: OpenAvaUserInfoDefaults?
+    var user: OpenAvaUserDefaults?
     var teams: [TeamProfile]
 
     init(
         agents: [AgentProfile] = [],
         activeAgentID: UUID? = nil,
-        userInfo: OpenAvaUserInfoDefaults? = nil,
+        user: OpenAvaUserDefaults? = nil,
         teams: [TeamProfile] = []
     ) {
         self.agents = agents
         self.activeAgentID = activeAgentID
-        self.userInfo = userInfo
+        self.user = user
         self.teams = teams
     }
 
@@ -109,7 +109,7 @@ struct OpenAvaPersistedState: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agents = try container.decodeIfPresent([AgentProfile].self, forKey: .agents) ?? []
         activeAgentID = try container.decodeIfPresent(UUID.self, forKey: .activeAgentID)
-        userInfo = try container.decodeIfPresent(OpenAvaUserInfoDefaults.self, forKey: .userInfo)
+        user = try container.decodeIfPresent(OpenAvaUserDefaults.self, forKey: .user)
         teams = try container.decodeIfPresent([TeamProfile].self, forKey: .teams) ?? []
     }
 }
@@ -194,7 +194,7 @@ enum OpenAvaStateFile {
 }
 
 enum AgentStore {
-    typealias UserInfoDefaults = OpenAvaUserInfoDefaults
+    typealias UserDefaults = OpenAvaUserDefaults
 
     static func load(
         fileManager: FileManager = .default,
@@ -223,14 +223,14 @@ enum AgentStore {
         )
     }
 
-    static func loadUserInfoDefaults(
+    static func loadUser(
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
-    ) -> UserInfoDefaults? {
-        OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.userInfo
+    ) -> UserDefaults? {
+        OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.user
     }
 
-    static func saveUserInfoDefaults(
+    static func saveUser(
         callName: String,
         context: String,
         fileManager: FileManager = .default,
@@ -243,9 +243,9 @@ enum AgentStore {
             ?? OpenAvaPersistedState()
 
         if normalizedCallName.isEmpty, normalizedContext.isEmpty {
-            payload.userInfo = nil
+            payload.user = nil
         } else {
-            payload.userInfo = UserInfoDefaults(
+            payload.user = UserDefaults(
                 callName: normalizedCallName,
                 context: normalizedContext
             )

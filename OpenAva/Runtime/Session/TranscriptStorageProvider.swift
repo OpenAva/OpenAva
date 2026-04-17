@@ -45,9 +45,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// Files larger than this will skip pre-compact data during load.
     private static let skipPreCompactThreshold: Int = 5 * 1024 * 1024 // 5 MB
 
-    /// Maximum bytes to read from file head/tail for lite metadata.
-    private static let liteReadBufSize: Int = 65536 // 64 KB
-
     // MARK: - Codable Types
 
     private struct TranscriptContentBlock: Codable {
@@ -57,14 +54,14 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
 
         let type: String
-        let text: String?
-        let imageUrl: ImageURL?
-        let toolUseID: String?
-        let toolName: String?
-        let apiName: String?
-        let toolUseState: String?
-        let reasoningDuration: Double
-        let isCollapsed: Bool?
+        var text: String?
+        var imageUrl: ImageURL?
+        var toolUseID: String?
+        var toolName: String?
+        var apiName: String?
+        var toolUseState: String?
+        var reasoningDuration: Double = 0
+        var isCollapsed: Bool?
     }
 
     private struct TranscriptMessageRecord: Codable {
@@ -188,10 +185,8 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let resolvedRoot = runtimeRootURL.standardizedFileURL
         let key = resolvedRoot.path
         providersLock.lock()
-        let provider = providersByRootPath.removeValue(forKey: key)
+        providersByRootPath.removeValue(forKey: key)
         providersLock.unlock()
-        // Flush any pending writes before dropping the provider.
-        provider?.flush()
     }
 
     // MARK: - Instance State
@@ -219,44 +214,15 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// Avoids reading the last line of the file after each append.
     private var lastAppendedEntryUuidBySession: [String: String] = [:]
 
-    // MARK: - Cleanup Registration
-
-    /// Functions to call when the provider is being deallocated or the app is terminating.
-    private static var cleanupFunctions: [() -> Void] = []
-    private static let cleanupLock = NSLock()
-
-    static func registerCleanup(_ fn: @escaping () -> Void) {
-        cleanupLock.lock()
-        cleanupFunctions.append(fn)
-        cleanupLock.unlock()
-    }
-
-    static func runCleanup() {
-        cleanupLock.lock()
-        let fns = cleanupFunctions
-        cleanupFunctions.removeAll()
-        cleanupLock.unlock()
-        for fn in fns {
-            fn()
-        }
-    }
-
     private init(runtimeRootURL: URL) {
         self.runtimeRootURL = runtimeRootURL
         sessionsDir = runtimeRootURL.appendingPathComponent("sessions", isDirectory: true)
         indexPath = runtimeRootURL.appendingPathComponent("session_index.json", isDirectory: false)
         prepareDirectories()
-
-        // Register cleanup for graceful shutdown.
-        Self.registerCleanup { [weak self] in
-            self?.flush()
-        }
     }
 
-    /// Force-flush any buffered state to disk. Currently a no-op since
-    /// writes are synchronous, but reserved for future batched writes.
-    func flush() {
-        // Synchronous writes are already durable; nothing to flush.
+    func flushTranscript() {
+        // Synchronous writes — nothing to flush.
     }
 
     // MARK: - StorageProvider Conformance
@@ -292,7 +258,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             // compact_boundary also gets parentUuid=null but preserves logicalParentUuid.
             let logicalParent = lastChainUuidBySession[sessionID]
             appendEntryLocked(
-                kind: .summary,
                 type: "summary",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -301,7 +266,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 summary: summaryText(from: summaryMessage)
             )
             appendEntryLocked(
-                kind: .compactBoundary,
                 type: "system",
                 subtype: "compact_boundary",
                 sessionID: sessionID,
@@ -318,7 +282,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             reAppendMetadataLocked(sessionID: sessionID)
         } else if !removedIDs.isEmpty {
             appendEntryLocked(
-                kind: .messagesDeleted,
                 type: "messages-deleted",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -358,7 +321,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             }
 
             appendEntryLocked(
-                kind: kind,
                 type: message.role.rawValue,
                 sessionID: sessionID,
                 parentUuid: parentUuid,
@@ -418,7 +380,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             if filtered.count != messages.count {
                 messagesBySession[sessionID] = filtered
                 appendEntryLocked(
-                    kind: .messagesDeleted,
                     type: "messages-deleted",
                     sessionID: sessionID,
                     parentUuid: nil,
@@ -465,7 +426,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         )
         // User-set title uses customTitle (takes priority over aiTitle).
         appendEntryLocked(
-            kind: .customTitle,
             type: "custom-title",
             sessionID: id,
             parentUuid: nil,
@@ -473,6 +433,37 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         )
         persistSessionsLocked()
         lock.unlock()
+    }
+
+    func recordTranscript(_ event: TranscriptEvent, for sessionID: String) {
+        switch event {
+        case let .syncMessages(messages):
+            save(messages)
+        case let .appendMessage(message):
+            appendMessage(message, to: sessionID)
+        case let .updateMessage(message):
+            appendMessageUpdate(message, to: sessionID)
+        case let .deleteMessages(messageIDs):
+            delete(messageIDs)
+        case let .setTitle(title):
+            setTitle(title, for: sessionID)
+        case let .recordAITitle(title):
+            recordAITitle(title, sessionID: sessionID)
+        case let .recordLastPrompt(prompt):
+            recordLastPrompt(prompt, sessionID: sessionID)
+        case .turnStarted:
+            recordTurnStarted(sessionID: sessionID)
+        case let .turnFinished(success, errorDescription):
+            recordTurnFinished(sessionID: sessionID, success: success, errorDescription: errorDescription)
+        case let .turnInterrupted(reason):
+            recordTurnInterrupted(sessionID: sessionID, reason: reason)
+        case let .usage(usage):
+            recordUsage(usage, sessionID: sessionID)
+        }
+    }
+
+    func recordSidechainTranscript(_ event: TranscriptEvent, for sessionID: String) {
+        recordTranscript(event, for: sessionID)
     }
 
     // MARK: - Incremental Append API
@@ -496,7 +487,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
 
         appendEntryLocked(
-            kind: kind,
             type: message.role.rawValue,
             sessionID: sessionID,
             parentUuid: lastChainUuidBySession[sessionID],
@@ -527,7 +517,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         ensureSessionLoadedLocked(sessionID)
 
         appendEntryLocked(
-            kind: .system, // updates don't advance the chain
             type: message.role.rawValue,
             sessionID: sessionID,
             parentUuid: nil,
@@ -551,7 +540,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     func recordTurnStarted(sessionID: String) {
         recordLifecycleEntry(
-            kind: .status,
             type: "system",
             subtype: "status",
             sessionID: sessionID,
@@ -562,7 +550,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     func recordTurnFinished(sessionID: String, success: Bool, errorDescription: String?) {
         recordLifecycleEntry(
-            kind: .status,
             type: "result",
             subtype: success ? "success" : "error",
             sessionID: sessionID,
@@ -574,7 +561,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     func recordTurnInterrupted(sessionID: String, reason: String) {
         recordLifecycleEntry(
-            kind: .status,
             type: "result",
             subtype: "interrupted",
             sessionID: sessionID,
@@ -587,7 +573,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     func recordUsage(_ usage: TokenUsage, sessionID: String) {
         lock.lock()
         appendEntryLocked(
-            kind: .usage,
             type: "usage",
             sessionID: sessionID,
             parentUuid: nil,
@@ -608,7 +593,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     func recordAITitle(_ title: String, sessionID: String) {
         lock.lock()
         appendEntryLocked(
-            kind: .aiTitle,
             type: "ai-title",
             sessionID: sessionID,
             parentUuid: nil,
@@ -632,7 +616,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     func recordLastPrompt(_ prompt: String, sessionID: String) {
         lock.lock()
         appendEntryLocked(
-            kind: .lastPrompt,
             type: "last-prompt",
             sessionID: sessionID,
             parentUuid: nil,
@@ -776,7 +759,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     // MARK: - Private: Lifecycle Entry Helper
 
     private func recordLifecycleEntry(
-        kind: TranscriptEntryKind,
         type: String,
         subtype: String,
         sessionID: String,
@@ -787,7 +769,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     ) {
         lock.lock()
         appendEntryLocked(
-            kind: kind,
             type: type,
             subtype: subtype,
             sessionID: sessionID,
@@ -849,14 +830,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func computeLastChainUuid(from entries: [SessionTranscriptEntry]) -> String? {
-        var lastParticipant: String?
-        for entry in entries {
-            let kind = entryKind(from: entry)
-            if kind.isChainParticipant {
-                lastParticipant = entry.uuid
-            }
-        }
-        return lastParticipant
+        entries.last { entryKind(from: $0).isChainParticipant }?.uuid
     }
 
     private func computeRecordedUuids(from entries: [SessionTranscriptEntry]) -> Set<String> {
@@ -1127,7 +1101,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         // Re-append each metadata type (they won't advance the chain).
         if let title = lastCustomTitle {
             appendEntryLocked(
-                kind: .customTitle,
                 type: "custom-title",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -1137,7 +1110,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         // Do NOT re-append AI title — it would override user-set custom title.
         if let prompt = lastPromptValue {
             appendEntryLocked(
-                kind: .lastPrompt,
                 type: "last-prompt",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -1146,71 +1118,12 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
         if let tag = lastTag {
             appendEntryLocked(
-                kind: .tag,
                 type: "tag",
                 sessionID: sessionID,
                 parentUuid: nil,
                 tag: tag
             )
         }
-    }
-
-    // MARK: - Private: Lite Metadata Read
-
-    /// Read metadata from only the tail of the file, avoiding a full parse
-    /// for large transcript files.
-    private func readLiteMetadataLocked(sessionID: String) -> (
-        customTitle: String?,
-        aiTitle: String?,
-        lastPrompt: String?,
-        tag: String?
-    ) {
-        let fileURL = transcriptPath(for: sessionID)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-              let fileSize = attrs[.size] as? Int
-        else {
-            return (nil, nil, nil, nil)
-        }
-
-        guard fileSize > 0 else { return (nil, nil, nil, nil) }
-
-        let readSize = min(fileSize, Self.liteReadBufSize)
-        let offset = fileSize - readSize
-
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return (nil, nil, nil, nil)
-        }
-        defer { try? handle.close() }
-        try? handle.seek(toOffset: UInt64(offset))
-        guard let tailData = try? handle.read(upToCount: readSize)
-        else {
-            return (nil, nil, nil, nil)
-        }
-
-        var customTitle: String?
-        var aiTitle: String?
-        var lastPrompt: String?
-        var tag: String?
-
-        // Only parse lines that look like metadata.
-        let tailString = String(data: tailData, encoding: .utf8) ?? ""
-        for line in tailString.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let lineData = trimmed.data(using: .utf8),
-                  let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData)
-            else { continue }
-
-            switch entry.type {
-            case "custom-title": customTitle = entry.customTitle
-            case "ai-title": aiTitle = entry.aiTitle
-            case "last-prompt": lastPrompt = entry.lastPrompt
-            case "tag": tag = entry.tag
-            default: break
-            }
-        }
-
-        return (customTitle, aiTitle, lastPrompt, tag)
     }
 
     private func extractStatusFromEntry(_ entry: SessionTranscriptEntry) -> String? {
@@ -1257,7 +1170,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// For non-chain entries, parentUuid is nil.
     /// The actual file I/O is buffered and flushed by the write queue.
     private func appendEntryLocked(
-        kind _: TranscriptEntryKind,
         type: String,
         subtype: String? = nil,
         sessionID: String,
@@ -1344,7 +1256,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let currentToolCalls = toolCallParts(in: current)
         for toolCall in currentToolCalls where previousToolCalls[toolCall.id] == nil {
             appendEntryLocked(
-                kind: .toolProgress,
                 type: "tool_progress",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -1358,7 +1269,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let previousToolResults = Set(toolResultParts(in: previous).map(toolResultIdentity(_:)))
         for toolResult in toolResultParts(in: current) where !previousToolResults.contains(toolResultIdentity(toolResult)) {
             appendEntryLocked(
-                kind: .toolUseSummary,
                 type: "tool_use_summary",
                 sessionID: sessionID,
                 parentUuid: nil,
@@ -1439,60 +1349,111 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// compact_boundary to avoid O(n) parse of dead history.
     /// Also recovers metadata from the pre-boundary region.
     private func loadTranscriptEntriesStreamLocked(fileURL: URL, fileSize: Int) -> [SessionTranscriptEntry] {
+        // Implementation strategy (Claude Code-like):
+        // 1) Find the start offset of the LAST compact boundary line.
+        // 2) Read and decode from that boundary to EOF (forward, whole lines).
+        // 3) Separately scan [0, boundaryStart) for metadata lines and decode only those.
+        //
+        // This avoids broken JSON lines at chunk boundaries and guarantees we
+        // preserve the full post-boundary segment.
+
+        let chunkSize = 64 * 1024
+        let boundaryMarkers = ["\"type\":\"system\"", "\"subtype\":\"compact_boundary\""]
+
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return [] }
         defer { try? handle.close() }
 
-        // Scan from the end to find the last compact_boundary.
-        // Read in chunks from the tail.
-        var allEntries: [SessionTranscriptEntry] = []
-        var metadataEntries: [SessionTranscriptEntry] = []
-        var foundBoundary = false
-        var chunkOffset = fileSize
+        // Step 1: locate last compact boundary line start.
+        var boundaryLineStartOffset: Int? = nil
+        var scanOffset = fileSize
+        var carry = "" // leading partial line from the *next* chunk (closer to EOF)
 
-        while chunkOffset > 0 {
-            let readSize = min(chunkOffset, 64 * 1024)
-            chunkOffset -= readSize
-            try? handle.seek(toOffset: UInt64(chunkOffset))
+        while scanOffset > 0, boundaryLineStartOffset == nil {
+            let readSize = min(scanOffset, chunkSize)
+            scanOffset -= readSize
+            try? handle.seek(toOffset: UInt64(scanOffset))
             guard let chunkData = try? handle.read(upToCount: readSize),
-                  let chunkText = String(data: chunkData, encoding: .utf8)
+                  let chunkTextRaw = String(data: chunkData, encoding: .utf8)
             else { break }
 
-            let lines = chunkText.components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-            var chunkEntries: [SessionTranscriptEntry] = []
-            for line in lines {
-                guard let lineData = line.data(using: .utf8),
-                      let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData)
-                else { continue }
-                chunkEntries.append(entry)
+            // Join with carry so we can safely inspect complete lines.
+            // Note: `chunkTextRaw` may start mid-line; we only consider lines that
+            // have a newline terminator within this combined string.
+            let combined = chunkTextRaw + carry
+            let parts = combined.components(separatedBy: "\n")
+            if parts.isEmpty {
+                carry = combined
+                continue
             }
 
-            for entry in chunkEntries {
-                let kind = entryKind(from: entry)
-                if kind == .compactBoundary {
-                    foundBoundary = true
-                }
+            // Keep the first element as the next carry (it may be partial, because
+            // `chunkTextRaw` could start mid-line).
+            carry = parts.first ?? ""
 
-                if foundBoundary {
-                    allEntries.append(entry)
-                } else {
-                    // Before boundary: only keep metadata.
-                    if !kind.isChainParticipant {
-                        metadataEntries.append(entry)
+            // We need to compute absolute file offsets for line starts.
+            // We can do this by walking lines forward within chunkTextRaw+carry, but
+            // to keep it robust (and since boundaries are rare), we compute the
+            // boundary start by re-encoding the prefix lengths.
+
+            // Build a forward index of line start byte offsets within `combined`.
+            // Then map to absolute file offset: scanOffset + lineStartInCombined.
+            let combinedData = combined.data(using: .utf8) ?? Data()
+            let baseOffset = scanOffset
+
+            var lineStarts = [0]
+            for (i, b) in combinedData.enumerated() {
+                if b == 0x0A { // \n
+                    lineStarts.append(i + 1)
+                }
+            }
+
+            // Now check from last complete line backward.
+            // The last element in `parts` is after the last '\n' and is complete (since we appended carry)
+            // but we still only trust lines with both start and end within `combinedData`.
+            // We'll use string predicates to avoid JSON decode here.
+            for idx in stride(from: parts.count - 1, through: 1, by: -1) {
+                let line = parts[idx]
+                if line.isEmpty { continue }
+                // Cheap marker check.
+                var ok = true
+                for m in boundaryMarkers {
+                    if !line.contains(m) {
+                        ok = false
+                        break
                     }
                 }
-            }
+                if !ok { continue }
 
-            if foundBoundary { break }
+                // Confirm by decoding to avoid false positives.
+                if let lineData = line.data(using: .utf8),
+                   let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData),
+                   entryKind(from: entry) == .compactBoundary
+                {
+                    // Compute this line's byte start within combined.
+                    // `idx` in `parts` corresponds to the `idx`th line segment.
+                    let startInCombined = idx < lineStarts.count ? lineStarts[idx] : nil
+                    if let startInCombined {
+                        boundaryLineStartOffset = max(0, baseOffset + startInCombined)
+                    }
+                    break
+                }
+            }
         }
 
-        // If no boundary found, we need to read the full file.
-        if !foundBoundary {
+        guard let boundaryStart = boundaryLineStartOffset else {
+            // No boundary in the tail scan — fall back to full read.
             return loadTranscriptEntriesFullLocked(fileURL: fileURL)
         }
 
-        // Append pre-boundary metadata to the entries.
-        allEntries.append(contentsOf: metadataEntries)
+        // Step 2: decode from boundaryStart to EOF using a forward, line-safe stream reader.
+        let postBoundaryEntries = readEntriesFromOffsetLocked(fileURL: fileURL, startOffset: boundaryStart)
+
+        // Step 3: scan [0, boundaryStart) for metadata using a forward chunked scan.
+        let preBoundaryMetadata = scanMetadataEntriesBeforeOffsetLocked(fileURL: fileURL, endOffset: boundaryStart)
+
+        // Combine: post-boundary segment plus recovered metadata.
+        var allEntries = postBoundaryEntries
+        allEntries.append(contentsOf: preBoundaryMetadata)
 
         return allEntries.sorted { lhs, rhs in
             if lhs.sequence == rhs.sequence {
@@ -1500,6 +1461,104 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             }
             return lhs.sequence < rhs.sequence
         }
+    }
+
+    private func readEntriesFromOffsetLocked(fileURL: URL, startOffset: Int) -> [SessionTranscriptEntry] {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return [] }
+        defer { try? handle.close() }
+
+        try? handle.seek(toOffset: UInt64(startOffset))
+
+        var entries: [SessionTranscriptEntry] = []
+        var carry = ""
+
+        while let chunkData = try? handle.read(upToCount: 64 * 1024),
+              !chunkData.isEmpty
+        {
+            let chunkText = String(data: chunkData, encoding: .utf8) ?? ""
+            let combined = carry + chunkText
+            let parts = combined.components(separatedBy: "\n")
+            carry = parts.last ?? ""
+
+            for line in parts.dropLast() {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      let lineData = trimmed.data(using: .utf8),
+                      let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData)
+                else { continue }
+                entries.append(entry)
+            }
+        }
+
+        let trimmedCarry = carry.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCarry.isEmpty,
+           let lineData = trimmedCarry.data(using: .utf8),
+           let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData)
+        {
+            entries.append(entry)
+        }
+
+        return entries
+    }
+
+    private func scanMetadataEntriesBeforeOffsetLocked(fileURL: URL, endOffset: Int) -> [SessionTranscriptEntry] {
+        guard endOffset > 0,
+              let handle = try? FileHandle(forReadingFrom: fileURL)
+        else { return [] }
+        defer { try? handle.close() }
+
+        var entries: [SessionTranscriptEntry] = []
+        var carry = ""
+        var bytesRemaining = endOffset
+
+        while bytesRemaining > 0 {
+            let readSize = min(bytesRemaining, 64 * 1024)
+            guard let chunkData = try? handle.read(upToCount: readSize),
+                  !chunkData.isEmpty
+            else { break }
+
+            bytesRemaining -= chunkData.count
+
+            let chunkText = String(data: chunkData, encoding: .utf8) ?? ""
+            let combined = carry + chunkText
+            let parts = combined.components(separatedBy: "\n")
+            carry = parts.last ?? ""
+
+            for line in parts.dropLast() {
+                appendMetadataEntryIfNeeded(from: line, into: &entries)
+            }
+        }
+
+        if !carry.isEmpty {
+            appendMetadataEntryIfNeeded(from: carry, into: &entries)
+        }
+
+        return entries
+    }
+
+    private func appendMetadataEntryIfNeeded(from rawLine: String, into entries: inout [SessionTranscriptEntry]) {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, looksLikeRecoverableMetadataLine(line) else { return }
+        guard let lineData = line.data(using: .utf8),
+              let entry = try? JSONDecoder().decode(SessionTranscriptEntry.self, from: lineData)
+        else { return }
+        let kind = entryKind(from: entry)
+        if !kind.isChainParticipant {
+            entries.append(entry)
+        }
+    }
+
+    private func looksLikeRecoverableMetadataLine(_ line: String) -> Bool {
+        line.contains("\"type\":\"custom-title\"") ||
+            line.contains("\"type\":\"ai-title\"") ||
+            line.contains("\"type\":\"last-prompt\"") ||
+            line.contains("\"type\":\"tag\"") ||
+            line.contains("\"type\":\"summary\"") ||
+            line.contains("\"type\":\"messages-deleted\"") ||
+            line.contains("\"type\":\"usage\"") ||
+            line.contains("\"type\":\"tool_progress\"") ||
+            line.contains("\"type\":\"tool_use_summary\"") ||
+            line.contains("\"type\":\"result\"")
     }
 
     // MARK: - Private: Message Helpers
@@ -1595,17 +1654,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func makeTranscriptMessageRecord(from message: ConversationMessage) -> TranscriptMessageRecord? {
         let blocks = mapContentBlocks(from: message.parts)
-        let fallbackBlock = TranscriptContentBlock(
-            type: "text",
-            text: message.textContent,
-            imageUrl: nil,
-            toolUseID: nil,
-            toolName: nil,
-            apiName: nil,
-            toolUseState: nil,
-            reasoningDuration: 0,
-            isCollapsed: nil
-        )
+        let fallbackBlock = TranscriptContentBlock(type: "text", text: message.textContent)
         let storedBlocks = blocks.isEmpty ? [fallbackBlock] : blocks
         let firstToolCall = firstToolCallPart(in: message.parts)
         let firstToolResult = firstToolResultPart(in: message.parts)
@@ -1626,26 +1675,11 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         parts.compactMap { part in
             switch part {
             case let .text(textPart):
-                return TranscriptContentBlock(
-                    type: "text",
-                    text: textPart.text,
-                    imageUrl: nil,
-                    toolUseID: nil,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
-                    reasoningDuration: 0,
-                    isCollapsed: nil
-                )
+                return TranscriptContentBlock(type: "text", text: textPart.text)
             case let .reasoning(reasoningPart):
                 return TranscriptContentBlock(
                     type: "reasoning",
                     text: reasoningPart.text,
-                    imageUrl: nil,
-                    toolUseID: nil,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
                     reasoningDuration: reasoningPart.duration,
                     isCollapsed: reasoningPart.isCollapsed
                 )
@@ -1653,85 +1687,34 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 return TranscriptContentBlock(
                     type: "tool_use",
                     text: toolCallPart.parameters,
-                    imageUrl: nil,
                     toolUseID: toolCallPart.id,
                     toolName: toolCallPart.toolName,
                     apiName: toolCallPart.apiName,
-                    toolUseState: toolCallPart.state.rawValue,
-                    reasoningDuration: 0,
-                    isCollapsed: nil
+                    toolUseState: toolCallPart.state.rawValue
                 )
             case let .toolResult(resultPart):
                 return TranscriptContentBlock(
                     type: "tool_result",
                     text: resultPart.result,
-                    imageUrl: nil,
                     toolUseID: resultPart.toolCallID,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
-                    reasoningDuration: 0,
                     isCollapsed: resultPart.isCollapsed
                 )
             case let .image(imagePart):
-                let label = imagePart.name ?? "image"
-                return TranscriptContentBlock(
-                    type: "image",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolUseID: nil,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
-                    reasoningDuration: 0,
-                    isCollapsed: nil
-                )
+                return TranscriptContentBlock(type: "image", text: "[\(imagePart.name ?? "image")]")
             case let .audio(audioPart):
-                let label = audioPart.name ?? "audio"
-                return TranscriptContentBlock(
-                    type: "audio",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolUseID: nil,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
-                    reasoningDuration: 0,
-                    isCollapsed: nil
-                )
+                return TranscriptContentBlock(type: "audio", text: "[\(audioPart.name ?? "audio")]")
             case let .file(filePart):
-                let label = filePart.name ?? "file"
-                return TranscriptContentBlock(
-                    type: "file",
-                    text: "[\(label)]",
-                    imageUrl: nil,
-                    toolUseID: nil,
-                    toolName: nil,
-                    apiName: nil,
-                    toolUseState: nil,
-                    reasoningDuration: 0,
-                    isCollapsed: nil
-                )
+                return TranscriptContentBlock(type: "file", text: "[\(filePart.name ?? "file")]")
             }
         }
     }
 
     private func firstToolCallPart(in parts: [ContentPart]) -> ToolCallContentPart? {
-        for part in parts {
-            if case let .toolCall(value) = part {
-                return value
-            }
-        }
-        return nil
+        parts.lazy.compactMap { if case let .toolCall(v) = $0 { v } else { nil } }.first
     }
 
     private func firstToolResultPart(in parts: [ContentPart]) -> ToolResultContentPart? {
-        for part in parts {
-            if case let .toolResult(value) = part {
-                return value
-            }
-        }
-        return nil
+        parts.lazy.compactMap { if case let .toolResult(v) = $0 { v } else { nil } }.first
     }
 
     private func makeConversationMessage(from record: TranscriptMessageRecord, sessionID: String) -> ConversationMessage {

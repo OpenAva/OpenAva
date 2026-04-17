@@ -397,7 +397,8 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
 
     private func isCurrentMainSessionExecuting(_ configuration: HeartbeatRuntimeConfiguration) -> Bool {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
-        return ConversationSessionManager.shared.isSessionExecuting(mainSessionID)
+        let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
+        return ConversationSessionManager.shared.isSessionExecuting(mainSessionID, storage: storageProvider)
     }
 
     private func stateURL(for runtimeRootURL: URL) -> URL {

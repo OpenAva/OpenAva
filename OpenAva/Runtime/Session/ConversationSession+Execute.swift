@@ -81,7 +81,7 @@ public extension ConversationSession {
 
             currentTask = Task { @MainActor in
                 logger.notice("task started session=\(self.id, privacy: .public)")
-                ConversationSessionManager.shared.markSessionExecuting(id)
+                ConversationSessionManager.shared.markSessionExecuting(self)
                 sessionDelegate?.sessionExecutionDidStart(for: id)
 
                 defer {
@@ -102,7 +102,7 @@ public extension ConversationSession {
                     "task finished session=\(self.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
                 )
                 self.currentTask = nil
-                ConversationSessionManager.shared.markSessionCompleted(id)
+                ConversationSessionManager.shared.markSessionCompleted(self)
                 completion()
             }
         }
