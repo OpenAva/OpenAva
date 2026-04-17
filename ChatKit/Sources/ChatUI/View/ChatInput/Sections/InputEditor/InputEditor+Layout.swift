@@ -273,25 +273,14 @@ extension InputEditor {
         voiceButton.alpha = 0
         voiceButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
 
-        let hasText = !(textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasText {
-            let textLayoutHeight = textLayoutHeight(textHeight.value)
-            textView.frame = CGRect(
-                x: inset.left,
-                y: (bounds.height - textLayoutHeight) / 2,
-                width: sendButton.frame.minX - inset.left - iconSpacing,
-                height: textLayoutHeight
-            )
-            textView.alpha = 1
-        } else {
-            textView.frame = CGRect(
-                x: inset.left,
-                y: inset.top,
-                width: 0,
-                height: max(textLayoutHeight(textHeight.value), font.lineHeight)
-            )
-            textView.alpha = 0
-        }
+        let textLayoutHeight = textLayoutHeight(textHeight.value)
+        textView.frame = CGRect(
+            x: inset.left,
+            y: (bounds.height - textLayoutHeight) / 2,
+            width: sendButton.frame.minX - inset.left - iconSpacing,
+            height: textLayoutHeight
+        )
+        textView.alpha = 1
         placeholderLabel.frame = textView.frame
         placeholderLabel.alpha = 0
 

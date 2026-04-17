@@ -466,12 +466,12 @@ open class ChatViewController: UIViewController {
 
     private func bindNavigationTitleUpdates(session: ConversationSession) {
         sessionCancellables.removeAll()
-        isExecutingCurrentTurn = session.currentTask != nil
+        isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
         ConversationSessionManager.shared.executingSessionsPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak session] executingSessionIDs in
+            .sink { [weak self, weak session] _ in
                 guard let self, let session else { return }
-                self.isExecutingCurrentTurn = executingSessionIDs.contains(session.id)
+                self.isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
             }
             .store(in: &sessionCancellables)
         session.messagesDidChange
@@ -535,7 +535,7 @@ open class ChatViewController: UIViewController {
         let session = providedSession ?? ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
         applyConversationModels(conversationModels, to: session)
         currentSession = session
-        isExecutingCurrentTurn = session.currentTask != nil
+        isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
         messageListView.prepareForNewSession()
         messageListView.onToggleReasoningCollapse = { [weak self] messageID in
             self?.currentSession?.toggleReasoningCollapse(for: messageID)

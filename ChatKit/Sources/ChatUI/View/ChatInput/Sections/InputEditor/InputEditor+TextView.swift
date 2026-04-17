@@ -138,7 +138,7 @@ extension InputEditor: UITextViewDelegate {
     }
 
     func updatePlaceholderAlpha() {
-        if isVoiceRecording || isExecuting {
+        if isVoiceRecording {
             placeholderLabel.alpha = 0
         } else {
             placeholderLabel.alpha = textView.text.isEmpty ? 1 : 0
