@@ -1,3 +1,4 @@
+import ChatUI
 import Foundation
 import XCTest
 @testable import OpenAva
@@ -111,6 +112,48 @@ final class HeartbeatSupportTests: XCTestCase {
     func testTrimToRecentKeepsNewestItems() {
         XCTAssertEqual(HeartbeatSupport.trimToRecent([1, 2, 3, 4], limit: 2), [3, 4])
         XCTAssertEqual(HeartbeatSupport.trimToRecent([1, 2], limit: 5), [1, 2])
+    }
+
+    func testClassifyAssistantMessageTreatsAckAsAckOnly() {
+        XCTAssertEqual(HeartbeatSupport.classifyAssistantMessage("HEARTBEAT_OK all clear"), .ackOnly)
+    }
+
+    func testClassifyAssistantMessageTreatsNonAckAsActionRequired() {
+        XCTAssertEqual(
+            HeartbeatSupport.classifyAssistantMessage("Please review today's reminders."),
+            .actionRequired("Please review today's reminders.")
+        )
+    }
+
+    func testPreviewTextSummarizesHeartbeatMessages() {
+        let user = ConversationMessage(sessionID: "main", role: .user)
+        user.textContent = "[Heartbeat] Scheduled check\n\nCurrent time: 2026-04-01T10:00:00Z"
+        user.metadata[HeartbeatSupport.metadataSourceKey] = HeartbeatSupport.metadataSourceValue
+
+        XCTAssertEqual(HeartbeatSupport.previewText(for: user), HeartbeatSupport.queryTextPrefix)
+
+        let assistant = ConversationMessage(sessionID: "main", role: .assistant)
+        assistant.textContent = HeartbeatSupport.ackToken
+        assistant.metadata[HeartbeatSupport.metadataSourceKey] = HeartbeatSupport.metadataSourceValue
+        assistant.metadata[HeartbeatSupport.metadataAckStateKey] = HeartbeatSupport.metadataAckOnlyValue
+
+        XCTAssertEqual(HeartbeatSupport.previewText(for: assistant), "Heartbeat：无异常")
+    }
+
+    func testMakeUserInputSeparatesDisplayTextAndRequestText() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let now = date(hour: 10, minute: 0, calendar: calendar)
+        let input = HeartbeatSupport.makeUserInput(
+            heartbeatMarkdown: "- Check reminders",
+            now: now
+        )
+
+        XCTAssertEqual(input.source, .heartbeat)
+        XCTAssertEqual(input.displayText, HeartbeatSupport.buildDisplayText(now: now))
+        XCTAssertTrue(input.text.contains("<HEARTBEAT_MD>"))
+        XCTAssertEqual(input.metadata[HeartbeatSupport.metadataModeKey], HeartbeatSupport.metadataModeScheduledValue)
+        XCTAssertEqual(input.transcriptMetadata[ConversationSession.UserInput.requestTextMetadataKey], input.text)
     }
 
     private func date(hour: Int, minute: Int, calendar: Calendar) -> Date {

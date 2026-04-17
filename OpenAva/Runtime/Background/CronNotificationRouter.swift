@@ -18,7 +18,7 @@ enum CronNotificationRouter {
             deliveredAt: notification.date
         )
         if enqueued {
-            await HeartbeatService.shared.processPendingCronTriggers()
+            await HeartbeatRuntimeRegistry.shared.processPendingCronTriggers(for: agentID)
         }
         return true
     }
