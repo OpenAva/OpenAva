@@ -1,29 +1,97 @@
-import ChatClient
 import ChatUI
 import Foundation
 import OSLog
-import UIKit
 import UserNotifications
 
 @MainActor
-struct HeartbeatRuntimeConfiguration {
-    let agentID: String?
+struct HeartbeatRuntimeConfiguration: Equatable {
+    let agent: AgentProfile
+    let agentID: String
     let mainSessionID: String
     let agentName: String
     let agentEmoji: String
     let workspaceRootURL: URL
     let runtimeRootURL: URL
-    let baseSystemPrompt: String?
-    let chatClient: any ChatClient
     let modelConfig: AppConfig.LLMModel
-    let toolRuntime: ToolRuntime
-    let autoCompactEnabled: Bool
 }
 
 @MainActor
-final class HeartbeatService {
-    static let shared = HeartbeatService()
+protocol HeartbeatRuntimeControlling: AnyObject {
+    func apply(configuration: HeartbeatRuntimeConfiguration, schedulingEnabled: Bool)
+    func stop()
+    func requestRunNow() async -> Bool
+    func processPendingCronTriggers() async
+}
 
+@MainActor
+final class HeartbeatRuntimeRegistry {
+    typealias RuntimeFactory = @MainActor (_ agentID: String) -> any HeartbeatRuntimeControlling
+
+    static let shared = HeartbeatRuntimeRegistry()
+
+    private var runtimes: [String: any HeartbeatRuntimeControlling] = [:]
+    private let runtimeFactory: RuntimeFactory
+
+    init(runtimeFactory: @escaping RuntimeFactory = { HeartbeatRuntime(agentID: $0) }) {
+        self.runtimeFactory = runtimeFactory
+    }
+
+    func sync(configurations: [HeartbeatRuntimeConfiguration], schedulingEnabled: Bool) {
+        let configurationsByAgentID = Dictionary(uniqueKeysWithValues: configurations.map { ($0.agentID, $0) })
+
+        for agentID in runtimes.keys where configurationsByAgentID[agentID] == nil {
+            runtimes.removeValue(forKey: agentID)?.stop()
+        }
+
+        for (agentID, configuration) in configurationsByAgentID {
+            let runtime: any HeartbeatRuntimeControlling
+            if let existingRuntime = runtimes[agentID] {
+                runtime = existingRuntime
+            } else {
+                let createdRuntime = runtimeFactory(agentID)
+                runtimes[agentID] = createdRuntime
+                runtime = createdRuntime
+            }
+
+            runtime.apply(configuration: configuration, schedulingEnabled: schedulingEnabled)
+        }
+    }
+
+    func unregister(agentID: String) {
+        runtimes.removeValue(forKey: agentID)?.stop()
+    }
+
+    func stopAll() {
+        for runtime in runtimes.values {
+            runtime.stop()
+        }
+        runtimes.removeAll()
+    }
+
+    @discardableResult
+    func requestRunNow(for agentID: String) async -> Bool {
+        guard let runtime = runtimes[agentID] else {
+            return false
+        }
+        return await runtime.requestRunNow()
+    }
+
+    @discardableResult
+    func processPendingCronTriggers(for agentID: String) async -> Bool {
+        guard let runtime = runtimes[agentID] else {
+            return false
+        }
+        await runtime.processPendingCronTriggers()
+        return true
+    }
+
+    var registeredAgentIDs: [String] {
+        runtimes.keys.sorted()
+    }
+}
+
+@MainActor
+final class HeartbeatRuntime: HeartbeatRuntimeControlling {
     private struct State: Codable {
         var lastCheckAt: TimeInterval
     }
@@ -40,20 +108,20 @@ final class HeartbeatService {
 
     private static let logger = Logger(subsystem: "com.day1-labs.openava", category: "runtime.heartbeat")
 
+    private let agentID: String
+    private var configuration: HeartbeatRuntimeConfiguration?
     private var loopTask: Task<Void, Never>?
-    private var currentConfiguration: HeartbeatRuntimeConfiguration?
     private var isRunning = false
+    private var schedulingEnabled = false
 
-    private init() {}
+    init(agentID: String) {
+        self.agentID = agentID
+    }
 
-    func reconfigure(_ configuration: HeartbeatRuntimeConfiguration?) {
-        stop()
-        currentConfiguration = configuration
-        guard let configuration else { return }
-
-        loopTask = Task { [weak self] in
-            await self?.runLoop(configuration)
-        }
+    func apply(configuration: HeartbeatRuntimeConfiguration, schedulingEnabled: Bool) {
+        self.configuration = configuration
+        self.schedulingEnabled = schedulingEnabled
+        restartLoopIfNeeded()
 
         Task { @MainActor [weak self] in
             await self?.processPendingCronTriggers()
@@ -61,15 +129,15 @@ final class HeartbeatService {
     }
 
     func stop() {
-        loopTask?.cancel()
-        loopTask = nil
-        currentConfiguration = nil
+        stopLoop()
+        configuration = nil
+        schedulingEnabled = false
         isRunning = false
     }
 
     @discardableResult
     func requestRunNow() async -> Bool {
-        guard let configuration = currentConfiguration,
+        guard let configuration,
               let heartbeatMarkdown = loadHeartbeatMarkdown(from: configuration.workspaceRootURL)
         else {
             return false
@@ -90,8 +158,7 @@ final class HeartbeatService {
     }
 
     func processPendingCronTriggers() async {
-        guard let configuration = currentConfiguration,
-              let agentID = AppConfig.nonEmpty(configuration.agentID),
+        guard let configuration,
               let heartbeatMarkdown = loadHeartbeatMarkdown(from: configuration.workspaceRootURL)
         else {
             return
@@ -116,8 +183,28 @@ final class HeartbeatService {
         }
     }
 
-    private func runLoop(_ configuration: HeartbeatRuntimeConfiguration) async {
+    private func restartLoopIfNeeded() {
+        stopLoop()
+        guard schedulingEnabled, configuration != nil else {
+            return
+        }
+
+        loopTask = Task { [weak self] in
+            await self?.runLoop()
+        }
+    }
+
+    private func stopLoop() {
+        loopTask?.cancel()
+        loopTask = nil
+    }
+
+    private func runLoop() async {
         while !Task.isCancelled {
+            guard let configuration else {
+                return
+            }
+
             let delay = nextDelay(for: configuration)
             if delay > 0 {
                 do {
@@ -131,6 +218,7 @@ final class HeartbeatService {
             guard let heartbeatMarkdown = loadHeartbeatMarkdown(from: configuration.workspaceRootURL) else {
                 continue
             }
+
             let parsedDocument = HeartbeatSupport.parseDocument(heartbeatMarkdown)
             _ = await performHeartbeatIfNeeded(
                 configuration,
@@ -182,8 +270,8 @@ final class HeartbeatService {
                 return .skipped
             }
 
-            if ConversationSessionManager.shared.hasExecutingSession() {
-                Self.logger.debug("skip heartbeat because another session is executing")
+            if isCurrentMainSessionExecuting(configuration) {
+                Self.logger.debug("skip heartbeat because current main session is executing")
                 return .skipped
             }
 
@@ -193,8 +281,8 @@ final class HeartbeatService {
                     return .skipped
                 }
             }
-        } else if ConversationSessionManager.shared.hasExecutingSession() {
-            Self.logger.debug("skip manual heartbeat because another session is executing")
+        } else if isCurrentMainSessionExecuting(configuration) {
+            Self.logger.debug("skip manual heartbeat because current main session is executing")
             return .skipped
         }
 
@@ -229,102 +317,70 @@ final class HeartbeatService {
         notificationMode: HeartbeatSupport.Configuration.NotificationMode
     ) async throws -> RunResult {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
-        let toolInvocationSessionID = "\(AppConfig.nonEmpty(configuration.agentID) ?? "global")::\(mainSessionID)"
-        let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
-        let baselineMessages = HeartbeatSupport.trimToRecent(
-            storageProvider.messages(in: mainSessionID),
-            limit: HeartbeatSupport.retainMessageLimit
-        )
-        let baselineTitle = storageProvider.title(for: mainSessionID)
-
-        let agentDelegate = AgentSessionDelegate(
-            sessionID: mainSessionID,
-            workspaceRootURL: configuration.workspaceRootURL,
-            runtimeRootURL: configuration.runtimeRootURL,
-            baseSystemPrompt: configuration.baseSystemPrompt,
-            chatClient: configuration.chatClient,
-            agentName: configuration.agentName,
-            agentEmoji: configuration.agentEmoji,
+        let toolInvocationSessionID = "\(configuration.agentID)::\(mainSessionID)"
+        return try await AgentMainSessionRegistry.shared.submitToMainSession(
+            for: configuration.agent,
+            modelConfig: configuration.modelConfig,
+            invocationSessionID: toolInvocationSessionID,
             shouldExtractDurableMemory: false
-        )
-        let sessionConfiguration = ConversationSession.Configuration(
-            storage: storageProvider,
-            tools: ToolRegistryProvider(
-                toolRuntime: configuration.toolRuntime,
-                invocationSessionID: toolInvocationSessionID
-            ),
-            delegate: agentDelegate,
-            systemPrompt: configuration.baseSystemPrompt ?? "You are a helpful assistant.",
-            collapseReasoningWhenComplete: true
-        )
-        let session = ConversationSessionManager.shared.session(for: mainSessionID, configuration: sessionConfiguration)
+        ) { resources in
+            let session = resources.session
+            let storageProvider = resources.storageProvider
 
-        let models = ConversationSession.Models(
-            chat: ConversationSession.Model(
-                client: configuration.chatClient,
-                capabilities: [.visual, .tool],
-                contextLength: configuration.modelConfig.contextTokens,
-                autoCompactEnabled: configuration.autoCompactEnabled
+            guard let model = session.models.chat else {
+                throw NSError(
+                    domain: "HeartbeatRuntime",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Heartbeat model is not configured."]
+                )
+            }
+
+            session.refreshContentsFromDatabase(scrolling: false)
+            await awaitInference(
+                session: session,
+                model: model,
+                messageListView: MessageListView(),
+                input: HeartbeatSupport.makeUserInput(heartbeatMarkdown: heartbeatMarkdown)
             )
-        )
 
-        let controller = ChatViewController(
-            sessionID: mainSessionID,
-            models: models,
-            sessionConfiguration: sessionConfiguration,
-            configuration: .default()
-        )
-        controller.loadViewIfNeeded()
+            self.annotateLatestHeartbeatMessages(in: session)
+            session.persistMessages()
 
-        let prompt = HeartbeatSupport.buildPrompt(heartbeatMarkdown: heartbeatMarkdown)
-        let input = ChatInputContent(text: prompt)
-
-        await withCheckedContinuation { continuation in
-            controller.chatInputDidSubmit(controller.chatInputView, object: input) { _ in
-                continuation.resume()
+            let latestMessages = HeartbeatSupport.trimToRecent(
+                storageProvider.messages(in: mainSessionID),
+                limit: HeartbeatSupport.retainMessageLimit
+            )
+            let latestAssistantText = latestMessages.reversed().first(where: { $0.role == .assistant })?
+                .textContent ?? ""
+            switch HeartbeatSupport.classifyAssistantMessage(latestAssistantText) {
+            case .empty:
+                return RunResult(notificationBody: nil, shouldNotify: false)
+            case .ackOnly:
+                return RunResult(notificationBody: nil, shouldNotify: false)
+            case let .actionRequired(text):
+                return RunResult(
+                    notificationBody: String(text.prefix(240)),
+                    shouldNotify: notificationMode == .always
+                )
             }
         }
-
-        let latestMessages = HeartbeatSupport.trimToRecent(
-            storageProvider.messages(in: mainSessionID),
-            limit: HeartbeatSupport.retainMessageLimit
-        )
-        let latestAssistantText = latestMessages.reversed().first(where: { $0.role == .assistant })?
-            .textContent
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        if HeartbeatSupport.shouldSuppressAssistantMessage(latestAssistantText) {
-            restoreBaseline(
-                session: session,
-                baselineMessages: baselineMessages,
-                baselineTitle: baselineTitle,
-                storageProvider: storageProvider
-            )
-            return RunResult(notificationBody: nil, shouldNotify: false)
-        }
-
-        guard !latestAssistantText.isEmpty else {
-            return RunResult(notificationBody: nil, shouldNotify: false)
-        }
-
-        return RunResult(
-            notificationBody: String(latestAssistantText.prefix(240)),
-            shouldNotify: notificationMode == .always
-        )
     }
 
-    private func restoreBaseline(
-        session: ConversationSession,
-        baselineMessages: [ConversationMessage],
-        baselineTitle: String?,
-        storageProvider: TranscriptStorageProvider
-    ) {
-        if let lastBaselineID = baselineMessages.last?.id {
-            session.delete(after: lastBaselineID)
-        } else {
-            session.clear()
+    private func annotateLatestHeartbeatMessages(in session: ConversationSession) {
+        guard let assistantMessage = session.messages.reversed().first(where: { $0.role == .assistant }) else {
+            return
         }
-        storageProvider.setTitle(baselineTitle ?? "", for: session.id)
+        assistantMessage.metadata[HeartbeatSupport.metadataSourceKey] = HeartbeatSupport.metadataSourceValue
+        assistantMessage.metadata[HeartbeatSupport.metadataModeKey] = HeartbeatSupport.metadataModeScheduledValue
+
+        switch HeartbeatSupport.classifyAssistantMessage(assistantMessage.textContent) {
+        case .ackOnly:
+            assistantMessage.metadata[HeartbeatSupport.metadataAckStateKey] = HeartbeatSupport.metadataAckOnlyValue
+        case .actionRequired:
+            assistantMessage.metadata[HeartbeatSupport.metadataAckStateKey] = HeartbeatSupport.metadataActionRequiredValue
+        case .empty:
+            assistantMessage.metadata.removeValue(forKey: HeartbeatSupport.metadataAckStateKey)
+        }
     }
 
     private func loadHeartbeatMarkdown(from workspaceRootURL: URL) -> String? {
@@ -337,6 +393,11 @@ final class HeartbeatService {
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func isCurrentMainSessionExecuting(_ configuration: HeartbeatRuntimeConfiguration) -> Bool {
+        let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
+        return ConversationSessionManager.shared.isSessionExecuting(mainSessionID)
     }
 
     private func stateURL(for runtimeRootURL: URL) -> URL {

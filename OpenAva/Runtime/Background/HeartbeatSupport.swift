@@ -1,6 +1,13 @@
+import ChatUI
 import Foundation
 
 enum HeartbeatSupport {
+    enum ResultClassification: Equatable {
+        case ackOnly
+        case actionRequired(String)
+        case empty
+    }
+
     struct ParsedDocument: Equatable {
         var instructions: String
         var configuration: Configuration
@@ -84,6 +91,14 @@ enum HeartbeatSupport {
     static let ackMaxChars = 300
     static let retainMessageLimit = 20
     static let defaultInterval: TimeInterval = 30 * 60
+    static let queryTextPrefix = "[Heartbeat] Scheduled check"
+    static let metadataSourceKey = ConversationSession.UserInput.sourceMetadataKey
+    static let metadataSourceValue = "heartbeat"
+    static let metadataModeKey = "heartbeatMode"
+    static let metadataModeScheduledValue = "scheduled"
+    static let metadataAckStateKey = "heartbeatAckState"
+    static let metadataAckOnlyValue = "ackOnly"
+    static let metadataActionRequiredValue = "actionRequired"
 
     private static let promptTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -99,10 +114,10 @@ enum HeartbeatSupport {
 
     static func buildPrompt(heartbeatMarkdown: String, now: Date = Date()) -> String {
         let normalizedMarkdown = heartbeatMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        let timestamp = promptTimestampFormatter.string(from: now)
+        let displayText = buildDisplayText(now: now)
 
         return """
-        Current time: \(timestamp)
+        \(displayText)
 
         You are running a scheduled heartbeat turn inside OpenAva.
         Follow the instructions in HEARTBEAT.md below.
@@ -113,6 +128,29 @@ enum HeartbeatSupport {
         \(normalizedMarkdown)
         </HEARTBEAT_MD>
         """
+    }
+
+    static func buildDisplayText(now: Date = Date()) -> String {
+        let timestamp = promptTimestampFormatter.string(from: now)
+        return """
+        \(queryTextPrefix)
+
+        Current time: \(timestamp)
+        """
+    }
+
+    static func makeUserInput(
+        heartbeatMarkdown: String,
+        now: Date = Date()
+    ) -> ConversationSession.UserInput {
+        .init(
+            text: buildPrompt(heartbeatMarkdown: heartbeatMarkdown, now: now),
+            displayText: buildDisplayText(now: now),
+            source: .heartbeat,
+            metadata: [
+                metadataModeKey: metadataModeScheduledValue,
+            ]
+        )
     }
 
     static func parseDocument(_ rawMarkdown: String) -> ParsedDocument {
@@ -160,6 +198,40 @@ enum HeartbeatSupport {
             return false
         }
         return remainder.count <= ackMaxChars
+    }
+
+    static func classifyAssistantMessage(_ text: String) -> ResultClassification {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .empty
+        }
+
+        if shouldSuppressAssistantMessage(trimmed) {
+            return .ackOnly
+        }
+
+        return .actionRequired(trimmed)
+    }
+
+    static func previewText(for message: ConversationMessage) -> String? {
+        guard message.metadata[metadataSourceKey] == metadataSourceValue else {
+            return nil
+        }
+
+        switch message.role {
+        case .user:
+            return queryTextPrefix
+        case .assistant:
+            let ackState = message.metadata[metadataAckStateKey]
+            if ackState == metadataAckOnlyValue {
+                return "Heartbeat：无异常"
+            }
+            let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return "Heartbeat：处理中" }
+            return "Heartbeat：\(String(trimmed.prefix(96)))"
+        default:
+            return nil
+        }
     }
 
     static func trimToRecent<T>(_ items: [T], limit: Int) -> [T] {
