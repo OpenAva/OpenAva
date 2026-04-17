@@ -7,10 +7,10 @@ struct TeamAllowedPath: Codable, Equatable {
     let addedAt: Date
 }
 
-struct TeamFileMember: Codable, Equatable {
+struct TeamManifestMember: Codable, Equatable {
     let agentId: String
     let agentType: String
-    let prompt: String?
+    let input: String?
     let planModeRequired: Bool
     let sessionId: String
     let mode: String?
@@ -18,7 +18,7 @@ struct TeamFileMember: Codable, Equatable {
     let pendingPlanRequestID: String?
 }
 
-struct TeamFile: Codable, Equatable {
+struct TeamManifest: Codable, Equatable {
     let name: String
     let description: String?
     let createdAt: Date
@@ -29,5 +29,5 @@ struct TeamFile: Codable, Equatable {
     let teamAllowedPaths: [TeamAllowedPath]
     let nextTaskID: Int
     let tasks: [TeamSwarmCoordinator.TeamTask]
-    let members: [TeamFileMember]
+    let members: [TeamManifestMember]
 }

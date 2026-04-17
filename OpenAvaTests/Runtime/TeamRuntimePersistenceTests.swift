@@ -4,15 +4,23 @@ import XCTest
 
 final class TeamRuntimePersistenceTests: XCTestCase {
     private var originalStateData: Data?
+    private var originalLLMCollection: AppConfig.LLMCollection?
 
     override func setUp() {
         super.setUp()
         originalStateData = try? Data(contentsOf: stateFileURL())
+        originalLLMCollection = LLMConfigStore.loadCollection()
+        LLMConfigStore.clearCollection()
         removeStateFile()
     }
 
     override func tearDown() {
         restoreStateFile()
+        if let originalLLMCollection {
+            LLMConfigStore.saveCollection(originalLLMCollection)
+        } else {
+            LLMConfigStore.clearCollection()
+        }
         super.tearDown()
     }
 
@@ -138,7 +146,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
         try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
 
-        let persistedTeam = TeamFile(
+        let persistedTeam = TeamManifest(
             name: team.name,
             description: nil,
             createdAt: team.createdAt,
@@ -150,10 +158,10 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             nextTaskID: 1,
             tasks: [],
             members: [
-                TeamFileMember(
+                TeamManifestMember(
                     agentId: agent.id.uuidString,
                     agentType: SubAgentRegistry.generalPurpose.agentType,
-                    prompt: "Existing approved plan context",
+                    input: "Existing approved plan context",
                     planModeRequired: true,
                     sessionId: "\(agent.id.uuidString)::main",
                     mode: nil,
@@ -181,17 +189,104 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         )
 
         let transcriptMessages = transcriptProvider.messages(in: TeamSwarmCoordinator.mainSessionID)
-        XCTAssertFalse(transcriptMessages.contains(where: {
-            $0.role == .user && $0.textContent == "[\(TeamSwarmCoordinator.coordinatorName)] \(messageBody)"
-        }))
+        XCTAssertTrue(transcriptMessages.isEmpty)
 
         let snapshot = coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))
         let updatedMember = try XCTUnwrap(snapshot?.team.members.first)
         XCTAssertEqual(updatedMember.pendingPlanRequestID, "pending-plan")
         XCTAssertEqual(
-            updatedMember.pendingExecutionPrompt,
+            updatedMember.pendingExecutionInput,
             "Existing approved plan context\n\nAdditional message from coordinator: \(messageBody)"
         )
+    }
+
+    @MainActor
+    func testDirectTeamMessageStoredForMemberIncludesSenderName() async throws {
+        let transcriptRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: transcriptRuntimeURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: transcriptRuntimeURL)
+            try? FileManager.default.removeItem(at: transcriptRuntimeURL)
+        }
+
+        let agentName = "Worker-\(UUID().uuidString)"
+        let teamName = "Team-\(UUID().uuidString)"
+        let messageBody = "Please stop after this check"
+
+        let agent = try AgentStore.createAgent(
+            name: agentName,
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+
+        let team = try XCTUnwrap(TeamStore.createTeam(name: teamName, emoji: "👥", fileManager: .default))
+        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
+        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
+
+        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
+        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            name: team.name,
+            description: nil,
+            createdAt: team.createdAt,
+            updatedAt: team.updatedAt,
+            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
+            coordinatorSessionId: team.name,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 1,
+            tasks: [],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(runtimeRootURL: transcriptRuntimeURL, agentStoreRootURL: nil, modelConfig: nil)
+        coordinator.reload()
+
+        try coordinator.sendMessage(
+            to: agent.name,
+            message: messageBody,
+            messageType: "shutdown_request",
+            teamName: team.name,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        for _ in 0 ..< 20 {
+            let status = coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?
+                .team.members.first?.status
+            if status == .stopped {
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        let updatedMember = try XCTUnwrap(
+            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?
+                .team.members.first
+        )
+        XCTAssertEqual(updatedMember.status, .stopped)
+
+        let mailboxMessages = TeamMailbox.readMessages(teamDirectoryURL: teamDirectoryURL, recipientName: agent.name)
+        XCTAssertEqual(mailboxMessages.count, 1)
+        XCTAssertEqual(mailboxMessages.first?.from, TeamSwarmCoordinator.coordinatorName)
+        XCTAssertEqual(mailboxMessages.first?.text, "Message from coordinator:\n\(messageBody)")
     }
 
     @MainActor
@@ -232,6 +327,99 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
         XCTAssertEqual(snapshot?.team.name, team.name)
         XCTAssertEqual(snapshot?.team.members.map(\.id), [agent.id.uuidString])
+    }
+
+    @MainActor
+    func testConfigureWithDifferentRuntimeRootPreservesInMemoryTeamState() throws {
+        let firstRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let secondRuntimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRuntimeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRuntimeURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: firstRuntimeURL)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: secondRuntimeURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: firstRuntimeURL)
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: secondRuntimeURL)
+            try? FileManager.default.removeItem(at: firstRuntimeURL)
+            try? FileManager.default.removeItem(at: secondRuntimeURL)
+        }
+
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer {
+            AgentMainSessionRegistry.shared.removeAll()
+            ConversationSessionManager.shared.removeAllSessions()
+            _ = AgentStore.deleteAgent(agent.id, fileManager: .default)
+        }
+
+        let team = try XCTUnwrap(TeamStore.createTeam(name: "Team-\(UUID().uuidString)", emoji: "👥", fileManager: .default))
+        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
+        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
+        let agentStoreRootURL = try AgentStore.workspaceRootDirectory(fileManager: .default)
+
+        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
+        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            name: team.name,
+            description: nil,
+            createdAt: team.createdAt,
+            updatedAt: team.updatedAt,
+            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
+            coordinatorSessionId: team.name,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 1,
+            tasks: [],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: true,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.awaitingPlanApproval.rawValue,
+                    pendingPlanRequestID: "pending-plan"
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(runtimeRootURL: firstRuntimeURL, agentStoreRootURL: agentStoreRootURL, modelConfig: nil)
+        coordinator.reload()
+
+        try coordinator.approvePlan(
+            sessionID: nil,
+            memberName: agent.name,
+            teamName: team.name,
+            feedback: nil,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        let memberBeforeReconfigure = try XCTUnwrap(
+            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
+        )
+        XCTAssertEqual(memberBeforeReconfigure.status, .busy)
+        XCTAssertFalse(memberBeforeReconfigure.awaitingPlanApproval)
+        XCTAssertTrue(memberBeforeReconfigure.hasApprovedPlan)
+        XCTAssertNil(memberBeforeReconfigure.pendingExecutionInput)
+
+        coordinator.configure(runtimeRootURL: secondRuntimeURL, agentStoreRootURL: agentStoreRootURL, modelConfig: nil)
+
+        let memberAfterReconfigure = try XCTUnwrap(
+            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
+        )
+        XCTAssertEqual(memberAfterReconfigure.status, .busy)
+        XCTAssertFalse(memberAfterReconfigure.awaitingPlanApproval)
+        XCTAssertTrue(memberAfterReconfigure.hasApprovedPlan)
+        XCTAssertNil(memberAfterReconfigure.pendingExecutionInput)
     }
 
     func testTeamMutationsPreserveAgentStateInUnifiedFile() throws {
