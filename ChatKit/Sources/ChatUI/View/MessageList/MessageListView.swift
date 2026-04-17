@@ -17,6 +17,7 @@ public final class MessageListView: UIView {
     private var renderedMessages: [ConversationMessage] = []
     private var loadingMessage: String?
     private var lastRenderScrolling = false
+    var expandedSubAgentMessageIDs: Set<String> = []
 
     public var contentSize: CGSize {
         listView.contentSize
@@ -114,6 +115,7 @@ public final class MessageListView: UIView {
         renderedMessages = []
         loadingMessage = nil
         lastRenderScrolling = false
+        expandedSubAgentMessageIDs.removeAll()
         isAutoScrollingToBottom = true
         showsInterruptedRetryAction = false
         isFirstLoad = true
@@ -139,6 +141,15 @@ public final class MessageListView: UIView {
     public func stopLoading() {
         loadingMessage = nil
         updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: nil)
+    }
+
+    func toggleSubAgentTaskExpansion(messageID: String) {
+        if expandedSubAgentMessageIDs.contains(messageID) {
+            expandedSubAgentMessageIDs.remove(messageID)
+        } else {
+            expandedSubAgentMessageIDs.insert(messageID)
+        }
+        updateFromUpstreamPublisher(renderedMessages, false, isLoading: loadingMessage)
     }
 
     private func updateFromUpstreamPublisher(_ messages: [ConversationMessage], _ scrolling: Bool, isLoading: String?) {

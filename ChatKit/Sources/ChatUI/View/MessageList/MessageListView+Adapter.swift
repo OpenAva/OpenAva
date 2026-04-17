@@ -17,6 +17,7 @@ private extension MessageListView {
         case mediaContent
         case hint
         case compactBoundary
+        case subAgentTask
         case toolCallHint
         case toolResultContent
         case chartContent
@@ -64,6 +65,7 @@ extension MessageListView: ListViewAdapter {
         case .mediaContent: RowType.mediaContent
         case .hint: RowType.hint
         case .compactBoundary: RowType.compactBoundary
+        case .subAgentTask: RowType.subAgentTask
         case .toolCallHint: RowType.toolCallHint
         case .toolResultContent: RowType.toolResultContent
         case .chartContent: RowType.chartContent
@@ -91,6 +93,8 @@ extension MessageListView: ListViewAdapter {
             HintMessageView()
         case .compactBoundary:
             CompactBoundaryMessageView()
+        case .subAgentTask:
+            SubAgentTaskCardView()
         case .toolCallHint:
             ToolHintView()
         case .toolResultContent:
@@ -151,6 +155,8 @@ extension MessageListView: ListViewAdapter {
                 return ceil(theme.fonts.footnote.lineHeight + 16)
             case let .compactBoundary(_, boundary):
                 return CompactBoundaryMessageView.contentHeight(for: theme, detail: boundary.detail, maxWidth: containerWidth)
+            case let .subAgentTask(_, task):
+                return SubAgentTaskCardView.contentHeight(for: task, theme: theme, maxWidth: containerWidth)
             case let .toolResultContent(_, toolResult):
                 // Match ReasoningContentView text sizing (footnote, leading inset 14)
                 let attributed = NSAttributedString(string: toolResult.displayText, attributes: [
@@ -278,6 +284,14 @@ extension MessageListView: ListViewAdapter {
                 compactBoundaryView.theme = theme
                 compactBoundaryView.title = boundary.title
                 compactBoundaryView.detail = boundary.detail
+            }
+        } else if let subAgentTaskCardView = rowView as? SubAgentTaskCardView {
+            if case let .subAgentTask(_, task) = entry {
+                subAgentTaskCardView.theme = theme
+                subAgentTaskCardView.configure(with: task)
+                subAgentTaskCardView.tapHandler = { [weak self] in
+                    self?.toggleSubAgentTaskExpansion(messageID: task.messageID)
+                }
             }
         } else if let activityReportingView = rowView as? ActivityReportingView {
             if case let .activityReporting(content) = entry {

@@ -17,7 +17,8 @@ enum SubAgentRunner {
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
-        executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse
+        executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse,
+        onProgress: @escaping @Sendable (SubAgentTaskStore.ProgressSnapshot) async -> Void = { _ in }
     ) async throws -> SubAgentRunOutput {
         let start = Date()
         let client = LLMChatClient(modelConfig: modelConfig)
@@ -33,6 +34,16 @@ enum SubAgentRunner {
         var totalToolCalls = 0
         var turnCount = 0
         var finalText = ""
+
+        await onProgress(
+            .init(
+                summary: "Starting sub agent…",
+                recentActivities: [],
+                totalTurns: 0,
+                totalToolCalls: 0,
+                durationMs: 0
+            )
+        )
 
         while turnCount < maxTurns {
             let shouldReserveFinalTurn = shouldReserveFinalResponseTurn(
@@ -50,6 +61,15 @@ enum SubAgentRunner {
             }
 
             turnCount += 1
+            await onProgress(
+                progressSnapshot(
+                    summary: "Thinking on turn \(turnCount)…",
+                    recentActivities: nil,
+                    totalTurns: turnCount,
+                    totalToolCalls: totalToolCalls,
+                    startedAt: start
+                )
+            )
 
             let response = try await client.chat(
                 body: ChatRequestBody(
@@ -71,6 +91,15 @@ enum SubAgentRunner {
 
             guard !response.tools.isEmpty else {
                 let content = AppConfig.nonEmpty(finalText) ?? "Sub agent finished without a text result."
+                await onProgress(
+                    progressSnapshot(
+                        summary: finalSummary(from: content),
+                        recentActivities: nil,
+                        totalTurns: turnCount,
+                        totalToolCalls: totalToolCalls,
+                        startedAt: start
+                    )
+                )
                 return SubAgentRunOutput(
                     agentType: definition.agentType,
                     totalTurns: turnCount,
@@ -84,6 +113,16 @@ enum SubAgentRunner {
             totalToolCalls += pendingToolCalls.count
 
             for toolRequest in pendingToolCalls {
+                let activity = activityDescription(for: toolRequest.name)
+                await onProgress(
+                    progressSnapshot(
+                        summary: activity,
+                        recentActivities: [activity],
+                        totalTurns: turnCount,
+                        totalToolCalls: totalToolCalls,
+                        startedAt: start
+                    )
+                )
                 let toolResponse = await executeToolCall(toolRequest, executeTool: executeTool)
                 requestMessages.append(
                     .tool(
@@ -91,10 +130,31 @@ enum SubAgentRunner {
                         toolCallID: toolRequest.id
                     )
                 )
+                let followUpSummary = toolResponse.isError
+                    ? "Tool failed: \(toolRequest.name)"
+                    : activity
+                await onProgress(
+                    progressSnapshot(
+                        summary: followUpSummary,
+                        recentActivities: [activity],
+                        totalTurns: turnCount,
+                        totalToolCalls: totalToolCalls,
+                        startedAt: start
+                    )
+                )
             }
         }
 
         let fallback = AppConfig.nonEmpty(finalText) ?? "Reached maximum number of turns."
+        await onProgress(
+            progressSnapshot(
+                summary: finalSummary(from: fallback),
+                recentActivities: nil,
+                totalTurns: turnCount,
+                totalToolCalls: totalToolCalls,
+                startedAt: start
+            )
+        )
         return SubAgentRunOutput(
             agentType: definition.agentType,
             totalTurns: turnCount,
@@ -151,5 +211,52 @@ enum SubAgentRunner {
 
     private static func trimmedToolResponse(_ text: String, limit: Int = 64 * 1024) -> String {
         ToolInvocationHelpers.truncateText(text, limit: limit)
+    }
+
+    private static func progressSnapshot(
+        summary: String?,
+        recentActivities: [String]?,
+        totalTurns: Int,
+        totalToolCalls: Int,
+        startedAt: Date
+    ) -> SubAgentTaskStore.ProgressSnapshot {
+        .init(
+            summary: summary,
+            recentActivities: recentActivities ?? [],
+            totalTurns: totalTurns,
+            totalToolCalls: totalToolCalls,
+            durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+        )
+    }
+
+    private static func activityDescription(for toolName: String) -> String {
+        let normalized = toolName.lowercased()
+        if normalized.contains("grep") || normalized.contains("search") {
+            return "Searching workspace"
+        }
+        if normalized.contains("read") || normalized.contains("fetch") || normalized.contains("view") {
+            return "Reading context"
+        }
+        if normalized.contains("task") || normalized.contains("plan") {
+            return "Delegating work"
+        }
+        if normalized.contains("bash") || normalized.contains("run") {
+            return "Running commands"
+        }
+        if normalized.contains("write") || normalized.contains("patch") || normalized.contains("edit") {
+            return "Updating files"
+        }
+        return "Using \(toolName)"
+    }
+
+    private static func finalSummary(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Completed" }
+        let singleLine = trimmed
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard singleLine.count > 140 else { return singleLine }
+        return String(singleLine.prefix(140)) + "…"
     }
 }

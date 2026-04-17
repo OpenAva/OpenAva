@@ -31,6 +31,16 @@
         }
       }
     },
+    "Automatic compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动压缩边界"
+          }
+        }
+      }
+    },
     "Calculating context window..." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -72,6 +82,9 @@
         }
       }
     },
+    "Cancelled" : {
+
+    },
     "Chat" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -89,36 +102,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "压缩对话"
-          }
-        }
-      }
-    },
-    "Automatic compaction boundary" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动压缩边界"
-          }
-        }
-      }
-    },
-    "Compacted %lld earlier messages" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "压缩范围：%1$lld 条较早消息"
-          }
-        }
-      }
-    },
-    "Conversation compaction boundary" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "历史压缩边界"
           }
         }
       }
@@ -143,6 +126,19 @@
         }
       }
     },
+    "Compacted %lld earlier messages" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩范围：%1$lld 条较早消息"
+          }
+        }
+      }
+    },
+    "Completed" : {
+
+    },
     "Context --%" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -161,6 +157,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上下文 %1$lld%%"
+          }
+        }
+      }
+    },
+    "Conversation compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史压缩边界"
           }
         }
       }
@@ -185,16 +191,6 @@
         }
       }
     },
-    "Manual compaction boundary" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "手动压缩边界"
-          }
-        }
-      }
-    },
     "Document" : {
       "localizations" : {
         "zh-Hans" : {
@@ -206,7 +202,6 @@
       }
     },
     "Error" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -215,6 +210,9 @@
           }
         }
       }
+    },
+    "Failed" : {
+
     },
     "Failed to load PDF file." : {
       "localizations" : {
@@ -351,6 +349,16 @@
         }
       }
     },
+    "Manual compaction boundary" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动压缩边界"
+          }
+        }
+      }
+    },
     "Microphone is not authorized." : {
       "localizations" : {
         "zh-Hans" : {
@@ -470,6 +478,12 @@
     "Range" : {
 
     },
+    "Recent activity" : {
+
+    },
+    "Result" : {
+
+    },
     "Rollback" : {
       "localizations" : {
         "zh-Hans" : {
@@ -481,6 +495,9 @@
       }
     },
     "Rule" : {
+
+    },
+    "Running" : {
 
     },
     "Select All" : {
@@ -631,6 +648,16 @@
         }
       }
     },
+    "Tool Arguments" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具参数"
+          }
+        }
+      }
+    },
     "Tool call for %@ completed." : {
       "localizations" : {
         "zh-Hans" : {
@@ -661,26 +688,6 @@
         }
       }
     },
-    "Tool Arguments" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "工具参数"
-          }
-        }
-      }
-    },
-    "Tool Result" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "工具返回"
-          }
-        }
-      }
-    },
     "Tool executed successfully with no output" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -699,6 +706,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "工具执行失败：%1$@"
+          }
+        }
+      }
+    },
+    "Tool Result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具返回"
           }
         }
       }

@@ -93,6 +93,31 @@ extension MessageListView {
         let detail: String?
     }
 
+    struct SubAgentTaskRepresentation: Hashable {
+        let id: String
+        let messageID: String
+        let createdAt: Date
+        let taskID: String
+        let agentType: String
+        let taskDescription: String
+        let status: String
+        let summary: String?
+        let totalTurns: Int?
+        let totalToolCalls: Int?
+        let durationMs: Int?
+        let resultPreview: String?
+        let fullResult: String?
+        let errorDescription: String?
+        let recentActivities: [String]
+        let isExpanded: Bool
+
+        var hasExpandedContent: Bool {
+            !recentActivities.isEmpty
+                || !(fullResult?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                || !(errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
+    }
+
     /// Displayable entries for the list view.
     enum Entry: Hashable, Identifiable {
         case userContent(String, MessageRepresentation)
@@ -106,6 +131,7 @@ extension MessageListView {
         case mapContent(String, MapRepresentation)
         case mediaContent(String, MediaRepresentation)
         case compactBoundary(String, CompactBoundaryRepresentation)
+        case subAgentTask(String, SubAgentTaskRepresentation)
         case interruptionRetry(String)
         case activityReporting(String)
 
@@ -122,6 +148,7 @@ extension MessageListView {
             case let .mapContent(id, _): "map-\(id)"
             case let .mediaContent(id, _): "media-\(id)"
             case let .compactBoundary(id, _): "compact-boundary-\(id)"
+            case let .subAgentTask(id, _): "sub-agent-task-\(id)"
             case .interruptionRetry: "interruption-retry"
             case let .activityReporting(msg): "activity-\(msg)"
             }
@@ -445,6 +472,33 @@ extension MessageListView {
                 }
 
             case .system:
+                if message.isSubAgentTask, let metadata = message.subAgentTaskMetadata {
+                    entries.append(
+                        .subAgentTask(
+                            message.id,
+                            SubAgentTaskRepresentation(
+                                id: message.id,
+                                messageID: message.id,
+                                createdAt: message.createdAt,
+                                taskID: metadata.taskID,
+                                agentType: metadata.agentType,
+                                taskDescription: metadata.taskDescription,
+                                status: metadata.status,
+                                summary: metadata.summary,
+                                totalTurns: metadata.totalTurns,
+                                totalToolCalls: metadata.totalToolCalls,
+                                durationMs: metadata.durationMs,
+                                resultPreview: metadata.resultPreview,
+                                fullResult: message.textContent,
+                                errorDescription: metadata.errorDescription,
+                                recentActivities: metadata.recentActivities ?? [],
+                                isExpanded: expandedSubAgentMessageIDs.contains(message.id)
+                            )
+                        )
+                    )
+                    continue
+                }
+
                 guard message.isCompactBoundary else { break }
                 entries.append(
                     .compactBoundary(
