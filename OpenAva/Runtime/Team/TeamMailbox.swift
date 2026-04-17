@@ -57,20 +57,6 @@ enum TeamMailbox {
         }
     }
 
-    static func unreadCount(teamDirectoryURL: URL, recipientName: String) -> Int {
-        unreadMessages(teamDirectoryURL: teamDirectoryURL, recipientName: recipientName).count
-    }
-
-    static func lastPreview(teamDirectoryURL: URL, recipientName: String) -> String? {
-        let messages = readMessages(teamDirectoryURL: teamDirectoryURL, recipientName: recipientName)
-        return messages.last?.summary ?? messages.last?.text
-    }
-
-    static func deleteAllMailboxes(teamDirectoryURL: URL) {
-        let directory = mailboxesDirectoryURL(teamDirectoryURL: teamDirectoryURL)
-        try? FileManager.default.removeItem(at: directory)
-    }
-
     private static func write(
         messages: [TeamMailboxMessage],
         teamDirectoryURL: URL,

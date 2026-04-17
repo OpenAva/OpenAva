@@ -1,10 +1,3 @@
-//
-//  ConversationSession+BuildMessages.swift
-//  ChatUI
-//
-//  Converts conversation messages to ChatRequestBody format.
-//
-
 import ChatClient
 import ChatUI
 import Foundation
@@ -222,19 +215,6 @@ extension ConversationSession {
         if parts.isEmpty {
             parts.append(.text(trimmedText.isEmpty ? "(empty)" : trimmedText))
         }
-
-        let imagePartsCount = parts.reduce(into: 0) { count, part in
-            if case .imageURL = part { count += 1 }
-        }
-        let audioPartsCount = parts.reduce(into: 0) { count, part in
-            if case .audioBase64 = part { count += 1 }
-        }
-        let textPartsCount = parts.reduce(into: 0) { count, part in
-            if case .text = part { count += 1 }
-        }
-        requestBuildLogger.debug(
-            "built user request content parts textChars=\(trimmedText.count) attachments=\(attachments.count) outputParts=\(parts.count) textParts=\(textPartsCount) imageParts=\(imagePartsCount) audioParts=\(audioPartsCount)"
-        )
 
         return parts
     }

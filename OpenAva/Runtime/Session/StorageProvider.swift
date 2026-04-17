@@ -1,11 +1,5 @@
-//
-//  StorageProvider.swift
-//  ChatUI
-//
 //  Third-party apps implement this protocol to provide data persistence.
 //  The framework never touches the database directly.
-//
-
 import ChatClient
 import ChatUI
 import Foundation

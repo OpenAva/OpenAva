@@ -1,8 +1,3 @@
-//
-//  BalancedEmitter.swift
-//  ChatUI
-//
-
 import Foundation
 
 @MainActor

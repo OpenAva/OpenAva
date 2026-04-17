@@ -1,11 +1,3 @@
-//
-//  ConversationSession+Compact.swift
-//  ChatUI
-//
-//  LLM-based context compaction — summarises old messages before the context
-//  window fills up, preserving conversation continuity without silent truncation.
-//
-
 import ChatClient
 import ChatUI
 import Foundation

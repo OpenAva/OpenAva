@@ -93,10 +93,7 @@ final class TeamSwarmCoordinator {
     private init() {}
 
     func configure(
-        runtimeRootURL _: URL?,
-        agentStoreRootURL: URL?,
-        modelConfig _: AppConfig.LLMModel?,
-        executeTool _: (@Sendable (String, String, String?, BridgeInvokeRequest) async -> BridgeInvokeResponse)? = nil
+        agentStoreRootURL: URL?
     ) {
         let normalizedAgentStoreRootURL = agentStoreRootURL?.standardizedFileURL
         let configurationSignature = normalizedAgentStoreRootURL?.path ?? ""
@@ -156,11 +153,6 @@ final class TeamSwarmCoordinator {
         )
     }
 
-    func pendingPermissions(teamName: String?, context: ToolContext) -> [TeamPermissionRequest] {
-        guard let resolvedTeamName = resolveTeamName(explicitTeamName: teamName, context: context) else { return [] }
-        return pendingPermissions(for: resolvedTeamName)
-    }
-
     func sendMessage(
         to rawTarget: String,
         message: String,
@@ -207,7 +199,7 @@ final class TeamSwarmCoordinator {
                 member.pendingExecutionInput = merged
                 member.lastUpdatedAt = Date()
             }
-            persist()
+            synchronizeTeamDirectories()
             notifyChanged()
             return
         }
@@ -229,7 +221,7 @@ final class TeamSwarmCoordinator {
         if didHaveWorker {
             memberSignals[member.id]?.yield()
         }
-        persist()
+        synchronizeTeamDirectories()
         notifyChanged()
     }
 
@@ -289,7 +281,7 @@ final class TeamSwarmCoordinator {
                 memberSignals[member.id]?.yield()
             }
         }
-        persist()
+        synchronizeTeamDirectories()
         notifyChanged()
         return member
     }
@@ -318,7 +310,7 @@ final class TeamSwarmCoordinator {
         team.tasks.append(task)
         team.updatedAt = now
         teamsByName[resolvedTeamName] = team
-        persist()
+        synchronizeTeamDirectories()
         notifyChanged()
         return task
     }
@@ -374,7 +366,7 @@ final class TeamSwarmCoordinator {
         team.tasks[index] = task
         team.updatedAt = task.updatedAt
         teamsByName[resolvedTeamName] = team
-        persist()
+        synchronizeTeamDirectories()
         notifyChanged()
         return task
     }
@@ -453,7 +445,7 @@ final class TeamSwarmCoordinator {
                 member.pendingPlanRequestID = planRequestID
                 member.lastUpdatedAt = Date()
             }
-            persist()
+            synchronizeTeamDirectories()
             notifyChanged()
         } catch {
             finishMember(teamName: teamName, memberID: member.id, status: .failed, result: nil, error: error.localizedDescription)
@@ -580,9 +572,6 @@ final class TeamSwarmCoordinator {
         return modelConfig
     }
 
-    // Team execution no longer injects a special system prompt.
-    // Team messages are treated as normal user inputs into the agent's canonical main session.
-
     private func finishMember(teamName: String, memberID: String, status: MemberStatus, result: String?, error: String?) {
         updateMember(teamName: teamName, memberID: memberID) { member in
             member.status = status
@@ -596,7 +585,7 @@ final class TeamSwarmCoordinator {
                 member.shutdownRequested = true
             }
         }
-        persist()
+        synchronizeTeamDirectories()
         notifyChanged()
     }
 
@@ -791,10 +780,6 @@ final class TeamSwarmCoordinator {
 
     private func teammateInvocationSessionID(memberID: String) -> String {
         "\(memberID)::\(Self.mainSessionID)"
-    }
-
-    private func persist() {
-        synchronizeTeamDirectories()
     }
 
     private func loadPersistedTeams() {

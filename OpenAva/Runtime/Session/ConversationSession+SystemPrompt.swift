@@ -1,10 +1,3 @@
-//
-//  ConversationSession+SystemPrompt.swift
-//  ChatUI
-//
-//  System prompt injection into request messages.
-//
-
 import ChatClient
 import ChatUI
 import Foundation

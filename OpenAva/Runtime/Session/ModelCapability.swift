@@ -1,8 +1,3 @@
-//
-//  ModelCapability.swift
-//  ChatUI
-//
-
 import Foundation
 
 /// Capabilities a language model may support.

@@ -1,9 +1,4 @@
-//
-//  ConversationSession+Trim.swift
-//  ChatUI
-//
 //  Context window management — removes oldest messages when exceeding limit.
-//
 
 import ChatClient
 import ChatUI

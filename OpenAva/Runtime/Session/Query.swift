@@ -19,7 +19,7 @@ func finalTurnResponseReminderText() -> String {
     """
 }
 
-func appendFinalTurnResponseReminder(to requestMessages: inout [ChatRequestBody.Message]) {
+private func appendFinalTurnResponseReminder(to requestMessages: inout [ChatRequestBody.Message]) {
     requestMessages.append(
         .user(
             content: .text(
@@ -31,6 +31,25 @@ func appendFinalTurnResponseReminder(to requestMessages: inout [ChatRequestBody.
             )
         )
     )
+}
+
+private func normalizedToolName(_ name: String) -> String {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "tool" : trimmed
+}
+
+private func updateToolCallPart(
+    in message: ConversationMessage,
+    at index: Int,
+    toolName: String? = nil,
+    state: ToolCallState
+) {
+    guard index < message.parts.count,
+          case var .toolCall(part) = message.parts[index]
+    else { return }
+    if let toolName { part.toolName = toolName }
+    part.state = state
+    message.parts[index] = .toolCall(part)
 }
 
 private struct QueryState {
@@ -58,10 +77,6 @@ private struct ToolCallResponse {
     let text: String
     let state: ToolCallState
     let summaryStatus: String
-}
-
-private struct ToolExecutionInterruptedError: Error {
-    let partialResult: QueryResult
 }
 
 @MainActor
@@ -113,7 +128,7 @@ private func queryLoop(
         logger.debug(
             "query loop tick session=\(session.id, privacy: .public) turn=\(nextTurn) cancelled=\(String(Task.isCancelled), privacy: .public)"
         )
-        try session.checkCancellation()
+        try Task.checkCancellation()
 
         flushPendingToolUseSummary(session: session, state: &state)
         let compacted = await compactAndTrimRequestMessages(
@@ -196,21 +211,6 @@ private func queryLoop(
 }
 
 @MainActor
-private func interruptedResult(
-    session: ConversationSession,
-    state: QueryState,
-    reason: ConversationSession.InterruptReason?
-) -> QueryResult {
-    QueryResult(
-        finishReason: .unknown,
-        totalTurns: state.totalTurns,
-        totalToolCalls: state.totalToolCalls,
-        didCompact: state.didCompact,
-        interruptReason: reason?.rawValue ?? session.currentInterruptReason?.rawValue ?? ConversationSession.InterruptReason.cancelled.rawValue
-    )
-}
-
-@MainActor
 private func synthesizeInterruptedToolResults(
     _ entries: [ToolCallEntry],
     assistantMessage: ConversationMessage,
@@ -221,12 +221,7 @@ private func synthesizeInterruptedToolResults(
     guard !entries.isEmpty else { return }
     let interruptionText = toolUseContext.interruptionText()
     for entry in entries {
-        if entry.toolCallPartIndex < assistantMessage.parts.count,
-           case var .toolCall(toolCallPart) = assistantMessage.parts[entry.toolCallPartIndex]
-        {
-            toolCallPart.state = .failed
-            assistantMessage.parts[entry.toolCallPartIndex] = .toolCall(toolCallPart)
-        }
+        updateToolCallPart(in: assistantMessage, at: entry.toolCallPartIndex, state: .failed)
 
         let alreadyHasResult = assistantMessage.parts.contains { part in
             guard case let .toolResult(result) = part else { return false }
@@ -254,7 +249,7 @@ private func executeQueryTurn(
     tools: [ChatRequestBody.Tool]?,
     continuation: AsyncThrowingStream<QueryEvent, Error>.Continuation
 ) async throws -> QueryTurnOutput {
-    try session.checkCancellation()
+    try Task.checkCancellation()
     logger.debug("execute query turn session=\(session.id, privacy: .public) starting")
     continuation.yield(.loading(nil))
 
@@ -325,7 +320,7 @@ private func executeQueryTurn(
     var streamedCharacterCount = 0
 
     for try await response in stream {
-        try session.checkCancellation()
+        try Task.checkCancellation()
         switch response {
         case let .reasoning(value):
             await textEmitter.wait()
@@ -356,12 +351,11 @@ private func executeQueryTurn(
                 return toolCallPart.id == call.id
             }
             if !alreadyHasToolCallPart {
-                let normalizedToolName = call.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 message.parts.append(
                     .toolCall(
                         ToolCallContentPart(
                             id: call.id,
-                            toolName: normalizedToolName.isEmpty ? "tool" : normalizedToolName,
+                            toolName: normalizedToolName(call.name),
                             apiName: call.name,
                             parameters: call.arguments,
                             state: .running
@@ -398,18 +392,13 @@ private func executeQueryTurn(
         continuation.yield(.refresh(scrolling: true))
     }
 
-    let isFollowUpAfterToolResult: Bool = {
-        guard let lastMessage = requestMessages.last else { return false }
-        if case .tool = lastMessage {
-            return true
-        }
-        return false
-    }()
+    let hasText = !message.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hasReasoning = !(message.reasoningContent ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hasToolCalls = !pendingToolCalls.isEmpty
 
-    if isFollowUpAfterToolResult,
-       pendingToolCalls.isEmpty,
-       message.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-       (message.reasoningContent ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    // Empty follow-up after tool result: discard the message.
+    if !hasText, !hasReasoning, !hasToolCalls,
+       requestMessages.last.map({ if case .tool = $0 { true } else { false } }) == true
     {
         session.removeMessage(with: message.id)
         continuation.yield(.refresh(scrolling: true))
@@ -418,19 +407,16 @@ private func executeQueryTurn(
 
     requestMessages.append(
         .assistant(
-            content: message.textContent.isEmpty ? nil : .text(message.textContent),
+            content: hasText ? .text(message.textContent) : nil,
             toolCalls: pendingToolCalls.map {
                 .init(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments))
             },
-            reasoning: {
-                let trimmed = (message.reasoningContent ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }()
+            reasoning: hasReasoning ? message.reasoningContent!.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         )
     )
 
-    let finishReason: FinishReason
-    if message.textContent.isEmpty, (message.reasoningContent ?? "").isEmpty, pendingToolCalls.isEmpty {
+    // No content at all means the model failed to produce a response.
+    if !hasText, !hasReasoning, !hasToolCalls {
         message.finishReason = .error
         if let collectedError = client.collectedErrors?
             .trimmingCharacters(in: .whitespacesAndNewlines), !collectedError.isEmpty
@@ -442,13 +428,10 @@ private func executeQueryTurn(
             )
         }
         throw InferenceError.noResponseFromModel
-    } else if !pendingToolCalls.isEmpty {
-        finishReason = .toolCalls
-        message.finishReason = .toolCalls
-    } else {
-        finishReason = .stop
-        message.finishReason = .stop
     }
+
+    let finishReason: FinishReason = hasToolCalls ? .toolCalls : .stop
+    message.finishReason = finishReason
 
     continuation.yield(.refresh(scrolling: true))
     return QueryTurnOutput(
@@ -480,28 +463,22 @@ private func executeToolCalls(
 
     var toolCallEntries: [ToolCallEntry] = []
     for request in pendingToolCalls {
-        try toolUseContext.session.checkCancellation()
+        try Task.checkCancellation()
 
-        let normalizedRequestName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let existingPartIndex = assistantMessage.parts.firstIndex { part in
             guard case let .toolCall(toolCallPart) = part else { return false }
             return toolCallPart.id == request.id
         }
         let partIndex = existingPartIndex ?? assistantMessage.parts.count
-        if let existingPartIndex,
-           case var .toolCall(toolCallPart) = assistantMessage.parts[existingPartIndex]
-        {
-            toolCallPart.toolName = normalizedRequestName.isEmpty ? "tool" : normalizedRequestName
-            toolCallPart.apiName = request.name
-            toolCallPart.parameters = request.arguments
-            toolCallPart.state = .running
-            assistantMessage.parts[existingPartIndex] = .toolCall(toolCallPart)
+        if existingPartIndex != nil {
+            updateToolCallPart(in: assistantMessage, at: partIndex,
+                               toolName: normalizedToolName(request.name), state: .running)
         } else {
             assistantMessage.parts.append(
                 .toolCall(
                     ToolCallContentPart(
                         id: request.id,
-                        toolName: normalizedRequestName.isEmpty ? "tool" : normalizedRequestName,
+                        toolName: normalizedToolName(request.name),
                         apiName: request.name,
                         parameters: request.arguments,
                         state: .running
@@ -516,26 +493,15 @@ private func executeToolCalls(
             "tool lookup session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
         )
         guard let tool = await toolProvider.findTool(for: request) else {
-            if partIndex < assistantMessage.parts.count,
-               case var .toolCall(toolCallPart) = assistantMessage.parts[partIndex]
-            {
-                toolCallPart.state = .failed
-                assistantMessage.parts[partIndex] = .toolCall(toolCallPart)
-            }
+            updateToolCallPart(in: assistantMessage, at: partIndex, state: .failed)
             continuation.yield(.refresh(scrolling: true))
             throw InferenceError.toolNotFound(name: request.name)
         }
 
         let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
-        if partIndex < assistantMessage.parts.count,
-           case var .toolCall(toolCallPart) = assistantMessage.parts[partIndex]
-        {
-            toolCallPart.toolName = tool.displayName
-            toolCallPart.apiName = request.name
-            toolCallPart.parameters = request.arguments
-            toolCallPart.state = permissionDecision.allowsExecution ? .running : .failed
-            assistantMessage.parts[partIndex] = .toolCall(toolCallPart)
-        }
+        updateToolCallPart(in: assistantMessage, at: partIndex,
+                           toolName: tool.displayName,
+                           state: permissionDecision.allowsExecution ? .running : .failed)
 
         toolCallEntries.append(
             ToolCallEntry(
@@ -570,7 +536,7 @@ private func executeToolCalls(
     }
 
     for (index, entry) in toolCallEntries.enumerated() where entry.permissionDecision.allowsExecution {
-        try toolUseContext.session.checkCancellation()
+        try Task.checkCancellation()
         logger.notice(
             "tool execution begin session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) index=\(index)"
         )
@@ -587,12 +553,7 @@ private func executeToolCalls(
             "tool execution end session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) state=\(String(describing: response.state), privacy: .public)"
         )
 
-        if entry.toolCallPartIndex < assistantMessage.parts.count,
-           case var .toolCall(toolCallPart) = assistantMessage.parts[entry.toolCallPartIndex]
-        {
-            toolCallPart.state = response.state
-            assistantMessage.parts[entry.toolCallPartIndex] = .toolCall(toolCallPart)
-        }
+        updateToolCallPart(in: assistantMessage, at: entry.toolCallPartIndex, state: response.state)
 
         assistantMessage.parts.append(
             .toolResult(
@@ -658,13 +619,12 @@ private func flushPendingToolUseSummary(session: ConversationSession, state: ino
         return
     }
 
-    let summaryMessage = session.appendNewMessage(role: .system) { message in
+    session.appendNewMessage(role: .system) { message in
         message.textContent = summary
         if let latestAssistant = session.messages.last(where: { $0.role == .assistant }) {
             message.createdAt = latestAssistant.createdAt.addingTimeInterval(0.001)
         }
     }
-    _ = summaryMessage
     session.persistMessages()
     state.pendingToolUseSummary = nil
 }
@@ -758,6 +718,9 @@ private func executeSingleToolCall(
 }
 
 private func makePermissionResponse(for decision: ToolPermissionDecision) -> ToolCallResponse {
+    let customMessage = decision.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasCustomMessage = customMessage != nil && !customMessage!.isEmpty
+
     switch decision.behavior {
     case .allow:
         return ToolCallResponse(
@@ -767,25 +730,17 @@ private func makePermissionResponse(for decision: ToolPermissionDecision) -> Too
         )
     case .deny:
         return ToolCallResponse(
-            text: permissionMessage(for: decision, fallback: String.localized("Tool execution was denied.")),
+            text: hasCustomMessage ? customMessage! : String.localized("Tool execution was denied."),
             state: .failed,
             summaryStatus: "denied"
         )
     case .ask:
         return ToolCallResponse(
-            text: permissionMessage(for: decision, fallback: String.localized("Tool execution requires approval.")),
+            text: hasCustomMessage ? customMessage! : String.localized("Tool execution requires approval."),
             state: .failed,
             summaryStatus: "approval_required"
         )
     }
-}
-
-private func permissionMessage(for decision: ToolPermissionDecision, fallback: String) -> String {
-    let trimmedMessage = decision.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let trimmedMessage, !trimmedMessage.isEmpty else {
-        return fallback
-    }
-    return trimmedMessage
 }
 
 private func truncateToolOutput(_ text: String, limit: Int) -> String {

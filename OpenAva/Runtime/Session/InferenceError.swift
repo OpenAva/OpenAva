@@ -1,10 +1,4 @@
-//
-//  InferenceError.swift
-//  ChatUI
-//
 //  Typed errors for inference and tool execution failures.
-//
-
 import ChatUI
 import Foundation
 

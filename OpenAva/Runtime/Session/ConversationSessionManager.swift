@@ -42,6 +42,11 @@ public final class ConversationSessionManager: @unchecked Sendable {
         return session
     }
 
+    /// Returns a previously cached session for the given session ID, if present.
+    public func cachedSession(for sessionID: String) -> ConversationSession? {
+        sessions.first { $0.key.sessionID == sessionID }?.value
+    }
+
     /// Drop the cached session so a subsequent access rebuilds it from new configuration.
     public func removeSession(for sessionID: String) {
         let keysToRemove = sessions.keys.filter { $0.sessionID == sessionID }
@@ -70,31 +75,39 @@ public final class ConversationSessionManager: @unchecked Sendable {
     }
 
     func markSessionExecuting(_ session: ConversationSession) {
-        markSessionExecuting(session.id, storage: session.storageProvider)
+        let key = cacheKey(for: session)
+        executingSessionCounts[key, default: 0] += 1
+        publishExecutingSessions()
     }
 
     func markSessionExecuting(_ sessionID: String, storage: StorageProvider) {
         let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
-        let nextCount = (executingSessionCounts[key] ?? 0) + 1
-        executingSessionCounts[key] = nextCount
+        executingSessionCounts[key, default: 0] += 1
         publishExecutingSessions()
     }
 
     func markSessionCompleted(_ session: ConversationSession) {
-        markSessionCompleted(session.id, storage: session.storageProvider)
+        let key = cacheKey(for: session)
+        decrementExecutingCount(for: key)
     }
 
     func markSessionCompleted(_ sessionID: String, storage: StorageProvider) {
         let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
-        guard let currentCount = executingSessionCounts[key] else {
-            return
-        }
-        if currentCount <= 1 {
+        decrementExecutingCount(for: key)
+    }
+
+    private func decrementExecutingCount(for key: SessionCacheKey) {
+        guard let count = executingSessionCounts[key] else { return }
+        if count <= 1 {
             executingSessionCounts.removeValue(forKey: key)
         } else {
-            executingSessionCounts[key] = currentCount - 1
+            executingSessionCounts[key] = count - 1
         }
         publishExecutingSessions()
+    }
+
+    private func cacheKey(for session: ConversationSession) -> SessionCacheKey {
+        SessionCacheKey(sessionID: session.id, storageID: ObjectIdentifier(session.storageProvider))
     }
 
     public func hasExecutingSession() -> Bool {
@@ -108,7 +121,7 @@ public final class ConversationSessionManager: @unchecked Sendable {
     }
 
     public func isSessionExecuting(_ session: ConversationSession) -> Bool {
-        isSessionExecuting(session.id, storage: session.storageProvider)
+        (executingSessionCounts[cacheKey(for: session)] ?? 0) > 0
     }
 
     public func isSessionExecuting(_ sessionID: String, storage: StorageProvider) -> Bool {

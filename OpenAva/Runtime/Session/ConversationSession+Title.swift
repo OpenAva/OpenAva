@@ -1,10 +1,3 @@
-//
-//  ConversationSession+Title.swift
-//  ChatUI
-//
-//  Auto-generate conversation title from content.
-//
-
 import ChatClient
 import ChatUI
 import Foundation

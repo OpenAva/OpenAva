@@ -215,23 +215,7 @@ final class ToolRuntime: @unchecked Sendable {
         self.arxivSearchService = arxivSearchService
         if configureTeamSwarm {
             TeamSwarmCoordinator.shared.configure(
-                runtimeRootURL: runtimeRootURL,
-                agentStoreRootURL: teamsRootURL,
-                modelConfig: modelConfig,
-                executeTool: { [weak self] teamName, memberID, sessionID, request in
-                    guard let self else {
-                        return BridgeInvokeResponse(
-                            id: request.id,
-                            ok: false,
-                            error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: local tool handler unavailable")
-                        )
-                    }
-                    return await self.handle(
-                        request,
-                        sessionID: sessionID,
-                        teamContext: TeamInvocationContext(teamName: teamName, memberID: memberID)
-                    )
-                }
+                agentStoreRootURL: teamsRootURL
             )
         }
 

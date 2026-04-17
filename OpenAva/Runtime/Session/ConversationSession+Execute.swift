@@ -1,10 +1,3 @@
-//
-//  ConversationSession+Execute.swift
-//  ChatUI
-//
-//  Core inference orchestration. Adapted from FlowDown with model-scoped clients.
-//
-
 import ChatClient
 import ChatUI
 import Foundation
@@ -108,12 +101,7 @@ public extension ConversationSession {
         }
     }
 
-    internal func requestUpdate(view: MessageListView) async {
-        await view.stopLoading()
-        notifyMessagesDidChange()
-    }
-
-    internal func requestUpdate(view: MessageListView, scrolling: Bool) async {
+    internal func requestUpdate(view: MessageListView, scrolling: Bool = true) async {
         await view.stopLoading()
         notifyMessagesDidChange(scrolling: scrolling)
     }

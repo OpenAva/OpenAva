@@ -1,8 +1,3 @@
-//
-//  ConversationTitleMetadata.swift
-//  ChatUI
-//
-
 import ChatClient
 import Foundation
 

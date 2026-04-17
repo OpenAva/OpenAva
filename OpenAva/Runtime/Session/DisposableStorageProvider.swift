@@ -1,10 +1,3 @@
-//
-//  DisposableStorageProvider.swift
-//  ChatUI
-//
-//  Created by qaq on 9/3/2026.
-//
-
 import ChatUI
 import Foundation
 

@@ -1,11 +1,3 @@
-//
-//  ConversationSession.swift
-//  ChatUI
-//
-//  Coordinates messages and inference for a single conversation.
-//  Adapted from FlowDown's ConversationSession with model-scoped clients.
-//
-
 import ChatClient
 import ChatUI
 import Combine
@@ -100,11 +92,6 @@ public final class ConversationSession: Identifiable, Sendable {
         messagesSubject.eraseToAnyPublisher()
     }
 
-    private lazy var userDidSendMessageSubject = PassthroughSubject<ConversationMessage, Never>()
-    public var userDidSendMessage: AnyPublisher<ConversationMessage, Never> {
-        userDidSendMessageSubject.eraseToAnyPublisher()
-    }
-
     // MARK: - Usage Tracking
 
     /// Token usage from the last inference execution.
@@ -168,18 +155,11 @@ public final class ConversationSession: Identifiable, Sendable {
         let message = storageProvider.createMessage(in: id, role: role)
         configure?(message)
         messages.append(message)
-        if role == .user { userDidSendMessageSubject.send(message) }
         return message
     }
 
     func notifyMessagesDidChange(scrolling: Bool = true) {
         messagesSubject.send((messages, scrolling))
-    }
-
-    func checkCancellation() throws {
-        if Task.isCancelled {
-            throw CancellationError()
-        }
     }
 
     func refreshContentsFromDatabase(scrolling: Bool = true) {
@@ -311,13 +291,8 @@ public final class ConversationSession: Identifiable, Sendable {
             currentInterruptReason = reason
             task.cancel()
             currentTask = nil
-            action()
-        } else {
-            logger.notice(
-                "cancel current task skipped session=\(self.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) hasTask=false"
-            )
-            action()
         }
+        action()
     }
 
     // MARK: - Thinking Duration
