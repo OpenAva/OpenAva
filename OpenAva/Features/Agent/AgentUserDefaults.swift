@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentUserInfoDefaults {
+enum AgentUserDefaults {
     struct Value: Equatable {
         var callName: String
         var context: String
@@ -10,7 +10,7 @@ enum AgentUserInfoDefaults {
         directoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) -> Value? {
-        guard let decoded = AgentStore.loadUserInfoDefaults(
+        guard let decoded = AgentStore.loadUser(
             fileManager: fileManager,
             workspaceRootURL: directoryURL
         )
@@ -27,7 +27,7 @@ enum AgentUserInfoDefaults {
         directoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
-        AgentStore.saveUserInfoDefaults(
+        AgentStore.saveUser(
             callName: callName,
             context: context,
             fileManager: fileManager,

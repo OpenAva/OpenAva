@@ -33,7 +33,7 @@ final class AgentCreationViewModel {
     var selectedDefaultTeamPresetIDs: Set<String> = []
     private(set) var hasAppliedInitialDefaults = false
     private let targetTeamID: UUID?
-    private let userInfoDirectoryURL: URL?
+    private let userDirectoryURL: URL?
     let presets: [AgentPreset]
 
     /// Shared emoji source for picker and random fill.
@@ -63,18 +63,18 @@ final class AgentCreationViewModel {
         initialMode: CreationMode = .singleAgent,
         targetTeamID: UUID? = nil,
         presets: [AgentPreset] = AgentPresetCatalog.load(),
-        userInfoDirectoryURL: URL? = nil
+        userDirectoryURL: URL? = nil
     ) {
         creationMode = initialMode
         self.targetTeamID = targetTeamID
         self.presets = presets
-        self.userInfoDirectoryURL = userInfoDirectoryURL
+        self.userDirectoryURL = userDirectoryURL
         isUserInfoExpanded = true
-        if let savedUserInfo = AgentUserInfoDefaults.load(directoryURL: userInfoDirectoryURL),
-           !savedUserInfo.callName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let savedUser = AgentUserDefaults.load(directoryURL: userDirectoryURL),
+           !savedUser.callName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
-            data.userCallName = savedUserInfo.callName
-            data.userContext = savedUserInfo.context
+            data.userCallName = savedUser.callName
+            data.userContext = savedUser.context
             isUserInfoExpanded = false
         }
         if initialMode == .defaultTeam {
@@ -271,10 +271,10 @@ final class AgentCreationViewModel {
             _ = containerStore.addAgents([profile.id], toTeam: targetTeamID)
         }
 
-        AgentUserInfoDefaults.save(
+        AgentUserDefaults.save(
             callName: data.userCallName,
             context: data.userContext,
-            directoryURL: userInfoDirectoryURL
+            directoryURL: userDirectoryURL
         )
     }
 
@@ -312,10 +312,10 @@ final class AgentCreationViewModel {
             )
         }
 
-        AgentUserInfoDefaults.save(
+        AgentUserDefaults.save(
             callName: data.userCallName,
             context: data.userContext,
-            directoryURL: userInfoDirectoryURL
+            directoryURL: userDirectoryURL
         )
     }
 
