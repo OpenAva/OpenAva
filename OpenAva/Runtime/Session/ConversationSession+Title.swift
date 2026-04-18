@@ -73,7 +73,7 @@ extension ConversationSession {
                 ?? ConversationTitleMetadata(storageValue: response.text)
 
             if let titleMetadata, !titleMetadata.title.isEmpty, titleMetadata.title.count < 50 {
-                storageProvider.recordTranscript(.recordAITitle(titleMetadata.storageValue), for: id)
+                storageProvider.setTitle(titleMetadata.storageValue, for: id)
             }
         } catch {
             // Title generation is best-effort, ignore errors

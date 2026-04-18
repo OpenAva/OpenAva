@@ -169,25 +169,12 @@ public final class ConversationSession: Identifiable, Sendable {
     }
 
     func persistMessages() {
-        storageProvider.recordTranscript(.syncMessages(messages), for: id)
+        storageProvider.save(messages)
     }
 
-    /// Persist a single new message immediately (incremental append).
-    /// Falls back to full save() if the storage provider doesn't support incremental writes.
-    func appendMessageToTranscript(_ message: ConversationMessage) {
-        storageProvider.recordTranscript(.appendMessage(message), for: id)
-    }
-
-    /// Persist an update to an existing message immediately.
-    /// Falls back to full save() if the storage provider doesn't support incremental writes.
-    func updateMessageInTranscript(_ message: ConversationMessage) {
-        storageProvider.recordTranscript(.updateMessage(message), for: id)
-    }
-
-    /// Flush all buffered writes to disk immediately.
-    /// Ensures durability at turn boundaries and during graceful shutdown.
-    func flushTranscript() {
-        storageProvider.flushTranscript()
+    /// Persist a single message snapshot immediately.
+    func recordMessageInTranscript(_ message: ConversationMessage) {
+        storageProvider.save(message: message)
     }
 
     func message(for messageID: String) -> ConversationMessage? {
@@ -204,7 +191,7 @@ public final class ConversationSession: Identifiable, Sendable {
             if case var .reasoning(reasoningPart) = part {
                 reasoningPart.isCollapsed.toggle()
                 conversationMessage.parts[index] = .reasoning(reasoningPart)
-                persistMessages()
+                recordMessageInTranscript(conversationMessage)
                 notifyMessagesDidChange(scrolling: false)
                 return
             }
@@ -225,13 +212,13 @@ public final class ConversationSession: Identifiable, Sendable {
             didToggle = true
         }
         guard didToggle else { return }
-        persistMessages()
+        recordMessageInTranscript(conversationMessage)
         notifyMessagesDidChange(scrolling: false)
     }
 
     public func delete(_ messageID: String) {
         cancelCurrentTask(reason: .messageDeleted) { [self] in
-            storageProvider.recordTranscript(.deleteMessages([messageID]), for: id)
+            storageProvider.delete([messageID])
             refreshContentsFromDatabase()
         }
     }
@@ -244,7 +231,7 @@ public final class ConversationSession: Identifiable, Sendable {
             }
             let idsToDelete = messages.dropFirst(index + 1).map(\.id)
             if !idsToDelete.isEmpty {
-                storageProvider.recordTranscript(.deleteMessages(idsToDelete), for: id)
+                storageProvider.delete(idsToDelete)
             }
             refreshContentsFromDatabase()
             completion()
@@ -256,9 +243,9 @@ public final class ConversationSession: Identifiable, Sendable {
             stopThinkingForAll()
             let messageIDs = messages.map(\.id)
             if !messageIDs.isEmpty {
-                storageProvider.recordTranscript(.deleteMessages(messageIDs), for: id)
+                storageProvider.delete(messageIDs)
             }
-            storageProvider.recordTranscript(.setTitle(""), for: id)
+            storageProvider.setTitle("", for: id)
             lastUsage = nil
             refreshContentsFromDatabase(scrolling: false)
             completion()

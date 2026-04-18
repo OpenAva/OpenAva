@@ -232,7 +232,7 @@ extension SubAgentTools {
                 msg.textContent = ""
                 msg.subAgentTaskMetadata = metadata
             }
-            session.appendMessageToTranscript(message)
+            session.recordMessageInTranscript(message)
             session.notifyMessagesDidChange(scrolling: false)
             return message
         }
@@ -265,7 +265,7 @@ extension SubAgentTools {
             case .cancelled, .running:
                 message.textContent = ""
             }
-            session.updateMessageInTranscript(message)
+            session.recordMessageInTranscript(message)
             session.notifyMessagesDidChange(scrolling: false)
         }
     }

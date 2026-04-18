@@ -4,20 +4,6 @@ import ChatClient
 import ChatUI
 import Foundation
 
-public enum TranscriptEvent: Sendable {
-    case syncMessages([ConversationMessage])
-    case appendMessage(ConversationMessage)
-    case updateMessage(ConversationMessage)
-    case deleteMessages([String])
-    case setTitle(String)
-    case recordAITitle(String)
-    case recordLastPrompt(String)
-    case turnStarted
-    case turnFinished(success: Bool, errorDescription: String?)
-    case turnInterrupted(reason: String)
-    case usage(TokenUsage)
-}
-
 /// Abstraction for message and session persistence.
 ///
 /// Third-party apps implement this protocol using their own database
@@ -45,44 +31,19 @@ public protocol StorageProvider: AnyObject, Sendable {
     /// Set the title of a session.
     func setTitle(_ title: String, for id: String)
 
-    // MARK: - Transcript Recording
+    // MARK: - Message Persistence
 
-    /// Record a transcript-backed session event.
-    func recordTranscript(_ event: TranscriptEvent, for sessionID: String)
-
-    /// Record a sidechain transcript event.
-    func recordSidechainTranscript(_ event: TranscriptEvent, for sessionID: String)
-
-    /// Flush buffered transcript writes, if any.
-    func flushTranscript()
+    /// Persist a single message snapshot immediately.
+    func save(message: ConversationMessage)
 
     /// Get the current transcript-derived execution status for a session.
     func sessionStatus(for sessionID: String) -> String
 }
 
 public extension StorageProvider {
-    func recordTranscript(_ event: TranscriptEvent, for sessionID: String) {
-        switch event {
-        case let .syncMessages(messages):
-            save(messages)
-        case let .appendMessage(message), let .updateMessage(message):
-            save([message])
-        case let .deleteMessages(messageIDs):
-            delete(messageIDs)
-        case let .setTitle(title), let .recordAITitle(title):
-            setTitle(title, for: sessionID)
-        case .recordLastPrompt:
-            break
-        case .turnStarted, .turnFinished, .turnInterrupted, .usage:
-            break
-        }
+    func save(message: ConversationMessage) {
+        save([message])
     }
-
-    func recordSidechainTranscript(_ event: TranscriptEvent, for sessionID: String) {
-        recordTranscript(event, for: sessionID)
-    }
-
-    func flushTranscript() {}
 
     func sessionStatus(for _: String) -> String {
         "idle"

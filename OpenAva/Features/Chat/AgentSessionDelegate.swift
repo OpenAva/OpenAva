@@ -101,7 +101,6 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidStart(for sessionID: String) {
-        sessionLogStorage.recordTranscript(.turnStarted, for: sessionID)
         backgroundCoordinator.markExecutionStarted(sessionID: sessionID)
         guard BackgroundExecutionPreferences.shared.isEnabled else { return }
         if #available(iOS 16.2, *), !Self.isMacCatalyst {
@@ -114,10 +113,6 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidFinish(for sessionID: String, success: Bool, errorDescription: String?) {
-        sessionLogStorage.recordTranscript(
-            .turnFinished(success: success, errorDescription: errorDescription),
-            for: sessionID
-        )
         backgroundCoordinator.markExecutionFinished(
             sessionID: sessionID,
             success: success,
@@ -133,7 +128,6 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionExecutionDidInterrupt(for sessionID: String, reason: String) {
-        sessionLogStorage.recordTranscript(.turnInterrupted(reason: reason), for: sessionID)
         backgroundCoordinator.markExecutionInterrupted(sessionID: sessionID, reason: reason)
         if BackgroundExecutionPreferences.shared.isEnabled {
             if #available(iOS 16.2, *), !Self.isMacCatalyst {
@@ -144,7 +138,6 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     func sessionDidReportUsage(_ usage: TokenUsage, for _: String) {
-        sessionLogStorage.recordTranscript(.usage(usage), for: sessionID)
         Task {
             await LLMUsageTracker.shared.record(usage)
         }

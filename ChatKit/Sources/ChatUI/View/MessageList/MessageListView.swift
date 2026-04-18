@@ -143,6 +143,14 @@ public final class MessageListView: UIView {
         updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: nil)
     }
 
+    /// Render with fresh messages and clear loading state in a single pass.
+    public func renderAndStopLoading(messages: [ConversationMessage], scrolling: Bool) {
+        renderedMessages = messages
+        lastRenderScrolling = scrolling
+        loadingMessage = nil
+        updateFromUpstreamPublisher(messages, scrolling, isLoading: nil)
+    }
+
     func toggleSubAgentTaskExpansion(messageID: String) {
         if expandedSubAgentMessageIDs.contains(messageID) {
             expandedSubAgentMessageIDs.remove(messageID)

@@ -344,7 +344,9 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
             )
 
             self.annotateLatestHeartbeatMessages(in: session)
-            session.persistMessages()
+            if let assistantMessage = session.messages.reversed().first(where: { $0.role == .assistant }) {
+                session.recordMessageInTranscript(assistantMessage)
+            }
 
             let latestMessages = HeartbeatSupport.trimToRecent(
                 storageProvider.messages(in: mainSessionID),

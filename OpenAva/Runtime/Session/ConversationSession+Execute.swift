@@ -6,6 +6,8 @@ import UIKit
 
 private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.execute")
 
+private let queryExecutionLogger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.query-engine")
+
 public extension ConversationSession {
     /// Input object representing what the user typed/attached.
     struct UserInput: Sendable {
@@ -101,11 +103,6 @@ public extension ConversationSession {
         }
     }
 
-    internal func requestUpdate(view: MessageListView, scrolling: Bool = true) async {
-        await view.stopLoading()
-        notifyMessagesDidChange(scrolling: scrolling)
-    }
-
     private func executeInference(
         model: ConversationSession.Model,
         messageListView: MessageListView,
@@ -116,29 +113,17 @@ public extension ConversationSession {
         )
         // Prevent screen lock
         sessionDelegate?.preventIdleTimer()
-        let queryEngine = QueryEngine(config: .init(
-            session: self,
-            model: model,
-            messageListView: messageListView
-        ))
-
         var queryResult: QueryResult?
         do {
-            for try await event in queryEngine.submitMessage(input) {
+            for try await event in submitQuery(input, model: model, maxTurns: 32, canUseTool: allowAllTools) {
                 switch event {
                 case let .loading(status):
                     logger.debug(
                         "query loading session=\(self.id, privacy: .public) status=\(status ?? "", privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
                     )
-                    if let status,
-                       !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    {
-                        await messageListView.loading(with: status)
-                    } else {
-                        await messageListView.loading()
-                    }
+                    await updateLoadingState(in: messageListView, status: status)
                 case let .refresh(scrolling):
-                    await requestUpdate(view: messageListView, scrolling: scrolling)
+                    await renderMessages(in: messageListView, scrolling: scrolling)
                 case let .result(result):
                     logger.notice(
                         "query result session=\(self.id, privacy: .public) finishReason=\(String(describing: result.finishReason), privacy: .public) interruptReason=\(result.interruptReason ?? "nil", privacy: .public)"
@@ -147,7 +132,7 @@ public extension ConversationSession {
                 }
             }
 
-            await requestUpdate(view: messageListView)
+            await renderMessages(in: messageListView)
 
             await updateTitle()
             showsInterruptedRetryAction = false
@@ -172,7 +157,7 @@ public extension ConversationSession {
             _ = appendNewMessage(role: .assistant) { msg in
                 msg.textContent = "```\n\(error.localizedDescription)\n```"
             }
-            await requestUpdate(view: messageListView)
+            await renderMessages(in: messageListView)
             sessionDelegate?.sessionExecutionDidFinish(
                 for: id,
                 success: false,
@@ -181,11 +166,8 @@ public extension ConversationSession {
         }
 
         stopThinkingForAll()
-        await requestUpdate(view: messageListView)
-        // Final persist: flush the write queue to guarantee all buffered
-        // entries are on disk before we signal completion.
+        await renderMessages(in: messageListView)
         persistMessages()
-        flushTranscript()
         let persistedMessages = messages
         let sessionID = id
 
@@ -197,6 +179,110 @@ public extension ConversationSession {
         logger.notice(
             "executeInference exited session=\(self.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
         )
+    }
+
+    private func updateLoadingState(in messageListView: MessageListView, status: String?) async {
+        if let status,
+           !status.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty
+        {
+            await messageListView.loading(with: status)
+        } else {
+            await messageListView.loading()
+        }
+    }
+
+    private func renderMessages(in messageListView: MessageListView, scrolling: Bool = true) async {
+        await messageListView.renderAndStopLoading(messages: messages, scrolling: scrolling)
+        notifyMessagesDidChange(scrolling: scrolling)
+    }
+
+    private func submitQuery(
+        _ input: UserInput,
+        model: ConversationSession.Model,
+        maxTurns: Int,
+        canUseTool: @escaping CanUseTool
+    ) -> AsyncThrowingStream<QueryEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                do {
+                    queryExecutionLogger.notice(
+                        "stream producer started session=\(self.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
+                    )
+                    let capabilities = model.capabilities
+
+                    var requestMessages = self.buildRequestMessages(capabilities: capabilities)
+
+                    let userMessage = self.appendNewMessage(role: .user) { message in
+                        message.textContent = input.transcriptText
+                        for attachment in input.attachments {
+                            message.parts.append(attachment)
+                        }
+
+                        for (key, value) in input.transcriptMetadata {
+                            message.metadata[key] = value
+                        }
+                    }
+                    continuation.yield(.refresh(scrolling: true))
+                    self.recordMessageInTranscript(userMessage)
+
+                    requestMessages.append(
+                        self.buildUserRequestMessage(
+                            text: input.text,
+                            attachments: input.attachments,
+                            capabilities: capabilities
+                        )
+                    )
+
+                    await self.injectSystemPrompt(&requestMessages, capabilities: capabilities)
+
+                    var tools: [ChatRequestBody.Tool]?
+                    if capabilities.contains(.tool), let toolProvider = self.toolProvider {
+                        let enabledTools = await toolProvider.enabledTools()
+                        if !enabledTools.isEmpty {
+                            tools = enabledTools
+                        }
+                    }
+
+                    let toolUseContext = ToolExecutionContext(
+                        session: self,
+                        toolProvider: self.toolProvider,
+                        canUseTool: canUseTool
+                    )
+
+                    let result = try await query(
+                        session: self,
+                        model: model,
+                        requestMessages: &requestMessages,
+                        tools: tools,
+                        toolUseContext: toolUseContext,
+                        maxTurns: max(1, maxTurns),
+                        continuation: continuation
+                    )
+                    continuation.yield(.result(result))
+                    queryExecutionLogger.notice(
+                        "stream producer finishing normally session=\(self.id, privacy: .public)"
+                    )
+                    continuation.finish()
+                } catch is CancellationError {
+                    queryExecutionLogger.notice(
+                        "stream producer cancelled session=\(self.id, privacy: .public)"
+                    )
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    queryExecutionLogger.error(
+                        "stream producer failed session=\(self.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { @Sendable termination in
+                queryExecutionLogger.notice(
+                    "stream termination session=\(self.id, privacy: .public) reason=\(String(describing: termination), privacy: .public)"
+                )
+                task.cancel()
+            }
+        }
     }
 
     /// Retry the last interrupted turn after user explicitly taps retry.

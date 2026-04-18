@@ -134,7 +134,7 @@ struct AgentTranscriptSearchService {
         }
 
         var parts: [String] = []
-        for key in ["summary", "text", "customTitle", "aiTitle", "result", "toolName", "subtype"] {
+        for key in ["summary", "text", "customTitle", "result", "toolName", "subtype"] {
             if let value = object[key] as? String, !value.isEmpty {
                 parts.append(value)
             }

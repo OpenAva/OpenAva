@@ -66,17 +66,37 @@ private struct QueryTurnOutput {
     let finishReason: FinishReason
 }
 
-private struct ToolCallEntry {
+private struct InterruptedToolCall {
     let request: ToolRequest
-    let tool: any ToolExecutor
     let toolCallPartIndex: Int
-    let permissionDecision: ToolPermissionDecision
 }
 
 private struct ToolCallResponse {
     let text: String
     let state: ToolCallState
     let summaryStatus: String
+}
+
+private struct ToolUseSummaryBuilder {
+    private var lines = [ConversationMarkers.toolUseSummaryPrefix, ""]
+
+    mutating func append(request: ToolRequest, response: ToolCallResponse) {
+        let parameterSummary = summarizeToolText(request.arguments, limit: 160)
+        let outputSummary = summarizeToolText(response.text, limit: 240)
+
+        lines.append("- \(request.name) [\(response.summaryStatus)]")
+        if !parameterSummary.isEmpty {
+            lines.append("  input: \(parameterSummary)")
+        }
+        if !outputSummary.isEmpty {
+            lines.append("  output: \(outputSummary)")
+        }
+    }
+
+    func build() -> String? {
+        guard lines.count > 2 else { return nil }
+        return lines.joined(separator: "\n")
+    }
 }
 
 @MainActor
@@ -159,11 +179,6 @@ private func queryLoop(
             continuation: continuation
         )
 
-        // After a turn completes, flush the write queue to ensure durability.
-        // The streaming persistence already wrote incremental updates, but we
-        // need to guarantee all buffered entries are on disk before proceeding.
-        session.flushTranscript()
-
         guard !turn.pendingToolCalls.isEmpty else {
             logger.notice(
                 "query loop completed without tools session=\(session.id, privacy: .public) finishReason=\(String(describing: turn.finishReason), privacy: .public)"
@@ -188,8 +203,6 @@ private func queryLoop(
             toolUseContext: toolUseContext,
             continuation: continuation
         )
-        // After tool calls complete, flush the write queue for durability.
-        session.flushTranscript()
     }
 
     flushPendingToolUseSummary(session: session, state: &state)
@@ -198,9 +211,8 @@ private func queryLoop(
         msg.textContent = String.localized("Reached maximum number of turns.")
         msg.finishReason = .length
     }
-    session.appendMessageToTranscript(message)
+    session.recordMessageInTranscript(message)
     continuation.yield(.refresh(scrolling: true))
-    session.flushTranscript()
 
     return QueryResult(
         finishReason: FinishReason.length,
@@ -212,7 +224,7 @@ private func queryLoop(
 
 @MainActor
 private func synthesizeInterruptedToolResults(
-    _ entries: [ToolCallEntry],
+    _ entries: [InterruptedToolCall],
     assistantMessage: ConversationMessage,
     requestMessages: inout [ChatRequestBody.Message],
     toolUseContext: ToolExecutionContext,
@@ -288,10 +300,10 @@ private func executeQueryTurn(
         }
     }
 
-    // Counter for periodic streaming persistence.
-    // Every `streamingPersistInterval` characters, we flush the message to transcript.
-    var streamingPersistCounter = 0
-    let streamingPersistInterval = 500 // flush to transcript every 500 chars
+    // Claude Code-style persistence strategy:
+    // - Keep the UI streaming in-memory.
+    // - Persist only structural changes (e.g. tool call parts) and the final message.
+    // This avoids appending many full-snapshot updates for the same message UUID.
 
     let reasoningEmitter = BalancedEmitter(duration: 1.0, frequency: 30) { chunk in
         let current = message.reasoningContent ?? ""
@@ -303,13 +315,6 @@ private func executeQueryTurn(
         message.textContent += chunk
         updateVisibleState()
         continuation.yield(.refresh(scrolling: true))
-
-        // Streaming persistence: periodically flush to disk during inference.
-        streamingPersistCounter += chunk.count
-        if streamingPersistCounter >= streamingPersistInterval {
-            streamingPersistCounter = 0
-            session.updateMessageInTranscript(message)
-        }
     }
     defer {
         reasoningEmitter.cancel()
@@ -363,7 +368,7 @@ private func executeQueryTurn(
                     )
                 )
                 continuation.yield(.refresh(scrolling: true))
-                session.updateMessageInTranscript(message)
+                session.recordMessageInTranscript(message)
             }
 
         case .image:
@@ -383,9 +388,6 @@ private func executeQueryTurn(
 
     session.stopThinking(for: message.id)
     continuation.yield(.refresh(scrolling: true))
-
-    // Streaming persistence: flush final message state after stream completes.
-    session.updateMessageInTranscript(message)
 
     collapseReasoning()
     if collapseAfterReasoningComplete {
@@ -433,6 +435,8 @@ private func executeQueryTurn(
     let finishReason: FinishReason = hasToolCalls ? .toolCalls : .stop
     message.finishReason = finishReason
 
+    session.recordMessageInTranscript(message)
+
     continuation.yield(.refresh(scrolling: true))
     return QueryTurnOutput(
         assistantMessage: message,
@@ -456,13 +460,29 @@ private func executeToolCalls(
         return nil
     }
 
-    continuation.yield(.loading(String.localized("Utilizing tool call")))
     logger.notice(
         "executeToolCalls entered session=\(toolUseContext.session.id, privacy: .public) count=\(pendingToolCalls.count)"
     )
 
-    var toolCallEntries: [ToolCallEntry] = []
-    for request in pendingToolCalls {
+    var interruptedToolCalls: [InterruptedToolCall] = []
+    var summaryBuilder = ToolUseSummaryBuilder()
+
+    defer {
+        if Task.isCancelled {
+            logger.notice(
+                "executeToolCalls detected cancellation session=\(toolUseContext.session.id, privacy: .public) synthesizedResults=\(interruptedToolCalls.count)"
+            )
+            synthesizeInterruptedToolResults(
+                interruptedToolCalls,
+                assistantMessage: assistantMessage,
+                requestMessages: &requestMessages,
+                toolUseContext: toolUseContext,
+                continuation: continuation
+            )
+        }
+    }
+
+    for (index, request) in pendingToolCalls.enumerated() {
         try Task.checkCancellation()
 
         let existingPartIndex = assistantMessage.parts.firstIndex { part in
@@ -485,7 +505,7 @@ private func executeToolCalls(
                     )
                 )
             )
-            toolUseContext.session.updateMessageInTranscript(assistantMessage)
+            toolUseContext.session.recordMessageInTranscript(assistantMessage)
         }
         continuation.yield(.refresh(scrolling: true))
 
@@ -498,82 +518,54 @@ private func executeToolCalls(
             throw InferenceError.toolNotFound(name: request.name)
         }
 
-        let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
-        updateToolCallPart(in: assistantMessage, at: partIndex,
-                           toolName: tool.displayName,
-                           state: permissionDecision.allowsExecution ? .running : .failed)
-
-        toolCallEntries.append(
-            ToolCallEntry(
-                request: request,
-                tool: tool,
-                toolCallPartIndex: partIndex,
-                permissionDecision: permissionDecision
-            )
+        interruptedToolCalls.append(
+            InterruptedToolCall(request: request, toolCallPartIndex: partIndex)
         )
-        continuation.yield(.refresh(scrolling: true))
-    }
 
-    var orderedToolResponses = [ToolCallResponse?](repeating: nil, count: toolCallEntries.count)
-
-    defer {
-        if Task.isCancelled {
+        let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
+        let response: ToolCallResponse
+        if !permissionDecision.allowsExecution {
+            updateToolCallPart(in: assistantMessage, at: partIndex,
+                               toolName: tool.displayName, state: .failed)
+            response = makePermissionResponse(for: permissionDecision)
+        } else {
+            updateToolCallPart(in: assistantMessage, at: partIndex,
+                               toolName: tool.displayName, state: .running)
+            continuation.yield(.refresh(scrolling: true))
+            try Task.checkCancellation()
             logger.notice(
-                "executeToolCalls detected cancellation session=\(toolUseContext.session.id, privacy: .public) synthesizedResults=\(toolCallEntries.count)"
+                "tool execution begin session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) index=\(index)"
             )
-            synthesizeInterruptedToolResults(
-                toolCallEntries,
-                assistantMessage: assistantMessage,
-                requestMessages: &requestMessages,
-                toolUseContext: toolUseContext,
-                continuation: continuation
+            response = try await executeSingleToolCall(
+                request,
+                tool: tool,
+                toolProvider: toolProvider,
+                toolUseContext: toolUseContext
             )
         }
-    }
 
-    for (index, entry) in toolCallEntries.enumerated() where !entry.permissionDecision.allowsExecution {
-        orderedToolResponses[index] = makePermissionResponse(for: entry.permissionDecision)
-    }
-
-    for (index, entry) in toolCallEntries.enumerated() where entry.permissionDecision.allowsExecution {
-        try Task.checkCancellation()
         logger.notice(
-            "tool execution begin session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) index=\(index)"
-        )
-        orderedToolResponses[index] = try await executeSingleToolCall(
-            entry,
-            toolProvider: toolProvider,
-            toolUseContext: toolUseContext
-        )
-    }
-
-    for (index, entry) in toolCallEntries.enumerated() {
-        guard let response = orderedToolResponses[index] else { continue }
-        logger.notice(
-            "tool execution end session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) state=\(String(describing: response.state), privacy: .public)"
+            "tool execution end session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) state=\(String(describing: response.state), privacy: .public)"
         )
 
-        updateToolCallPart(in: assistantMessage, at: entry.toolCallPartIndex, state: response.state)
+        updateToolCallPart(in: assistantMessage, at: partIndex, state: response.state)
 
         assistantMessage.parts.append(
             .toolResult(
-                .init(toolCallID: entry.request.id, result: response.text, isCollapsed: true)
+                .init(toolCallID: request.id, result: response.text, isCollapsed: true)
             )
         )
         requestMessages.append(
             .tool(
                 content: .text(response.text),
-                toolCallID: entry.request.id
+                toolCallID: request.id
             )
         )
-        toolUseContext.session.updateMessageInTranscript(assistantMessage)
+        summaryBuilder.append(request: request, response: response)
         continuation.yield(.refresh(scrolling: true))
     }
 
-    return makeToolUseSummary(
-        toolCallEntries: toolCallEntries,
-        orderedToolResponses: orderedToolResponses
-    )
+    return summaryBuilder.build()
 }
 
 @MainActor
@@ -625,33 +617,10 @@ private func flushPendingToolUseSummary(session: ConversationSession, state: ino
             message.createdAt = latestAssistant.createdAt.addingTimeInterval(0.001)
         }
     }
-    session.persistMessages()
-    state.pendingToolUseSummary = nil
-}
-
-private func makeToolUseSummary(
-    toolCallEntries: [ToolCallEntry],
-    orderedToolResponses: [ToolCallResponse?]
-) -> String? {
-    guard !toolCallEntries.isEmpty else { return nil }
-
-    var lines = [ConversationMarkers.toolUseSummaryPrefix, ""]
-    for (index, entry) in toolCallEntries.enumerated() {
-        guard let response = orderedToolResponses[index] else { continue }
-        let parameterSummary = summarizeToolText(entry.request.arguments, limit: 160)
-        let outputSummary = summarizeToolText(response.text, limit: 240)
-        let status = response.summaryStatus
-        lines.append("- \(entry.request.name) [\(status)]")
-        if !parameterSummary.isEmpty {
-            lines.append("  input: \(parameterSummary)")
-        }
-        if !outputSummary.isEmpty {
-            lines.append("  output: \(outputSummary)")
-        }
+    if let appended = session.messages.last {
+        session.recordMessageInTranscript(appended)
     }
-
-    guard lines.count > 2 else { return nil }
-    return lines.joined(separator: "\n")
+    state.pendingToolUseSummary = nil
 }
 
 private func summarizeToolText(_ text: String, limit: Int) -> String {
@@ -667,33 +636,34 @@ private func summarizeToolText(_ text: String, limit: Int) -> String {
 
 @MainActor
 private func executeSingleToolCall(
-    _ entry: ToolCallEntry,
+    _ request: ToolRequest,
+    tool: any ToolExecutor,
     toolProvider: any ToolProvider,
     toolUseContext: ToolExecutionContext
 ) async throws -> ToolCallResponse {
     if Task.isCancelled {
         logger.notice(
-            "tool execution cancelled before start session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public)"
+            "tool execution cancelled before start session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
         )
         throw CancellationError()
     }
     do {
         let result = try await toolProvider.executeTool(
-            entry.tool,
-            parameters: entry.request.arguments
+            tool,
+            parameters: request.arguments
         )
         if Task.isCancelled {
             logger.notice(
-                "tool execution cancelled after provider return session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public)"
+                "tool execution cancelled after provider return session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
             )
             throw CancellationError()
         }
         let text = truncateToolOutput(
             result.output,
-            limit: toolUseContext.responseLimit(for: entry.tool)
+            limit: toolUseContext.responseLimit(for: tool)
         )
         logger.notice(
-            "tool provider returned session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) isError=\(String(result.isError), privacy: .public) outputLength=\(text.count)"
+            "tool provider returned session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) isError=\(String(result.isError), privacy: .public) outputLength=\(text.count)"
         )
         return ToolCallResponse(
             text: text.isEmpty ? String.localized("Tool executed successfully with no output") : text,
@@ -702,12 +672,12 @@ private func executeSingleToolCall(
         )
     } catch is CancellationError {
         logger.notice(
-            "tool execution throwing cancellation session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public)"
+            "tool execution throwing cancellation session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public)"
         )
         throw CancellationError()
     } catch {
         logger.error(
-            "tool execution failed session=\(toolUseContext.session.id, privacy: .public) tool=\(entry.request.name, privacy: .public) id=\(entry.request.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            "tool execution failed session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
         )
         return ToolCallResponse(
             text: String.localized("Tool execution failed: \(error.localizedDescription)"),
