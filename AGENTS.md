@@ -1,53 +1,34 @@
-# Agent Workflow and Constraints
+# Agent Operating Rules
 
-## Required Workflow
+Goal: complete the user's current requirement with the **lowest necessary complexity**, and make the result easy to verify and explain.
 
-### 1. Clarify the task
+## Highest Priority (Hard Rules)
 
-- Must identify the real goal before proposing or changing anything.
-- Must identify hard constraints, explicit requirements, and non-goals.
-- Must identify the core tradeoff, then choose based on the current task rather than imagined future needs.
+- **State the requirement before acting**: summarize the user-visible behavior change in 1 sentence. If uncertain, ask only the minimum necessary clarification.
+- **Read before changing**: inspect the relevant files/types before editing, and make the smallest change that fits the existing structure.
+- **Prefer existing flows**: if the requirement can be solved inside existing types/functions/flows, do not add a manager / wrapper / service / helper.
+- **Do not design for the future**: do not solve hypothetical future needs; do not add extension points unless the current task clearly requires them.
+- **Simplify after it works**: after the first working version, do one simplification pass to remove dead code, redundant branches, one-off parameters, and misleading names.
+- **Verification is required**: validate the change using the most direct available method (tests / compile / direct path validation). “It should work” is not enough.
 
-### 2. Design the simplest sufficient solution
+## Triggered Rules (When / Then)
 
-- Must start from first principles.
-- Must choose the simplest solution that fully solves the task.
-- Must prefer existing code, types, and flows over adding new entities.
-- Must prefer clear structure and literal naming over cleverness.
+- **When adding a new entity**: first prove that modifying the existing code cannot express the requirement cleanly. Then explain why the new entity is necessary, what it owns, and why editing the existing code was not enough.
+- **When two solutions both work**: choose the one with fewer new concepts, fewer lines of code, and fewer indirection layers.
+- **When a change touches multiple modules**: keep data flow explicit, with clear ownership of parameters, return values, and state. Avoid hidden global state or opaque cross-layer flow.
+- **When fixing a bug**: state the reproduction condition or visible failure first, then make the smallest fix, then add a regression validation point.
 
-### 3. Implement directly
+## Anti-Patterns
 
-- Must keep data flow explicit and ownership clear.
-- Must avoid speculative abstractions, hidden indirection, and one-off wrappers.
-- Must not add parameters, layers, state, or helpers unless they are required to solve the task.
-- Must delete code that no longer serves the design.
+- Adding a new abstraction only to avoid editing the existing code
+- Adding a helper/wrapper used only once, unless it clearly improves readability and removes duplication
+- Keeping dead branches or compatibility code “just in case”
+- Skipping verification after changes
 
-### 4. Simplify after it works
+## Output Contract
 
-- Must simplify once after the first working version.
-- Must remove unnecessary branches, parameters, state, layers, and abstractions.
-- Must merge duplication when it directly improves clarity.
-- Must tighten boundaries and rename anything misleading.
-
-### 5. Verify completion
-
-- Must verify the real requirement works in actual behavior, not only in theory.
-- Must verify the final design is easy to explain.
-- Must verify no unnecessary entity remains.
-- Must verify every remaining complexity is justified by the task.
-
-## Hard Constraints
-
-- Must not optimize for imagined future requirements.
-- Must not introduce entities without clear present value.
-- Must not stop at “working code” if the shape can still be simplified.
-- Must not preserve dead code, misleading names, or unjustified complexity.
-
-## Decision Standard
-
-When multiple solutions are possible, choose the one that is:
-
-1. Correct for the real requirement.
-2. Simplest in structure and reasoning.
-3. Clearest to read and explain.
-4. Easiest to maintain without extra abstraction.
+- **Requirement in one sentence**: what visible behavior change the user asked for.
+- **Smallest sufficient solution**: which files / key points changed, and why this is the smallest sufficient approach.
+- **What was intentionally not done**: which new entities, abstractions, or future-oriented work were intentionally avoided.
+- **How it was verified**: what tests, compilation, or direct checks were used.
+- **No code in the final summary**: when summarizing conclusions, do not include code snippets or paste file contents unless the user explicitly asks for code.
