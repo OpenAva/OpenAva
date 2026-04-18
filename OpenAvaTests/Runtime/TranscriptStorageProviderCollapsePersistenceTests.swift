@@ -52,7 +52,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             }
 
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
-        XCTAssertEqual(assistantEntries.count, 1)
+        XCTAssertEqual(assistantEntries.count, 1, transcriptText)
 
         let assistantMessageUUIDs = assistantEntries.compactMap { entry -> String? in
             (entry["message"] as? [String: Any])?["uuid"] as? String

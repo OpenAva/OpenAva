@@ -5,7 +5,7 @@ import OSLog
 
 private let requestBuildLogger = Logger(subsystem: "ChatUI", category: "RequestBuild")
 private let requestHistoryKeepRecentMessageCount = 4
-private let requestHistoryContinuationWindow: TimeInterval = 12 * 60 * 60
+private let requestHistoryContinuationWindow: TimeInterval = 30 * 60
 
 extension ConversationSession {
     /// Build request messages from conversation history.
@@ -29,7 +29,14 @@ extension ConversationSession {
             startIndex -= 1
         }
 
-        if let latestUserIndex = latestHistoricalUserMessageIndex(in: candidates, before: startIndex) {
+        let selectedMessages = Array(candidates[startIndex...])
+        let selectedContainsUserMessage = selectedMessages.contains { message in
+            message.role == .user && !message.isCompactionSummary
+        }
+
+        if !selectedContainsUserMessage,
+           let latestUserIndex = latestHistoricalUserMessageIndex(in: candidates, before: startIndex)
+        {
             startIndex = latestUserIndex
         }
 

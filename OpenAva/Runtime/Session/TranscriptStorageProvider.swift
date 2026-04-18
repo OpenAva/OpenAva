@@ -242,19 +242,11 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         var updatedAtMs: Int64
     }
 
-    private struct SessionMetadataCache {
-        var customTitle: String?
-        var lastPrompt: String?
-    }
-
-    private struct SessionInterruptionSnapshot {
-        var shouldShowRetry = false
-    }
-
     private struct LoadedSessionCache {
         var messages: [ConversationMessage] = []
-        var metadata = SessionMetadataCache()
-        var interruption = SessionInterruptionSnapshot()
+        var customTitle: String?
+        var lastPrompt: String?
+        var shouldShowRetry = false
     }
 
     // MARK: - Replay State
@@ -347,9 +339,24 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
 
         lock.lock()
-        ensureSessionLoadedLocked(sessionID)
+        let transcriptEntries = loadTranscriptEntriesLocked(sessionID)
+        let replayState = replayFromChainLocked(entries: transcriptEntries, sessionID: sessionID)
+        var cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
+        let cacheSignatures = cache.messages.map(transcriptSignature(for:))
+        let replaySignatures = replayState.messages.map(transcriptSignature(for:))
+        let metadataOutOfSync = cache.customTitle != replayState.customTitle ||
+            cache.lastPrompt != replayState.lastPrompt
+        let interruptionOutOfSync = cache.shouldShowRetry != replayState.showsInterruptedRetryAction
+        if cacheSignatures != replaySignatures || metadataOutOfSync || interruptionOutOfSync {
+            cache.messages = replayState.messages
+            cache.customTitle = replayState.customTitle
+            cache.lastPrompt = replayState.lastPrompt
+            cache.shouldShowRetry = replayState.showsInterruptedRetryAction
+            loadedSessionCacheByID[sessionID] = cache
+        }
 
-        let previousMessages = loadedSessionCacheByID[sessionID]?.messages ?? []
+        let previousMessages = replayState.messages
+        let latestStoredRecordsByID = latestStoredMessageRecordsByID(from: transcriptEntries)
         let previousByID = Dictionary(uniqueKeysWithValues: previousMessages.map { ($0.id, $0) })
         let nextByID = Dictionary(uniqueKeysWithValues: sortedMessages.map { ($0.id, $0) })
         let removedIDs = previousMessages.map(\.id).filter { nextByID[$0] == nil }
@@ -369,16 +376,17 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             // Re-append metadata so it stays in the tail window.
             reAppendMetadataLocked(sessionID: sessionID)
         } else if !removedIDs.isEmpty {
-            var cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
-            var metadata = cache.metadata
-            metadata.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
+            cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
             cache.messages = sortedMessages.map(copyMessage(_:))
-            cache.metadata = metadata
-            cache.interruption = SessionInterruptionSnapshot(
-                shouldShowRetry: Self.interruptionRetryVisible(for: sortedMessages)
-            )
+            cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
+            cache.shouldShowRetry = Self.interruptionRetryVisible(for: sortedMessages)
             loadedSessionCacheByID[sessionID] = cache
-            rewriteTranscriptLocked(sessionID: sessionID, messages: sortedMessages, metadata: metadata)
+            rewriteTranscriptLocked(
+                sessionID: sessionID,
+                messages: sortedMessages,
+                customTitle: cache.customTitle,
+                lastPrompt: cache.lastPrompt
+            )
             upsertSessionLocked(
                 for: sessionID,
                 displayNameOverride: sessionListDisplayNameLocked(sessionID: sessionID, messages: sortedMessages)
@@ -391,8 +399,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
         for message in sortedMessages {
             let previous = previousByID[message.id]
+            let currentSignature = transcriptSignature(for: message)
+            let storedSignature = transcriptSignature(for: latestStoredRecordsByID[message.id])
 
-            guard transcriptSignature(for: previous) != transcriptSignature(for: message) else {
+            guard transcriptSignature(for: previous) != currentSignature, storedSignature != currentSignature else {
                 continue
             }
 
@@ -406,14 +416,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             )
         }
 
-        var cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
+        cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
         cache.messages = sortedMessages.map(copyMessage(_:))
-        var metadata = cache.metadata
-        metadata.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
-        cache.metadata = metadata
-        cache.interruption = SessionInterruptionSnapshot(
-            shouldShowRetry: Self.interruptionRetryVisible(for: sortedMessages)
-        )
+        cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
+        cache.shouldShowRetry = Self.interruptionRetryVisible(for: sortedMessages)
         loadedSessionCacheByID[sessionID] = cache
         upsertSessionLocked(
             for: sessionID,
@@ -433,7 +439,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     func sessionStatus(for sessionID: String) -> String {
         lock.lock()
         ensureSessionLoadedLocked(sessionID)
-        let shouldShowRetry = loadedSessionCacheByID[sessionID]?.interruption.shouldShowRetry ?? false
+        let shouldShowRetry = loadedSessionCacheByID[sessionID]?.shouldShowRetry ?? false
         lock.unlock()
         return shouldShowRetry ? "interrupted" : "idle"
     }
@@ -448,14 +454,15 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             if filtered.count != messages.count {
                 var nextCache = cache
                 nextCache.messages = filtered
-                var metadata = nextCache.metadata
-                metadata.lastPrompt = filtered.reversed().compactMap(lastPromptText(from:)).first
-                nextCache.metadata = metadata
-                nextCache.interruption = SessionInterruptionSnapshot(
-                    shouldShowRetry: Self.interruptionRetryVisible(for: filtered)
-                )
+                nextCache.lastPrompt = filtered.reversed().compactMap(lastPromptText(from:)).first
+                nextCache.shouldShowRetry = Self.interruptionRetryVisible(for: filtered)
                 loadedSessionCacheByID[sessionID] = nextCache
-                rewriteTranscriptLocked(sessionID: sessionID, messages: filtered, metadata: metadata)
+                rewriteTranscriptLocked(
+                    sessionID: sessionID,
+                    messages: filtered,
+                    customTitle: nextCache.customTitle,
+                    lastPrompt: nextCache.lastPrompt
+                )
                 upsertSessionLocked(
                     for: sessionID,
                     displayNameOverride: sessionListDisplayNameLocked(sessionID: sessionID, messages: filtered)
@@ -482,9 +489,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             return
         }
         var cache = loadedSessionCacheByID[id] ?? LoadedSessionCache()
-        var metadata = cache.metadata
-        metadata.customTitle = title.isEmpty ? nil : title
-        cache.metadata = metadata
+        cache.customTitle = title.isEmpty ? nil : title
         loadedSessionCacheByID[id] = cache
         upsertSessionLocked(
             for: id,
@@ -620,13 +625,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let replayState = replayStateLocked(for: sessionID)
         loadedSessionCacheByID[sessionID] = LoadedSessionCache(
             messages: replayState.messages,
-            metadata: SessionMetadataCache(
-                customTitle: replayState.customTitle,
-                lastPrompt: replayState.lastPrompt
-            ),
-            interruption: SessionInterruptionSnapshot(
-                shouldShowRetry: replayState.showsInterruptedRetryAction
-            )
+            customTitle: replayState.customTitle,
+            lastPrompt: replayState.lastPrompt,
+            shouldShowRetry: replayState.showsInterruptedRetryAction
         )
         if !replayState.messages.isEmpty || replayState.title != nil || replayState.lastPrompt != nil {
             upsertSessionLocked(
@@ -753,10 +754,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// re-appends them to the end of the file so they remain accessible
     /// during lite reads.
     private func reAppendMetadataLocked(sessionID: String) {
-        let metadata = loadedSessionCacheByID[sessionID]?.metadata ?? SessionMetadataCache()
+        let cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
 
         // Re-append each metadata type (they won't advance the chain).
-        if let prompt = metadata.lastPrompt {
+        if let prompt = cache.lastPrompt {
             _ = appendEntryLocked(
                 type: "last-prompt",
                 sessionID: sessionID,
@@ -764,7 +765,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 lastPrompt: prompt
             )
         }
-        if let title = metadata.customTitle {
+        if let title = cache.customTitle {
             _ = appendEntryLocked(
                 type: "custom-title",
                 sessionID: sessionID,
@@ -853,7 +854,8 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     private func rewriteTranscriptLocked(
         sessionID: String,
         messages: [ConversationMessage],
-        metadata: SessionMetadataCache
+        customTitle: String?,
+        lastPrompt: String?
     ) {
         let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
         let parentUUIDsByMessageID = parentUUIDsByMessageID(for: sortedMessages)
@@ -889,12 +891,12 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             lines.append(line)
         }
 
-        if let customTitle = metadata.customTitle,
+        if let customTitle,
            let line = encodedTranscriptLine(for: .customTitle(CustomTitleTranscriptEntry(customTitle: customTitle)))
         {
             lines.append(line)
         }
-        if let lastPrompt = metadata.lastPrompt,
+        if let lastPrompt,
            let line = encodedTranscriptLine(for: .lastPrompt(LastPromptTranscriptEntry(lastPrompt: lastPrompt)))
         {
             lines.append(line)
@@ -1045,14 +1047,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
 
         cache.messages = nextMessages
-        var metadata = cache.metadata
         if let lastPromptOverride {
-            metadata.lastPrompt = lastPromptOverride
+            cache.lastPrompt = lastPromptOverride
         }
-        cache.metadata = metadata
-        cache.interruption = SessionInterruptionSnapshot(
-            shouldShowRetry: Self.interruptionRetryVisible(for: nextMessages)
-        )
+        cache.shouldShowRetry = Self.interruptionRetryVisible(for: nextMessages)
         loadedSessionCacheByID[sessionID] = cache
         upsertSessionLocked(
             for: sessionID,
@@ -1087,11 +1085,41 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     private func transcriptSignature(for message: ConversationMessage?) -> String? {
         guard let message,
               let record = makeTranscriptMessageRecord(from: message),
-              let data = try? JSONEncoder().encode(record)
+              let data = canonicalTranscriptSignatureData(for: record)
         else {
             return nil
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    private func transcriptSignature(for record: TranscriptMessageRecord?) -> String? {
+        guard let record,
+              let data = canonicalTranscriptSignatureData(for: record)
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func canonicalTranscriptSignatureData(for record: TranscriptMessageRecord) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(record)
+    }
+
+    private func latestStoredMessageRecordsByID(
+        from entries: [SessionTranscriptEntry]
+    ) -> [String: TranscriptMessageRecord] {
+        var records: [String: TranscriptMessageRecord] = [:]
+        for entry in entries {
+            guard let uuid = entry.uuid,
+                  let message = entry.message
+            else {
+                continue
+            }
+            records[uuid] = message
+        }
+        return records
     }
 
     private func previewText(from messages: [ConversationMessage]) -> String? {
@@ -1114,8 +1142,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func effectiveTitleLocked(for sessionID: String) -> String? {
-        let metadata = loadedSessionCacheByID[sessionID]?.metadata ?? SessionMetadataCache()
-        return metadata.customTitle
+        loadedSessionCacheByID[sessionID]?.customTitle
     }
 
     private func sessionListDisplayNameLocked(sessionID: String, messages: [ConversationMessage]?) -> String {
@@ -1123,8 +1150,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             return title
         }
 
-        let metadata = loadedSessionCacheByID[sessionID]?.metadata ?? SessionMetadataCache()
-        if let lastPrompt = metadata.lastPrompt, !lastPrompt.isEmpty {
+        if let lastPrompt = loadedSessionCacheByID[sessionID]?.lastPrompt, !lastPrompt.isEmpty {
             return lastPrompt
         }
 
