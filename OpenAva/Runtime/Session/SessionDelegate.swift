@@ -23,30 +23,30 @@ public protocol SessionDelegate: AnyObject, Sendable {
     /// End a previously started background task.
     func endBackgroundTask(_ token: Any)
 
-    /// Prevent the screen from locking during inference.
+    /// Prevent the screen from locking during message execution.
     func preventIdleTimer()
 
-    /// Allow the screen to lock normally after inference completes.
+    /// Allow the screen to lock normally after message execution completes.
     func allowIdleTimer()
 
     // MARK: - Execution Lifecycle
 
-    /// Called when one inference turn starts for a session.
+    /// Called when one execution turn starts for a session.
     func sessionExecutionDidStart(for sessionID: String)
 
-    /// Called when one inference turn finishes successfully or with failure.
+    /// Called when one execution turn finishes successfully or with failure.
     func sessionExecutionDidFinish(
         for sessionID: String,
         success: Bool,
         errorDescription: String?
     )
 
-    /// Called when one inference turn is interrupted (for example, cancellation).
+    /// Called when one execution turn is interrupted (for example, cancellation).
     func sessionExecutionDidInterrupt(for sessionID: String, reason: String)
 
     // MARK: - Usage Tracking
 
-    /// Called when token usage is reported after an inference step.
+    /// Called when token usage is reported after one execution step.
     func sessionDidReportUsage(_ usage: TokenUsage, for sessionID: String)
 
     /// Called after messages have been persisted for the session.

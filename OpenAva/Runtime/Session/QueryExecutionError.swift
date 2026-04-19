@@ -1,9 +1,9 @@
-//  Typed errors for inference and tool execution failures.
+//  Typed errors for query and tool execution failures.
 import ChatUI
 import Foundation
 
-/// Errors that can occur during inference execution.
-public enum InferenceError: LocalizedError, Sendable {
+/// Errors that can occur during query execution.
+public enum QueryExecutionError: LocalizedError, Sendable {
     /// The model returned no content (no text, reasoning, or tool calls).
     case noResponseFromModel
 
@@ -16,7 +16,7 @@ public enum InferenceError: LocalizedError, Sendable {
     /// A tool execution threw an error.
     case toolExecutionFailed(name: String, underlyingDescription: String)
 
-    /// The inference was cancelled by the user or system.
+    /// The query was cancelled by the user or system.
     case cancelled
 
     public var errorDescription: String? {
@@ -30,7 +30,7 @@ public enum InferenceError: LocalizedError, Sendable {
         case let .toolExecutionFailed(name, description):
             String.localized("Tool \(name) failed: \(description)")
         case .cancelled:
-            String.localized("Inference was cancelled.")
+            String.localized("Query execution was cancelled.")
         }
     }
 }

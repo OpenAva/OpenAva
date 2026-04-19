@@ -6,7 +6,7 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.session")
 
-/// Coordinates the message state and inference execution for a conversation.
+/// Coordinates the message state and turn execution for a conversation.
 @MainActor
 public final class ConversationSession: Identifiable, Sendable {
     public typealias SystemPromptProvider = @Sendable () -> String
@@ -75,6 +75,7 @@ public final class ConversationSession: Identifiable, Sendable {
 
     var messages: [ConversationMessage] = []
     var currentTask: Task<Void, Never>?
+    lazy var queryEngine = QueryEngine(session: self)
 
     // MARK: - Providers
 
@@ -96,14 +97,14 @@ public final class ConversationSession: Identifiable, Sendable {
 
     // MARK: - Usage Tracking
 
-    /// Token usage from the last inference execution.
+    /// Token usage from the last execution turn.
     public private(set) var lastUsage: TokenUsage?
 
     private lazy var usageSubject = PassthroughSubject<TokenUsage, Never>()
 
     private lazy var loadingStateSubject = CurrentValueSubject<String?, Never>(nil)
 
-    /// Publisher emitting token usage after each inference step.
+    /// Publisher emitting token usage after each execution step.
     public var usageDidChange: AnyPublisher<TokenUsage, Never> {
         usageSubject.eraseToAnyPublisher()
     }
@@ -133,8 +134,8 @@ public final class ConversationSession: Identifiable, Sendable {
 
     // MARK: - Interrupted Retry
 
-    /// Last submitted input used for manual retry after interruption.
-    var lastSubmittedInput: UserInput?
+    /// Last submitted message input used for manual retry after interruption.
+    var lastSubmittedMessageInput: UserInput?
     /// Whether UI should show the trailing "retry" action row.
     var showsInterruptedRetryAction = false
     private(set) var currentInterruptReason: InterruptReason?
