@@ -33,7 +33,7 @@ final class AgentMainSessionRegistry {
     ///
     /// Rationale: Multiple entry points (UI, Team, Heartbeat) can submit turns to the same
     /// `ConversationSession`. Without a shared executor, later submissions will invoke
-    /// `runInference` and trigger `.taskReplaced` cancellation on an in-flight task.
+    /// `submitMessage` and trigger `.taskReplaced` cancellation on an in-flight task.
     private actor MainSessionExecutor {
         private var isRunning = false
         private var waiters: [CheckedContinuation<Void, Never>] = []

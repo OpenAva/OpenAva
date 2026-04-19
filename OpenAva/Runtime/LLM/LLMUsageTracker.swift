@@ -135,7 +135,7 @@ private extension UsageSnapshot {
 
 // MARK: - Tracker
 
-/// Accumulates token usage across all inference sessions.
+/// Accumulates token usage across all execution sessions.
 ///
 /// Thread-safe via `actor` isolation. Persists cumulative totals to disk so
 /// statistics survive app restarts.

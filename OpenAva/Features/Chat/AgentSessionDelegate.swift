@@ -63,7 +63,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
 
     func beginBackgroundTask(expiration: @escaping @Sendable () -> Void) -> Any? {
         // UIKit background task APIs must run on main thread.
-        let token = UIApplication.shared.beginBackgroundTask(withName: "chat.inference") {
+        let token = UIApplication.shared.beginBackgroundTask(withName: "chat.execution") {
             expiration()
         }
         if token == .invalid {

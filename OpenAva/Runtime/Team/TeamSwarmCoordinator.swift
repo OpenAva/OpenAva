@@ -502,7 +502,7 @@ final class TeamSwarmCoordinator {
 
             session.refreshContentsFromDatabase(scrolling: false)
             let input = ConversationSession.UserInput(text: prompt)
-            await awaitInference(
+            await awaitMessageSubmission(
                 session: session,
                 model: model,
                 input: input

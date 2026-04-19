@@ -27,7 +27,7 @@ open class ConversationContainerView: UIView {
     private var activeSessionConfiguration: ConversationSession.Configuration?
     private weak var currentSession: ConversationSession?
     private var sessionCancellables = Set<AnyCancellable>()
-    public var inferenceHandler: ConversationInferenceHandler?
+    public var messageSubmissionHandler: ConversationMessageSubmissionHandler?
     public var conversationModels: ConversationSession.Models = .init()
     public var newSessionIDProvider: @MainActor () -> String = { UUID().uuidString }
 
@@ -85,9 +85,9 @@ open class ConversationContainerView: UIView {
         messageListView.onToggleToolResultCollapse = { [weak self] messageID, toolCallID in
             self?.currentSession?.toggleToolResultCollapse(for: messageID, toolCallID: toolCallID)
         }
-        messageListView.onRetryInterruptedInference = { [weak self] in
+        messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedInference()
+            session.retryInterruptedMessageSubmission()
         }
         session.messagesDidChange
             .receive(on: DispatchQueue.main)
@@ -131,8 +131,8 @@ extension ConversationContainerView: ChatInputDelegate {
         draftInputObject = nil
         messageListView.markNextUpdateAsUserInitiated()
         input.setExecuting(true)
-        let handler = inferenceHandler ?? { session, model, userInput, completion in
-            session.runInference(model: model, input: userInput) {
+        let handler = messageSubmissionHandler ?? { session, model, userInput, completion in
+            session.submitMessage(model: model, input: userInput) {
                 completion(true)
             }
         }

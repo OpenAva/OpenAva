@@ -395,7 +395,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
         if let serializedExecutionContext {
-            chatViewController.inferenceHandler = { _, _, userInput, completion in
+            chatViewController.messageSubmissionHandler = { _, _, userInput, completion in
                 Task { @MainActor in
                     do {
                         try await AgentMainSessionRegistry.shared.submitToMainSession(
@@ -407,7 +407,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                                 completion(false)
                                 return
                             }
-                            await awaitInference(
+                            await awaitMessageSubmission(
                                 session: resources.session,
                                 model: model,
                                 input: userInput
@@ -420,7 +420,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                 }
             }
         } else {
-            chatViewController.inferenceHandler = nil
+            chatViewController.messageSubmissionHandler = nil
         }
         chatViewController.updateHeader(.init(
             agentName: activeAgentName,

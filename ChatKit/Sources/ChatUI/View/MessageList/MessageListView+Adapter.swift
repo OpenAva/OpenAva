@@ -350,7 +350,7 @@ extension MessageListView: ListViewAdapter {
             if case let .interruptionRetry(title) = entry {
                 retryActionView.title = title
                 retryActionView.tapHandler = { [weak self] in
-                    self?.onRetryInterruptedInference?()
+                    self?.onRetryInterruptedMessageSubmission?()
                 }
             }
         } else if let toolHintView = rowView as? ToolHintView {

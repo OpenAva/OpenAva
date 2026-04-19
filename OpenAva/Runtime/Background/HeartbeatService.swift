@@ -336,7 +336,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
             }
 
             session.refreshContentsFromDatabase(scrolling: false)
-            await awaitInference(
+            await awaitMessageSubmission(
                 session: session,
                 model: model,
                 input: HeartbeatSupport.makeUserInput(heartbeatMarkdown: heartbeatMarkdown)

@@ -211,7 +211,7 @@ open class ChatViewController: UIViewController {
 
     private var draftInputObject: ChatInputContent?
     private var providedSession: ConversationSession?
-    var inferenceHandler: ConversationInferenceHandler?
+    var messageSubmissionHandler: ConversationMessageSubmissionHandler?
 
     private var isExecutingCurrentTurn = false {
         didSet {
@@ -554,9 +554,9 @@ open class ChatViewController: UIViewController {
         messageListView.onToggleToolResultCollapse = { [weak self] messageID, toolCallID in
             self?.currentSession?.toggleToolResultCollapse(for: messageID, toolCallID: toolCallID)
         }
-        messageListView.onRetryInterruptedInference = { [weak self] in
+        messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedInference()
+            session.retryInterruptedMessageSubmission()
         }
         messageListView.onRollbackUserQuery = { [weak self] messageID, queryText in
             guard let self, let session = self.currentSession else { return }
@@ -748,8 +748,8 @@ extension ChatViewController: ChatInputDelegate {
         clearPersistedDraft()
         messageListView.markNextUpdateAsUserInitiated()
         isExecutingCurrentTurn = true
-        let handler = inferenceHandler ?? { session, model, userInput, completion in
-            session.runInference(model: model, input: userInput) {
+        let handler = messageSubmissionHandler ?? { session, model, userInput, completion in
+            session.submitMessage(model: model, input: userInput) {
                 completion(true)
             }
         }
