@@ -26,12 +26,11 @@ public struct ShareGatewayRelayConfig: Codable, Sendable, Equatable {
 }
 
 public enum ShareGatewayRelaySettings {
-    private static let suiteName = "group.ai.openava.shared"
     private static let relayConfigKey = "share.gatewayRelay.config.v1"
     private static let lastEventKey = "share.gatewayRelay.event.v1"
 
     private static var defaults: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        OpenAvaSharedDefaults.defaults
     }
 
     public static func loadConfig() -> ShareGatewayRelayConfig? {

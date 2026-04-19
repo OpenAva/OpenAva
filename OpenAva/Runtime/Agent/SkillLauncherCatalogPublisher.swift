@@ -37,6 +37,9 @@ enum SkillLauncherCatalogPublisher {
         }
 
         SkillLauncherCatalogStore.save(snapshot)
+        guard OpenAvaSharedDefaults.usesSharedAppGroup else {
+            return
+        }
         WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 }

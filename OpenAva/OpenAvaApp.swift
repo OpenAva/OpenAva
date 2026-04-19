@@ -88,17 +88,21 @@ struct OpenAvaApp: App {
 
 // MARK: - AppDelegate for DebugSwift integration
 
-import DebugSwift
+#if DEBUG && !targetEnvironment(macCatalyst)
+    import DebugSwift
+#endif
 
 final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let debugSwift = DebugSwift()
+    #if DEBUG && !targetEnvironment(macCatalyst)
+        let debugSwift = DebugSwift()
+    #endif
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
 
     func application(
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        #if DEBUG
+        #if DEBUG && !targetEnvironment(macCatalyst)
             debugSwift.setup()
             // debugSwift.setup(disable: [.leaksDetector])
             debugSwift.show()

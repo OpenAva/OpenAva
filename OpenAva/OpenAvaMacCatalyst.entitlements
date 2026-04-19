@@ -20,10 +20,6 @@
 	<true/>
 	<key>com.apple.security.personal-information.location</key>
 	<true/>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.ai.openava.shared</string>
-	</array>
 	<key>com.apple.security.personal-information.reminders</key>
 	<true/>
 	<key>com.apple.security.personal-information.speech-recognition</key>

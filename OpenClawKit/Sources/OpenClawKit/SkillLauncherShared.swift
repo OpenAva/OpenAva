@@ -3,8 +3,19 @@ import Foundation
 public enum OpenAvaSharedDefaults {
     public static let suiteName = "group.ai.openava.shared"
 
+    public static var usesSharedAppGroup: Bool {
+        #if targetEnvironment(macCatalyst)
+            false
+        #else
+            true
+        #endif
+    }
+
     public static var defaults: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        guard usesSharedAppGroup else {
+            return .standard
+        }
+        return UserDefaults(suiteName: suiteName) ?? .standard
     }
 }
 

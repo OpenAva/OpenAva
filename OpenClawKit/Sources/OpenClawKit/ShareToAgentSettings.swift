@@ -1,12 +1,11 @@
 import Foundation
 
 public enum ShareToAgentSettings {
-    private static let suiteName = "group.ai.openava.shared"
     private static let defaultInstructionKey = "share.defaultInstruction"
     private static let fallbackInstruction = "Please help me with this."
 
     private static var defaults: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        OpenAvaSharedDefaults.defaults
     }
 
     public static func loadDefaultInstruction() -> String {
