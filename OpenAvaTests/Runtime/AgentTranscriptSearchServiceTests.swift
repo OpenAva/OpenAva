@@ -14,7 +14,7 @@ final class AgentTranscriptSearchServiceTests: XCTestCase {
         let transcriptURL = transcriptDirectory.appendingPathComponent("transcript.jsonl", isDirectory: false)
         let lines = [
             #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Need a concise summary for the onboarding flow."}]}}"#,
-            #"{"type":"user","message":{"role":"user","metadata":{"isCompactionSummary":"true"},"content":[{"type":"text","text":"Chose the bundled migration approach for memory porting."}]}}"#,
+            #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"Chose the bundled migration approach for memory porting."}]}}"#,
         ]
         try lines.joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
@@ -39,12 +39,12 @@ final class AgentTranscriptSearchServiceTests: XCTestCase {
         let transcript2URL = session2Directory.appendingPathComponent("transcript.jsonl", isDirectory: false)
 
         try [
-            #"{"type":"user","message":{"role":"user","metadata":{"isCompactionSummary":"true"},"content":[{"type":"text","text":"older target hit"}]}}"#,
+            #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"older target hit"}]}}"#,
         ].joined(separator: "\n").write(to: transcript1URL, atomically: true, encoding: .utf8)
 
         try [
-            #"{"type":"user","message":{"role":"user","metadata":{"isCompactionSummary":"true"},"content":[{"type":"text","text":"newer target hit first"}]}}"#,
-            #"{"type":"user","message":{"role":"user","metadata":{"isCompactionSummary":"true"},"content":[{"type":"text","text":"newest target hit second"}]}}"#,
+            #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"newer target hit first"}]}}"#,
+            #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"newest target hit second"}]}}"#,
         ].joined(separator: "\n").write(to: transcript2URL, atomically: true, encoding: .utf8)
 
         try FileManager.default.setAttributes(

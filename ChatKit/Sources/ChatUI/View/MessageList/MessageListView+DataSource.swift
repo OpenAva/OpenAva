@@ -161,7 +161,7 @@ extension MessageListView {
         var latestDisplayedDay: Date?
 
         func shouldDisplayInTranscript(_ message: ConversationMessage) -> Bool {
-            if message.isCompactionSummary {
+            if message.isCompactSummary {
                 return false
             }
 

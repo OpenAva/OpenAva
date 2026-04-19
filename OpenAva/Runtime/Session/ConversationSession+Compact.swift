@@ -7,7 +7,6 @@ private let compactLogger = Logger(subsystem: "ChatUI", category: "Compact")
 
 // MARK: - Constants
 
-private let compactThresholdRatio: Double = 0.80
 private let compactKeepRecentMessageCount = 4
 private let compactMinimumSummaryMessageCount = 4
 private let partialCompactMinimumSummaryMessageCount = 2
@@ -18,7 +17,7 @@ private enum CompactSummaryMode {
     case partial(direction: PartialCompactDirection)
 }
 
-private enum CompactionKeptPlacement {
+enum CompactionKeptPlacement {
     case beforeSummary
     case afterSummary
 }
@@ -35,7 +34,7 @@ private struct CompactionPlan {
     let summaryMode: CompactSummaryMode
 }
 
-private struct CompactionResult {
+struct CompactionResult {
     let replacementRange: Range<Int>
     let boundaryMarker: ConversationMessage
     let summaryMessages: [ConversationMessage]
@@ -46,47 +45,12 @@ private struct CompactionResult {
 // MARK: - Extension
 
 extension ConversationSession {
-    /// Called from the execute flow. Compacts old messages when token usage exceeds the threshold.
-    /// Rebuilds the full execution request after compaction.
-    @discardableResult
-    func compactIfNeeded(
-        requestMessages: inout [ChatRequestBody.Message],
-        tools: [ChatRequestBody.Tool]?,
-        model: ConversationSession.Model,
-        capabilities: Set<ModelCapability>
-    ) async -> Bool {
-        let contextLength = model.contextLength
-        guard contextLength > 0 else { return false }
-
-        let estimated = await estimateTokenCount(messages: requestMessages, tools: tools)
-        let threshold = Int(Double(contextLength) * compactThresholdRatio)
-        guard estimated >= threshold else { return false }
-
-        compactLogger.info("Token usage \(estimated)/\(contextLength) exceeds threshold \(threshold), starting compaction")
-
-        do {
-            let result = try await performAutomaticCompaction(
-                model: model,
-                trigger: "auto",
-                preTokens: estimated,
-                tools: tools
-            )
-            applyCompactionResult(result)
-            requestMessages = await buildExecutionRequestMessages(capabilities: capabilities)
-            compactLogger.info("Compaction complete, rebuilt request messages")
-            return true
-        } catch {
-            compactLogger.error("Compaction failed: \(error.localizedDescription); falling back to trim")
-            return false
-        }
-    }
-
     /// Public API for manually triggering full-history compaction.
-    public func compact(model: ConversationSession.Model) async throws {
+    public func compactConversation(model: ConversationSession.Model) async throws {
         let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
         let tools = await compactEnabledTools(for: model)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
-        let result = try await performAutomaticCompaction(
+        let result = try await compactConversation(
             model: model,
             trigger: "manual",
             preTokens: preTokens,
@@ -97,7 +61,7 @@ extension ConversationSession {
 
     /// Public API for compacting around a selected message, keeping either the
     /// prefix or suffix verbatim.
-    public func partialCompact(
+    public func partialCompactConversation(
         around messageID: String,
         direction: PartialCompactDirection = .from,
         feedback: String? = nil,
@@ -120,7 +84,7 @@ extension ConversationSession {
 
     // MARK: - Core
 
-    private func performAutomaticCompaction(
+    func compactConversation(
         model: ConversationSession.Model,
         trigger: String,
         preTokens: Int,
@@ -196,7 +160,7 @@ extension ConversationSession {
             keptPlacement = .beforeSummary
         case .upTo:
             messagesToSummarize = Array(candidates[..<pivotIndex])
-            messagesToKeep = Array(candidates[pivotIndex...])
+            messagesToKeep = Array(candidates[pivotIndex...]).filter { !$0.isCompactSummary }
             keptPlacement = .afterSummary
         }
 
@@ -271,7 +235,7 @@ extension ConversationSession {
             mode: plan.summaryMode,
             recentMessagesPreserved: !plan.messagesToKeep.isEmpty
         )
-        summaryMessage.metadata["isCompactionSummary"] = "true"
+        summaryMessage.metadata["isCompactSummary"] = "true"
 
         applyPostCompactOrdering(
             boundary: boundaryMessage,
@@ -343,11 +307,17 @@ extension ConversationSession {
         return built
     }
 
-    private func applyCompactionResult(_ result: CompactionResult) {
+    func applyCompactionResult(_ result: CompactionResult) {
         let postCompactMessages = buildPostCompactMessages(result)
         messages.replaceSubrange(result.replacementRange, with: postCompactMessages)
         persistMessages()
+        runPostCompactCleanup()
         notifyMessagesDidChange(scrolling: false)
+    }
+
+    private func runPostCompactCleanup() {
+        autoCompactTrackingState.consecutiveFailures = 0
+        setLoadingState(nil)
     }
 
     private func compactEnabledTools(for model: ConversationSession.Model) async -> [ChatRequestBody.Tool]? {
@@ -362,7 +332,7 @@ extension ConversationSession {
         }
         let boundaryIndex = messages.lastIndex(where: { $0.isCompactBoundary })
         let replacementStart = boundaryIndex ?? 0
-        let sourceMessages = messages.messagesAfterLatestCompactBoundary(includingBoundary: false)
+        let sourceMessages = messages.getMessagesAfterCompactBoundary(includingBoundary: false)
         let candidates = sourceMessages.filter { !$0.isCompactBoundary }
         return (replacementStart, candidates)
     }

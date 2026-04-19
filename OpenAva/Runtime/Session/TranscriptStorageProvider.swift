@@ -521,7 +521,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
         // Last message is user.
         if last.role == .user {
-            if last.isCompactionSummary || last.isCompactBoundary {
+            if last.isCompactSummary || last.isCompactBoundary {
                 return .none
             }
 
@@ -1073,7 +1073,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func lastPromptText(from message: ConversationMessage) -> String? {
         guard message.role == .user else { return nil }
-        guard !message.isCompactionSummary else { return nil }
+        guard !message.isCompactSummary else { return nil }
         let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
@@ -1340,9 +1340,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func firstPromptText(in entries: [SessionTranscriptEntry]) -> String? {
         for entry in entries {
+            let isCompactSummary = entry.message?.metadata?["isCompactSummary"] == "true"
             guard entry.type == MessageRole.user.rawValue,
                   let message = entry.message,
-                  message.metadata?["isCompactionSummary"] != "true"
+                  !isCompactSummary
             else {
                 continue
             }
@@ -1360,9 +1361,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func firstCompactionSummaryText(in entries: [SessionTranscriptEntry]) -> String? {
         for entry in entries {
+            let isCompactSummary = entry.message?.metadata?["isCompactSummary"] == "true"
             guard entry.type == MessageRole.user.rawValue,
                   let message = entry.message,
-                  message.metadata?["isCompactionSummary"] == "true"
+                  isCompactSummary
             else {
                 continue
             }

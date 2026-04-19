@@ -324,7 +324,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
-        try await session.compact(model: model)
+        try await session.compactConversation(model: model)
 
         let entries = try transcriptEntries(at: runtimeRootURL, sessionID: sessionID)
         XCTAssertFalse(entries.contains(where: { ($0["type"] as? String) == "summary" }))
@@ -338,7 +338,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let compactionSummaryMessages = entries.filter {
             ($0["type"] as? String) == MessageRole.user.rawValue &&
-                (((($0["message"] as? [String: Any])?["metadata"] as? [String: Any])?["isCompactionSummary"] as? String) == "true")
+                (((($0["message"] as? [String: Any])?["metadata"] as? [String: Any])?["isCompactSummary"] as? String) == "true")
         }
         XCTAssertEqual(compactionSummaryMessages.count, 1)
         let compactionSummaryEntry = try XCTUnwrap(compactionSummaryMessages.first)

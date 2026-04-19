@@ -85,7 +85,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
 
         let summary = ConversationMessage(sessionID: sessionID, role: .user)
         summary.textContent = "Earlier conversation summary."
-        summary.metadata["isCompactionSummary"] = "true"
+        summary.metadata["isCompactSummary"] = "true"
 
         let boundary = ConversationMessage(sessionID: sessionID, role: .system)
         boundary.textContent = "Conversation compacted."
@@ -257,18 +257,18 @@ final class ConversationCompactionTests: XCTestCase {
             autoCompactEnabled: true
         )
 
-        try await session.compact(model: model)
+        try await session.compactConversation(model: model)
 
         XCTAssertEqual(client.chatCallCount, 1)
         XCTAssertEqual(session.messages.filter(\.isCompactBoundary).count, 1)
-        XCTAssertEqual(session.messages.filter(\.isCompactionSummary).count, 1)
+        XCTAssertEqual(session.messages.filter(\.isCompactSummary).count, 1)
 
-        let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactionSummary }))
+        let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactSummary }))
         XCTAssertFalse(summary.textContent.contains("<analysis>"))
         XCTAssertTrue(summary.textContent.contains("align compact behavior"))
 
         let preservedIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
         XCTAssertEqual(preservedIDs, Array(originalIDs.suffix(4)))
     }
@@ -284,14 +284,14 @@ final class ConversationCompactionTests: XCTestCase {
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
         do {
-            try await session.compact(model: model)
+            try await session.compactConversation(model: model)
             XCTFail("Expected compaction to fail when summary generation fails")
         } catch {
             XCTAssertEqual((error as? StubChatClientError)?.message, "PROMPT TOO LONG: reduce the length of the messages")
         }
 
         XCTAssertEqual(client.chatCallCount, 1)
-        XCTAssertFalse(session.messages.contains(where: { $0.isCompactionSummary }))
+        XCTAssertFalse(session.messages.contains(where: { $0.isCompactSummary }))
     }
 
     func testPartialCompactFromKeepsEarlierMessagesBeforeSummary() async throws {
@@ -303,15 +303,15 @@ final class ConversationCompactionTests: XCTestCase {
         let client = StubChatClient(responseText: "<summary>Later work compacted.</summary>")
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
-        try await session.partialCompact(around: pivotID, direction: .from, model: model)
+        try await session.partialCompactConversation(around: pivotID, direction: .from, model: model)
 
         let visibleIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
         XCTAssertEqual(visibleIDs, Array(ids.prefix(4)))
         XCTAssertFalse(visibleIDs.contains(pivotID))
 
-        let summaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactionSummary }))
+        let summaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactSummary }))
         let boundaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactBoundary }))
         XCTAssertGreaterThan(summaryIndex, boundaryIndex)
     }
@@ -333,16 +333,16 @@ final class ConversationCompactionTests: XCTestCase {
         let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
-        try await session.compact(model: model)
+        try await session.compactConversation(model: model)
 
         let compactedContextIDs = storage.messages(in: sessionID)
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
         XCTAssertLessThan(compactedContextIDs.count, originalIDs.count)
 
         let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
         let reloadedIDs = reloaded.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
 
         XCTAssertEqual(reloadedIDs, compactedContextIDs)
@@ -366,20 +366,20 @@ final class ConversationCompactionTests: XCTestCase {
         let client = StubChatClient(responseText: "<summary>Compacted history.</summary>")
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
-        try await session.compact(model: model)
+        try await session.compactConversation(model: model)
 
         let rollbackTargetID = originalIDs[4]
         session.delete(after: rollbackTargetID)
         session.delete(rollbackTargetID)
 
         let remainingVisibleIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
         XCTAssertTrue(remainingVisibleIDs.isEmpty)
 
         let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
         let reloadedVisibleIDs = reloaded.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
+            .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
         XCTAssertTrue(reloadedVisibleIDs.isEmpty)
         XCTAssertTrue(reloaded.messages.contains(where: { $0.isCompactBoundary }))

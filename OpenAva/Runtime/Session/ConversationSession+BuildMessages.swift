@@ -36,7 +36,7 @@ extension ConversationSession {
 
     func requestHistoryMessages() -> [ConversationMessage] {
         messages
-            .messagesAfterLatestCompactBoundary(includingBoundary: false)
+            .getMessagesAfterCompactBoundary(includingBoundary: false)
             .filter { !$0.isCompactBoundary }
     }
 

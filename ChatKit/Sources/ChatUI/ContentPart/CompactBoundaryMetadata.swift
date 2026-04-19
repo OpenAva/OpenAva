@@ -49,8 +49,8 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
 }
 
 public extension ConversationMessage {
-    var isCompactionSummary: Bool {
-        metadata["isCompactionSummary"] == "true"
+    var isCompactSummary: Bool {
+        metadata["isCompactSummary"] == "true"
     }
 
     var subtype: String? {
@@ -88,7 +88,11 @@ public extension ConversationMessage {
 }
 
 public extension Array where Element == ConversationMessage {
-    func messagesAfterLatestCompactBoundary(includingBoundary: Bool = true) -> [ConversationMessage] {
+    func findLastCompactBoundaryIndex() -> Int? {
+        lastIndex(where: { $0.isCompactBoundary })
+    }
+
+    func getMessagesAfterCompactBoundary(includingBoundary: Bool = true) -> [ConversationMessage] {
         guard let boundaryIndex = lastIndex(where: { $0.isCompactBoundary }) else {
             return self
         }
@@ -100,4 +104,5 @@ public extension Array where Element == ConversationMessage {
 
         return Array(self[startIndex...])
     }
+
 }

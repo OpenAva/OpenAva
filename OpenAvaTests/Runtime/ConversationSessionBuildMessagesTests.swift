@@ -52,7 +52,7 @@ final class ConversationSessionBuildMessagesTests: XCTestCase {
             text: "Earlier conversation summary.",
             createdAt: now.addingTimeInterval(-4 * 3600 + 1)
         )
-        summary.metadata["isCompactionSummary"] = "true"
+        summary.metadata["isCompactSummary"] = "true"
 
         let keptIDs = [
             appendMessage(to: session, role: .assistant, text: "recent-1", createdAt: now.addingTimeInterval(-4 * 60)).id,
