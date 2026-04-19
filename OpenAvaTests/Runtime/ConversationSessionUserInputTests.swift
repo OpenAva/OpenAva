@@ -1,38 +1,21 @@
+import ChatClient
 import ChatUI
 import XCTest
 @testable import OpenAva
 
 @MainActor
 final class ConversationSessionUserInputTests: XCTestCase {
-    func testUserInputStoresTranscriptMetadataForDisplayTextOverride() {
+    func testUserInputStoresSourceMetadata() {
         let input = ConversationSession.UserInput(
             text: "internal request",
-            displayText: "visible message",
             source: .heartbeat,
             metadata: [HeartbeatSupport.metadataModeKey: HeartbeatSupport.metadataModeScheduledValue]
         )
 
-        XCTAssertEqual(input.transcriptText, "visible message")
-        XCTAssertEqual(input.transcriptMetadata[ConversationSession.UserInput.sourceMetadataKey], "heartbeat")
-        XCTAssertEqual(
-            input.transcriptMetadata[ConversationSession.UserInput.requestTextMetadataKey],
-            "internal request"
-        )
+        XCTAssertEqual(input.metadata[ConversationSession.UserInput.sourceMetadataKey], "heartbeat")
     }
 
-    func testUserRequestTextFallsBackToStoredRequestMetadata() {
-        let session = ConversationSession(
-            id: "main",
-            configuration: .init(storage: InMemoryStorageProvider())
-        )
-        let message = ConversationMessage(sessionID: "main", role: .user)
-        message.textContent = "visible message"
-        message.metadata[ConversationSession.UserInput.requestTextMetadataKey] = "internal request"
-
-        XCTAssertEqual(session.userRequestText(for: message), "internal request")
-    }
-
-    func testUserRequestTextFallsBackToTranscriptTextWhenMetadataMissing() {
+    func testBuildRequestMessagesUsesUserMessageText() {
         let session = ConversationSession(
             id: "main",
             configuration: .init(storage: InMemoryStorageProvider())
@@ -40,7 +23,14 @@ final class ConversationSessionUserInputTests: XCTestCase {
         let message = ConversationMessage(sessionID: "main", role: .user)
         message.textContent = "visible message"
 
-        XCTAssertEqual(session.userRequestText(for: message), "visible message")
+        let requestMessages = session.buildRequestMessages(from: message, capabilities: [])
+        guard case let .user(content, _) = requestMessages.first else {
+            return XCTFail("Expected user request message")
+        }
+        guard case let .text(text) = content else {
+            return XCTFail("Expected plain text user request")
+        }
+        XCTAssertEqual(text, "visible message")
     }
 }
 
@@ -74,5 +64,9 @@ private final class InMemoryStorageProvider: StorageProvider {
 
     func setTitle(_ title: String, for id: String) {
         titlesBySessionID[id] = title
+    }
+
+    func sessionExecutionState(for _: String) -> SessionExecutionState {
+        .idle
     }
 }

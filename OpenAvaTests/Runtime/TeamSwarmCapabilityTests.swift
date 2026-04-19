@@ -23,7 +23,6 @@ final class TeamSwarmCapabilityTests: XCTestCase {
             baseSystemPrompt: nil,
             context: nil,
             skillCatalog: [],
-            memoryContext: nil,
             rootDirectory: nil
         )
 

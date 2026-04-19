@@ -39,7 +39,6 @@ final class SubAgentCapabilityTests: XCTestCase {
             baseSystemPrompt: nil,
             context: nil,
             skillCatalog: [],
-            memoryContext: nil,
             rootDirectory: nil
         )
 
@@ -49,19 +48,8 @@ final class SubAgentCapabilityTests: XCTestCase {
         XCTAssertTrue(prompt.contains("must not recursively spawn additional sub agents"))
     }
 
-    func testFinalTurnReservationDisablesToolUseOnLastAllowedTurn() {
-        XCTAssertFalse(shouldReserveFinalResponseTurn(completedTurns: 0, maxTurns: 3))
-        XCTAssertFalse(shouldReserveFinalResponseTurn(completedTurns: 1, maxTurns: 3))
-        XCTAssertTrue(shouldReserveFinalResponseTurn(completedTurns: 2, maxTurns: 3))
-        XCTAssertTrue(shouldReserveFinalResponseTurn(completedTurns: 0, maxTurns: 1))
-    }
-
-    func testFinalTurnReminderInstructsModelToReturnBestEffortAnswer() {
-        let reminder = finalTurnResponseReminderText()
-
-        XCTAssertTrue(reminder.contains("final allowed model turn"))
-        XCTAssertTrue(reminder.contains("Provide the best possible final answer"))
-        XCTAssertTrue(reminder.contains("Do not call tools"))
-        XCTAssertTrue(reminder.contains("remaining unknowns"))
+    func testSubAgentDefaultsDoNotDependOnReservedFinalTurnBehavior() {
+        XCTAssertGreaterThan(SubAgentRegistry.generalPurpose.maxTurns, 1)
+        XCTAssertGreaterThan(SubAgentRegistry.explore.maxTurns, 1)
     }
 }

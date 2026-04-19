@@ -141,7 +141,6 @@ final class AgentContextSettingsTests: XCTestCase {
 
         let prompt = AgentContextLoader.composeSystemPrompt(
             baseSystemPrompt: nil,
-            memoryContext: nil,
             workspaceRootURL: rootURL,
             environment: environment,
             fileManager: .default
@@ -223,7 +222,6 @@ final class AgentContextSettingsTests: XCTestCase {
             baseSystemPrompt: nil,
             context: nil,
             skillCatalog: catalog,
-            memoryContext: nil,
             rootDirectory: nil
         )
 
@@ -261,7 +259,7 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertNotNil(loaded)
     }
 
-    func testPromptBuilderSeparatesRuntimeMemoryFromWorkspaceMemoryFiles() {
+    func testPromptBuilderKeepsMemoryGuidanceSeparateFromWorkspaceFiles() {
         let context = AgentContextLoader.LoadedContext(documents: [
             .init(fileName: "SOUL.md", content: "# Soul\nUse <calm> tone & stay direct."),
             .init(fileName: "USER.md", content: "# User\nPrefers Chinese."),
@@ -271,15 +269,15 @@ final class AgentContextSettingsTests: XCTestCase {
             baseSystemPrompt: nil,
             context: context,
             skillCatalog: [],
-            memoryContext: "- Indexed durable memory",
             rootDirectory: nil
         )
 
-        XCTAssertTrue(prompt.contains("Indexed durable memories:"))
+        XCTAssertTrue(prompt.contains("Relevant memories may be recalled dynamically for the current request or fetched with memory tools when needed."))
         XCTAssertTrue(prompt.contains("<workspace-file name=\"SOUL.md\" purpose=\"Defines the agent&apos;s core personality and behavioral principles.\">"))
         XCTAssertTrue(prompt.contains("<workspace-file name=\"USER.md\" purpose=\"Defines user preferences, habits, and background information.\">"))
         XCTAssertTrue(prompt.contains("Use &lt;calm&gt; tone &amp; stay direct."))
         XCTAssertFalse(prompt.contains("### SOUL.md"))
+        XCTAssertFalse(prompt.contains("Indexed durable memories:"))
         XCTAssertFalse(prompt.contains("### MEMORY.md"))
     }
 }

@@ -140,7 +140,7 @@ final class HeartbeatSupportTests: XCTestCase {
         XCTAssertEqual(HeartbeatSupport.previewText(for: assistant), "Heartbeat：无异常")
     }
 
-    func testMakeUserInputSeparatesDisplayTextAndRequestText() {
+    func testMakeUserInputUsesSinglePromptTextAndKeepsHeartbeatMetadata() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
         let now = date(hour: 10, minute: 0, calendar: calendar)
@@ -150,10 +150,10 @@ final class HeartbeatSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(input.source, .heartbeat)
-        XCTAssertEqual(input.displayText, HeartbeatSupport.buildDisplayText(now: now))
+        XCTAssertEqual(input.text, HeartbeatSupport.buildPrompt(heartbeatMarkdown: "- Check reminders", now: now))
         XCTAssertTrue(input.text.contains("<HEARTBEAT_MD>"))
         XCTAssertEqual(input.metadata[HeartbeatSupport.metadataModeKey], HeartbeatSupport.metadataModeScheduledValue)
-        XCTAssertEqual(input.transcriptMetadata[ConversationSession.UserInput.requestTextMetadataKey], input.text)
+        XCTAssertEqual(input.metadata[ConversationSession.UserInput.sourceMetadataKey], ConversationSession.UserInput.Source.heartbeat.rawValue)
     }
 
     private func date(hour: Int, minute: Int, calendar: Calendar) -> Date {

@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
-    func testInjectSystemPromptAddsDynamicMemoryRecallForCurrentRequest() async throws {
+    func testBuildInstructionMessageAddsDynamicMemoryRecallForCurrentRequest() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -24,9 +24,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-1",
-            workspaceRootURL: runtimeRoot,
             runtimeRootURL: runtimeRoot,
-            baseSystemPrompt: "You are a helpful assistant.",
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -34,23 +32,29 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         )
         let session = ConversationSession(
             id: "session-1",
-            configuration: .init(storage: DisposableStorageProvider(), delegate: delegate)
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                delegate: delegate,
+                systemPromptProvider: {
+                    AgentContextLoader.composeSystemPrompt(
+                        baseSystemPrompt: "You are a helpful assistant.",
+                        workspaceRootURL: runtimeRoot
+                    ) ?? "You are a helpful assistant."
+                }
+            )
         )
 
-        var requestMessages: [ChatRequestBody.Message] = [
-            .user(content: .text("Please keep replies concise and skip repetitive summaries.")),
-        ]
+        _ = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Response style"
+        }
 
-        await session.injectSystemPrompt(&requestMessages, capabilities: [])
+        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
 
-        guard case let .system(content, _) = try XCTUnwrap(requestMessages.first) else {
+        guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
             return
         }
-        guard case let .text(promptText) = content else {
-            XCTFail("Expected injected system prompt to use text content")
-            return
-        }
+        let promptText = try extractPromptText(from: content)
 
         XCTAssertTrue(promptText.contains("## Dynamic Memory Recall"))
         XCTAssertTrue(promptText.contains("Response style"))
@@ -58,7 +62,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         XCTAssertFalse(promptText.contains("Indexed durable memories:"))
     }
 
-    func testInjectSystemPromptOmitsDynamicRecallWhenNoMemoryMatches() async throws {
+    func testBuildInstructionMessageOmitsDynamicRecallWhenNoMemoryMatches() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -78,9 +82,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-2",
-            workspaceRootURL: runtimeRoot,
             runtimeRootURL: runtimeRoot,
-            baseSystemPrompt: "You are a helpful assistant.",
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -88,30 +90,36 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         )
         let session = ConversationSession(
             id: "session-2",
-            configuration: .init(storage: DisposableStorageProvider(), delegate: delegate)
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                delegate: delegate,
+                systemPromptProvider: {
+                    AgentContextLoader.composeSystemPrompt(
+                        baseSystemPrompt: "You are a helpful assistant.",
+                        workspaceRootURL: runtimeRoot
+                    ) ?? "You are a helpful assistant."
+                }
+            )
         )
 
-        var requestMessages: [ChatRequestBody.Message] = [
-            .user(content: .text("Summarize the latest build pipeline issue.")),
-        ]
+        _ = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Summarize the latest build pipeline issue."
+        }
 
-        await session.injectSystemPrompt(&requestMessages, capabilities: [])
+        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
 
-        guard case let .system(content, _) = try XCTUnwrap(requestMessages.first) else {
+        guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
             return
         }
-        guard case let .text(promptText) = content else {
-            XCTFail("Expected injected system prompt to use text content")
-            return
-        }
+        let promptText = try extractPromptText(from: content)
 
         XCTAssertFalse(promptText.contains("## Dynamic Memory Recall"))
         XCTAssertFalse(promptText.contains("Indexed durable memories:"))
-        XCTAssertTrue(promptText.contains("No fixed durable memory index is injected for this turn."))
+        XCTAssertTrue(promptText.contains("Relevant memories may be recalled dynamically for the current request or fetched with memory tools when needed."))
     }
 
-    func testInjectSystemPromptExpandsContinuationQueryWithRecentUserContext() async throws {
+    func testBuildInstructionMessageUsesOnlyCurrentRequestQueryForDynamicRecall() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -131,9 +139,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-3",
-            workspaceRootURL: runtimeRoot,
             runtimeRootURL: runtimeRoot,
-            baseSystemPrompt: "You are a helpful assistant.",
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -141,29 +147,72 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         )
         let session = ConversationSession(
             id: "session-3",
-            configuration: .init(storage: DisposableStorageProvider(), delegate: delegate)
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                delegate: delegate,
+                systemPromptProvider: {
+                    AgentContextLoader.composeSystemPrompt(
+                        baseSystemPrompt: "You are a helpful assistant.",
+                        workspaceRootURL: runtimeRoot
+                    ) ?? "You are a helpful assistant."
+                }
+            )
         )
 
-        var requestMessages: [ChatRequestBody.Message] = [
-            .user(content: .text("Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression.")),
-            .assistant(content: .text("I found the likely source of the failure.")),
-            .user(content: .text("继续优化一下")),
-        ]
+        _ = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression."
+        }
+        _ = session.appendNewMessage(role: .assistant) { message in
+            message.textContent = "I found the likely source of the failure."
+        }
+        _ = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Catalyst host refresh token regression"
+        }
 
-        await session.injectSystemPrompt(&requestMessages, capabilities: [])
+        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
 
-        guard case let .system(content, _) = try XCTUnwrap(requestMessages.first) else {
+        guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
             return
         }
-        guard case let .text(promptText) = content else {
-            XCTFail("Expected injected system prompt to use text content")
-            return
-        }
+        let promptText = try extractPromptText(from: content)
 
         XCTAssertTrue(promptText.contains("## Dynamic Memory Recall"))
-        XCTAssertTrue(promptText.contains("Current request query: 继续优化一下"))
-        XCTAssertTrue(promptText.contains("Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression."))
+        XCTAssertTrue(promptText.contains("Current request query: Catalyst host refresh token regression"))
+        XCTAssertTrue(promptText.contains("Build pipeline issue"))
         XCTAssertTrue(promptText.contains("missing catalystHostRefreshToken symbol in ChatRootView"))
+        XCTAssertFalse(promptText.contains("Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression."))
+    }
+
+    func testBuildExecutionRequestMessagesUsesDeveloperRoleForInstructionPrompt() async throws {
+        let session = ConversationSession(
+            id: "session-developer-role",
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                systemPromptProvider: { "You are a helpful assistant." }
+            )
+        )
+        _ = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Hello"
+        }
+
+        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [.developerRole])
+
+        guard case let .developer(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
+            XCTFail("Expected developer instruction prompt at first position")
+            return
+        }
+        let promptText = try extractPromptText(from: content)
+        XCTAssertEqual(promptText, "You are a helpful assistant.")
+    }
+
+    private func extractPromptText(
+        from content: ChatRequestBody.Message.MessageContent<String, [String]>
+    ) throws -> String {
+        guard case let .text(promptText) = content else {
+            XCTFail("Expected injected system prompt to use text content")
+            return ""
+        }
+        return promptText
     }
 }

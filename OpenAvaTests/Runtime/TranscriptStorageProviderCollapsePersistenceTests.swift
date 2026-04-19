@@ -16,7 +16,6 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
-        let messageListView = MessageListView()
 
         let part1 = String(repeating: "甲", count: 300)
         let part2 = String(repeating: "乙", count: 300)
@@ -32,7 +31,6 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let finished = expectation(description: "inference finished")
         session.runInference(
             model: .init(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true),
-            messageListView: messageListView,
             input: .init(text: "请输出长文本")
         ) {
             finished.fulfill()
@@ -59,6 +57,72 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         }
         XCTAssertEqual(Set(assistantMessageUUIDs).count, 1)
         XCTAssertEqual(session.messages.map(\.textContent), ["请输出长文本", expectedText])
+    }
+
+    func testRunInferenceDoesNotDuplicateCurrentUserMessageInFirstRequest() async throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(id: "main", configuration: .init(storage: storage))
+        let client = StreamingStubChatClient(chunks: [])
+
+        let finished = expectation(description: "inference finished")
+        session.runInference(
+            model: .init(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true),
+            input: .init(text: "只保留一条当前用户消息")
+        ) {
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 5)
+
+        let firstBody = try XCTUnwrap(client.firstStreamingBody)
+        let userTexts = firstBody.messages.compactMap { message -> String? in
+            guard case let .user(content, _) = message,
+                  case let .text(text) = content
+            else {
+                return nil
+            }
+            return text
+        }
+        XCTAssertEqual(userTexts, ["只保留一条当前用户消息"])
+    }
+
+    func testRunInferenceFailsWhenToolCallArrivesWithoutToolProvider() async throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(id: "main", configuration: .init(storage: storage))
+        let client = StreamingStubChatClient(chunks: [
+            .tool(.init(id: "tool-call-1", name: "bash", arguments: "{}")),
+        ])
+
+        let finished = expectation(description: "inference finished")
+        session.runInference(
+            model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
+            input: .init(text: "调用工具")
+        ) {
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 5)
+
+        XCTAssertEqual(session.messages.count, 3)
+        XCTAssertEqual(session.messages[0].role, .user)
+        XCTAssertEqual(session.messages[1].role, .assistant)
+        XCTAssertEqual(session.messages[1].finishReason, .toolCalls)
+        XCTAssertEqual(session.messages[2].role, .assistant)
+        XCTAssertTrue(session.messages[2].textContent.contains("Tool execution is unavailable."))
     }
 
     func testFirstPersistedAssistantUpdateKeepsUserChainAcrossReload() throws {
@@ -237,7 +301,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(reloadedStorage.title(for: "main"), "Pinned title")
     }
 
-    func testCompactionPersistsNarrowSummaryMetadataAndChainMessages() async throws {
+    func testCompactionPersistsBoundaryAndSummaryAsChainMessages() async throws {
         let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
         TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
@@ -263,18 +327,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         try await session.compact(model: model)
 
         let entries = try transcriptEntries(at: runtimeRootURL, sessionID: sessionID)
-        let summaryEntries = entries.filter { ($0["type"] as? String) == "summary" }
-        XCTAssertEqual(summaryEntries.count, 1)
-
-        let summaryEntry = try XCTUnwrap(summaryEntries.first)
-        XCTAssertNil(summaryEntry["message"])
-        XCTAssertNil(summaryEntry["messageUUIDs"])
-        XCTAssertNil(summaryEntry["sessionId"])
-        XCTAssertNil(summaryEntry["timestamp"])
-        XCTAssertNil(summaryEntry["parentUuid"])
-        let leafUUID = try XCTUnwrap(summaryEntry["leafUuid"] as? String)
-        let summaryText = try XCTUnwrap(summaryEntry["summary"] as? String)
-        XCTAssertTrue(summaryText.contains("Compacted history."))
+        XCTAssertFalse(entries.contains(where: { ($0["type"] as? String) == "summary" }))
 
         let boundaryEntries = entries.filter {
             ($0["type"] as? String) == MessageRole.system.rawValue &&
@@ -289,7 +342,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         }
         XCTAssertEqual(compactionSummaryMessages.count, 1)
         let compactionSummaryEntry = try XCTUnwrap(compactionSummaryMessages.first)
-        XCTAssertEqual((compactionSummaryEntry["uuid"] as? String), leafUUID)
+        let summaryText = (((compactionSummaryEntry["message"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(summaryText.contains("Compacted history."))
     }
 
     func testToggleToolResultCollapsePersistsAcrossReload() throws {
@@ -441,7 +495,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             return XCTFail("Expected reloaded tool call")
         }
 
-        XCTAssertEqual(reloadedStorage.sessionStatus(for: "main"), "interrupted")
+        XCTAssertEqual(reloadedStorage.sessionExecutionState(for: "main"), .interrupted)
         XCTAssertEqual(toolCall.state, .failed)
     }
 
@@ -584,9 +638,9 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
         let recoveredMessages = storage.messages(in: sessionID)
 
-        XCTAssertEqual(recoveredMessages.map(\.textContent), ["[Compact Boundary]\n\nConversation compacted.", "after-boundary-user", "after-boundary-assistant"])
+        XCTAssertEqual(recoveredMessages.map(\.textContent), ["Conversation compacted.", "after-boundary-user", "after-boundary-assistant"])
         XCTAssertTrue(recoveredMessages.first?.isCompactBoundary == true)
-        XCTAssertEqual(storage.sessionStatus(for: sessionID), "idle")
+        XCTAssertEqual(storage.sessionExecutionState(for: sessionID), .idle)
         XCTAssertEqual(storage.title(for: sessionID), "Recovered Large Title")
 
         let entries = try transcriptEntries(at: runtimeRootURL, sessionID: sessionID)
@@ -605,7 +659,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let reloadedSession = try XCTUnwrap(reloadedStorage.listSessions().first(where: { $0.key == sessionID }))
         XCTAssertEqual(reloadedSession.displayName, "Recovered Large Title")
         XCTAssertEqual(reloadedStorage.title(for: sessionID), "Recovered Large Title")
-        XCTAssertEqual(reloadedStorage.sessionStatus(for: sessionID), "idle")
+        XCTAssertEqual(reloadedStorage.sessionExecutionState(for: sessionID), .idle)
     }
 
     func testLargeTranscriptStreamLoadDoesNotRecoverPreBoundaryUpdatedSnapshot() throws {
@@ -702,7 +756,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
         let recoveredMessages = storage.messages(in: sessionID)
 
-        XCTAssertEqual(recoveredMessages.map(\.textContent), ["[Compact Boundary]\n\nConversation compacted.", "after-boundary-user", "after-boundary-assistant"])
+        XCTAssertEqual(recoveredMessages.map(\.textContent), ["Conversation compacted.", "after-boundary-user", "after-boundary-assistant"])
         XCTAssertTrue(recoveredMessages.first?.isCompactBoundary == true)
         XCTAssertFalse(recoveredMessages.contains(where: { $0.id == legacyAssistantMessageID }))
         XCTAssertFalse(recoveredMessages.contains(where: { $0.textContent == "patched-pre-boundary-assistant" }))
@@ -720,13 +774,13 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let storage: any StorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
         let generatedTitle = ConversationTitleMetadata(title: "Protocol Title", avatar: "🧪").storageValue
         storage.setTitle(generatedTitle, for: "main")
-        XCTAssertEqual(storage.sessionStatus(for: "main"), "idle")
+        XCTAssertEqual(storage.sessionExecutionState(for: "main"), .idle)
         XCTAssertEqual(ConversationTitleMetadata(storageValue: storage.title(for: "main"))?.title, "Protocol Title")
 
         TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
         let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
 
-        XCTAssertEqual(reloadedStorage.sessionStatus(for: "main"), "idle")
+        XCTAssertEqual(reloadedStorage.sessionExecutionState(for: "main"), .idle)
         XCTAssertEqual(ConversationTitleMetadata(storageValue: reloadedStorage.title(for: "main"))?.title, "Protocol Title")
     }
 
@@ -810,17 +864,28 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 private final class StreamingStubChatClient: ChatClient, @unchecked Sendable {
     let errorCollector = ErrorCollector.new()
     private let chunks: [ChatResponseChunk]
+    private let lock = NSLock()
+    private var capturedStreamingBodies: [ChatRequestBody] = []
 
     init(chunks: [ChatResponseChunk]) {
         self.chunks = chunks
+    }
+
+    var firstStreamingBody: ChatRequestBody? {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedStreamingBodies.first
     }
 
     func chat(body _: ChatRequestBody) async throws -> ChatResponse {
         ChatResponse(reasoning: "", text: "", images: [], tools: [])
     }
 
-    func streamingChat(body _: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
-        AsyncStream<ChatResponseChunk> { continuation in
+    func streamingChat(body: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
+        lock.lock()
+        capturedStreamingBodies.append(body)
+        lock.unlock()
+        return AsyncStream<ChatResponseChunk> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)
             }
@@ -850,14 +915,12 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
 
 private enum TestTranscriptEntry: Encodable {
     case chain(TestChainTranscriptEntry)
-    case summary(TestSummaryTranscriptEntry)
     case customTitle(TestCustomTitleTranscriptEntry)
     case lastPrompt(TestLastPromptTranscriptEntry)
 
     func encode(to encoder: Encoder) throws {
         switch self {
         case let .chain(entry): try entry.encode(to: encoder)
-        case let .summary(entry): try entry.encode(to: encoder)
         case let .customTitle(entry): try entry.encode(to: encoder)
         case let .lastPrompt(entry): try entry.encode(to: encoder)
         }
@@ -921,7 +984,7 @@ private enum TestTranscriptEntry: Encodable {
                     content: [
                         TestTranscriptContentBlock(
                             type: "text",
-                            text: "\(ConversationMarkers.compactBoundaryPrefix)\n\nConversation compacted.",
+                            text: "Conversation compacted.",
                             imageUrl: nil,
                             toolUseID: nil,
                             toolName: nil,
@@ -958,10 +1021,6 @@ private enum TestTranscriptEntry: Encodable {
             preconditionFailure("Unsupported metadata type: \(type)")
         }
     }
-
-    static func summary(leafUUID: String, summary: String) -> Self {
-        .summary(TestSummaryTranscriptEntry(leafUuid: leafUUID, summary: summary))
-    }
 }
 
 private struct TestChainTranscriptEntry: Encodable {
@@ -972,12 +1031,6 @@ private struct TestChainTranscriptEntry: Encodable {
     let subtype: String?
     let timestamp: String
     let message: TestTranscriptMessageRecord
-}
-
-private struct TestSummaryTranscriptEntry: Encodable {
-    let type = "summary"
-    let leafUuid: String
-    let summary: String
 }
 
 private struct TestCustomTitleTranscriptEntry: Encodable {

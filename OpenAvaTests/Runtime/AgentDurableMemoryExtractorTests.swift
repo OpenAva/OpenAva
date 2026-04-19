@@ -18,9 +18,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         )
         let delegate = AgentSessionDelegate(
             sessionID: "session-1",
-            workspaceRootURL: runtimeRoot,
             runtimeRootURL: runtimeRoot,
-            baseSystemPrompt: nil,
             chatClient: chatClient,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -59,7 +57,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         XCTAssertEqual(chatClient.streamingChatCallCount, 0)
     }
 
-    func testExtractorSkipsPreservedSegmentWhenCursorWasCompactedAway() async throws {
+    func testExtractorSkipsExtractionWhenCursorWasCompactedAway() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -86,21 +84,12 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         keptAssistant.textContent = "好的，我会保持简洁。"
 
         let summary = ConversationMessage(sessionID: sessionID, role: .user)
-        summary.textContent = "\(ConversationMarkers.contextSummaryPrefix)\n\nEarlier conversation summary."
+        summary.textContent = "Earlier conversation summary."
         summary.metadata["isCompactionSummary"] = "true"
 
         let boundary = ConversationMessage(sessionID: sessionID, role: .system)
-        boundary.textContent = "\(ConversationMarkers.compactBoundaryPrefix)\n\nConversation compacted."
+        boundary.textContent = "Conversation compacted."
         boundary.subtype = "compact_boundary"
-        boundary.compactBoundaryMetadata = CompactBoundaryMetadata(
-            trigger: "auto",
-            preTokens: 1024,
-            preservedSegment: .init(
-                headUUID: keptUser.id,
-                anchorUUID: summary.id,
-                tailUUID: keptAssistant.id
-            )
-        )
 
         await extractor.extractIfNeeded(for: sessionID, messages: [boundary, summary, keptUser, keptAssistant])
 
@@ -108,7 +97,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         XCTAssertEqual(chatClient.streamingChatCallCount, 0)
     }
 
-    func testExtractorAcceptsWrappedJSONResponse() async throws {
+    func testExtractorIgnoresNonJSONWrappedResponse() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -127,13 +116,12 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
 
         let entries = try await store.listEntries()
-        XCTAssertEqual(entries.map(\.slug), ["language-preference"])
-        XCTAssertEqual(entries.first?.type, .user)
+        XCTAssertTrue(entries.isEmpty)
         XCTAssertEqual(chatClient.chatCallCount, 1)
         XCTAssertEqual(chatClient.streamingChatCallCount, 0)
     }
 
-    func testExtractorReusesExistingTopicSlugWhenResponseOmitsSlug() async throws {
+    func testExtractorDoesNotReuseExistingTopicSlugWhenResponseOmitsSlug() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -154,20 +142,22 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
 
         let entries = try await store.listEntries()
-        XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entries.first?.slug, existing.slug)
-        XCTAssertEqual(entries.first?.version, 2)
-        XCTAssertTrue(entries.first?.content.contains("wrap-up summaries") == true)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.map(\.slug).sorted(), ["user-likes-shorter-responses", existing.slug].sorted())
+
+        let newEntry = try XCTUnwrap(entries.first(where: { $0.slug == "user-likes-shorter-responses" }))
+        XCTAssertEqual(newEntry.version, 1)
+        XCTAssertTrue(newEntry.content.contains("wrap-up summaries"))
 
         let archivedVersionURL = runtimeRoot
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent(".versions", isDirectory: true)
             .appendingPathComponent(existing.slug, isDirectory: true)
             .appendingPathComponent("v1.md", isDirectory: false)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: archivedVersionURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: archivedVersionURL.path))
     }
 
-    func testExtractorInfersConflictsForChangedPreferenceWhenNewSlugIsReturned() async throws {
+    func testExtractorDoesNotInferConflictsWhenResponseOmitsConflicts() async throws {
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -182,6 +172,37 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
             slug: "language-english"
         )
         let responseJSON = #"{"memories":[{"name":"Preferred response language Chinese","type":"user","description":"Preferred response language","content":"Reply in simplified Chinese.","slug":"language-chinese"}]}"#
+        let chatClient = StubChatClient(responseText: responseJSON)
+        let extractor = AgentDurableMemoryExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
+
+        await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
+
+        let entries = try await store.listEntries()
+        XCTAssertEqual(Set(entries.map(\.slug)), ["language-english", "language-chinese"])
+
+        let previousFileURL = runtimeRoot
+            .appendingPathComponent("memory", isDirectory: true)
+            .appendingPathComponent("\(existing.slug).md", isDirectory: false)
+        let raw = try String(contentsOf: previousFileURL, encoding: .utf8)
+        XCTAssertTrue(raw.contains("status: active"))
+        XCTAssertFalse(raw.contains("resolved_by: language-chinese"))
+    }
+
+    func testExtractorAppliesExplicitConflictsFromModelResponse() async throws {
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+
+        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let existing = try await store.upsert(
+            name: "Preferred response language English",
+            type: .user,
+            description: "Preferred response language",
+            content: "Reply in English.",
+            slug: "language-english"
+        )
+        let responseJSON = #"{"memories":[{"name":"Preferred response language Chinese","type":"user","description":"Preferred response language","content":"Reply in simplified Chinese.","slug":"language-chinese","conflictsWith":["language-english"]}]}"#
         let chatClient = StubChatClient(responseText: responseJSON)
         let extractor = AgentDurableMemoryExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
 
@@ -211,7 +232,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
 
 @MainActor
 final class ConversationCompactionTests: XCTestCase {
-    func testManualCompactBuildsBoundarySummaryAndHiddenAttachments() async throws {
+    func testManualCompactBuildsBoundarySummaryAndPreservedMessages() async throws {
         let storage = DisposableStorageProvider()
         let toolProvider = StubToolProvider()
         let session = ConversationSession(
@@ -241,34 +262,36 @@ final class ConversationCompactionTests: XCTestCase {
         XCTAssertEqual(client.chatCallCount, 1)
         XCTAssertEqual(session.messages.filter(\.isCompactBoundary).count, 1)
         XCTAssertEqual(session.messages.filter(\.isCompactionSummary).count, 1)
-        XCTAssertEqual(session.messages.filter(\.isCompactAttachment).count, 3)
 
         let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactionSummary }))
         XCTAssertFalse(summary.textContent.contains("<analysis>"))
         XCTAssertTrue(summary.textContent.contains("align compact behavior"))
 
         let preservedIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
         XCTAssertEqual(preservedIDs, Array(originalIDs.suffix(4)))
     }
 
-    func testManualCompactRetriesWhenPromptTooLong() async throws {
+    func testManualCompactFailsWhenSummaryGenerationFails() async throws {
         let storage = DisposableStorageProvider()
         let session = ConversationSession(id: "compact-retry", configuration: .init(storage: storage))
         _ = seedConversation(into: session, turnCount: 10)
 
         let client = StubChatClient(scriptedResponses: [
             .failure("PROMPT TOO LONG: reduce the length of the messages"),
-            .success("<summary>Recovered compact summary.</summary>"),
         ])
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
 
-        try await session.compact(model: model)
+        do {
+            try await session.compact(model: model)
+            XCTFail("Expected compaction to fail when summary generation fails")
+        } catch {
+            XCTAssertEqual((error as? StubChatClientError)?.message, "PROMPT TOO LONG: reduce the length of the messages")
+        }
 
-        XCTAssertEqual(client.chatCallCount, 2)
-        let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactionSummary }))
-        XCTAssertTrue(summary.textContent.contains("Recovered compact summary."))
+        XCTAssertEqual(client.chatCallCount, 1)
+        XCTAssertFalse(session.messages.contains(where: { $0.isCompactionSummary }))
     }
 
     func testPartialCompactFromKeepsEarlierMessagesBeforeSummary() async throws {
@@ -283,7 +306,7 @@ final class ConversationCompactionTests: XCTestCase {
         try await session.partialCompact(around: pivotID, direction: .from, model: model)
 
         let visibleIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
         XCTAssertEqual(visibleIDs, Array(ids.prefix(4)))
         XCTAssertFalse(visibleIDs.contains(pivotID))
@@ -313,13 +336,13 @@ final class ConversationCompactionTests: XCTestCase {
         try await session.compact(model: model)
 
         let compactedContextIDs = storage.messages(in: sessionID)
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
         XCTAssertLessThan(compactedContextIDs.count, originalIDs.count)
 
         let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
         let reloadedIDs = reloaded.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
 
         XCTAssertEqual(reloadedIDs, compactedContextIDs)
@@ -350,13 +373,13 @@ final class ConversationCompactionTests: XCTestCase {
         session.delete(rollbackTargetID)
 
         let remainingVisibleIDs = session.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
         XCTAssertTrue(remainingVisibleIDs.isEmpty)
 
         let reloaded = ConversationSession(id: sessionID, configuration: .init(storage: storage))
         let reloadedVisibleIDs = reloaded.messages
-            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary && !$0.isCompactAttachment }
+            .filter { !$0.isCompactBoundary && !$0.isCompactionSummary }
             .map(\.id)
         XCTAssertTrue(reloadedVisibleIDs.isEmpty)
         XCTAssertTrue(reloaded.messages.contains(where: { $0.isCompactBoundary }))

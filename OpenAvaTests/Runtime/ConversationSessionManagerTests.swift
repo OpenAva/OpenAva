@@ -125,4 +125,8 @@ private final class TestStorageProvider: StorageProvider {
     func setTitle(_ title: String, for id: String) {
         titlesBySessionID[id] = title
     }
+
+    func sessionExecutionState(for _: String) -> SessionExecutionState {
+        .idle
+    }
 }
