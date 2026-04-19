@@ -61,10 +61,10 @@ extension MemoryTools {
         let hits = try await store.recall(query: params.query, limit: min(max(params.limit ?? 5, 1), 20))
         let lines = hits.map { hit in
             """
-            - [\(hit.entry.type.rawValue)] \(hit.entry.name) (slug=\(hit.entry.slug), score=\(hit.score))
-              - description: \(hit.entry.description)
-              - file: \(hit.entry.fileURL.path)
-              - content: \(hit.entry.content.replacingOccurrences(of: "\n", with: " "))
+            - [\(hit.type.rawValue)] \(hit.name) (slug=\(hit.slug), version=\(hit.version))
+              - description: \(hit.description)
+              - file: \(hit.fileURL.path)
+              - content: \(hit.content.replacingOccurrences(of: "\n", with: " "))
             """
         }
         let text = lines.isEmpty

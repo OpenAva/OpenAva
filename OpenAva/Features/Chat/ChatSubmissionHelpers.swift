@@ -8,7 +8,6 @@ private let submissionLogger = Logger(subsystem: "ChatUI", category: "Submission
 public typealias ConversationInferenceHandler = @MainActor (
     _ session: ConversationSession,
     _ model: ConversationSession.Model,
-    _ messageListView: MessageListView,
     _ input: ConversationSession.UserInput,
     _ completion: @escaping @Sendable (Bool) -> Void
 ) -> Void
@@ -43,11 +42,10 @@ func makeUserInput(from object: ChatInputContent) -> ConversationSession.UserInp
 func awaitInference(
     session: ConversationSession,
     model: ConversationSession.Model,
-    messageListView: MessageListView,
     input: ConversationSession.UserInput
 ) async {
     await withCheckedContinuation { continuation in
-        session.runInference(model: model, messageListView: messageListView, input: input) {
+        session.runInference(model: model, input: input) {
             continuation.resume()
         }
     }

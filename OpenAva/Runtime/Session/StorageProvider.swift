@@ -4,6 +4,11 @@ import ChatClient
 import ChatUI
 import Foundation
 
+public enum SessionExecutionState: String, Sendable {
+    case idle
+    case interrupted
+}
+
 /// Abstraction for message and session persistence.
 ///
 /// Third-party apps implement this protocol using their own database
@@ -37,7 +42,7 @@ public protocol StorageProvider: AnyObject, Sendable {
     func save(message: ConversationMessage)
 
     /// Get the current transcript-derived execution status for a session.
-    func sessionStatus(for sessionID: String) -> String
+    func sessionExecutionState(for sessionID: String) -> SessionExecutionState
 }
 
 public extension StorageProvider {
@@ -45,7 +50,7 @@ public extension StorageProvider {
         save([message])
     }
 
-    func sessionStatus(for _: String) -> String {
-        "idle"
+    func sessionExecutionState(for _: String) -> SessionExecutionState {
+        .idle
     }
 }

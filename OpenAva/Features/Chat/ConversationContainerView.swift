@@ -87,13 +87,24 @@ open class ConversationContainerView: UIView {
         }
         messageListView.onRetryInterruptedInference = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedInference(messageListView: self.messageListView)
+            session.retryInterruptedInference()
         }
         session.messagesDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages, scrolling in
                 self?.messageListView.showsInterruptedRetryAction = session.showsInterruptedRetryAction
                 self?.messageListView.render(messages: messages, scrolling: scrolling)
+            }
+            .store(in: &sessionCancellables)
+        session.loadingStateDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                if let status {
+                    self.messageListView.loading(with: status)
+                } else {
+                    self.messageListView.stopLoading()
+                }
             }
             .store(in: &sessionCancellables)
         chatInputView.bind(sessionID: sessionID)
@@ -120,12 +131,12 @@ extension ConversationContainerView: ChatInputDelegate {
         draftInputObject = nil
         messageListView.markNextUpdateAsUserInitiated()
         input.setExecuting(true)
-        let handler = inferenceHandler ?? { session, model, messageListView, userInput, completion in
-            session.runInference(model: model, messageListView: messageListView, input: userInput) {
+        let handler = inferenceHandler ?? { session, model, userInput, completion in
+            session.runInference(model: model, input: userInput) {
                 completion(true)
             }
         }
-        handler(session, model, messageListView, userInput) { accepted in
+        handler(session, model, userInput) { accepted in
             Task { @MainActor [weak input] in
                 logger.notice("submit completion session=\(session.id, privacy: .public)")
                 input?.setExecuting(false)

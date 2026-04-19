@@ -52,21 +52,6 @@ public protocol SessionDelegate: AnyObject, Sendable {
     /// Called after messages have been persisted for the session.
     func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async
 
-    // MARK: - Optional Context
-
-    /// Provide search sensitivity prompt text.
-    func searchSensitivityPrompt() -> String?
-
-    /// Compose a fully built system prompt for this inference step.
-    ///
-    /// When non-nil, this replaces the default base-prompt+date assembly in
-    /// `injectSystemPrompt`. Use this to delegate prompt construction to the
-    /// host app (e.g. via AgentPromptBuilder) so the full agent identity,
-    /// tooling, workspace context, and time section are injected correctly.
-    ///
-    /// Returning nil falls back to the built-in behavior.
-    func composeSystemPrompt() async -> String?
-
     /// Provide the active runtime root used for request-scoped dynamic memory recall.
     func activeRuntimeRootURL() -> URL?
 }
@@ -86,13 +71,6 @@ public extension SessionDelegate {
     func sessionExecutionDidInterrupt(for _: String, reason _: String) {}
     func sessionDidReportUsage(_: TokenUsage, for _: String) {}
     func sessionDidPersistMessages(_: [ConversationMessage], for _: String) async {}
-    func searchSensitivityPrompt() -> String? {
-        nil
-    }
-
-    func composeSystemPrompt() async -> String? {
-        nil
-    }
 
     func activeRuntimeRootURL() -> URL? {
         nil

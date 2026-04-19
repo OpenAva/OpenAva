@@ -491,7 +491,6 @@ final class TeamSwarmCoordinator {
         ) { resources in
             let session = resources.session
             let storageProvider = resources.storageProvider
-            let messageListView = MessageListView()
 
             guard let model = session.models.chat else {
                 throw TeamError("TEAMMATE_MODEL_NOT_CONFIGURED: \(member.name)")
@@ -506,7 +505,6 @@ final class TeamSwarmCoordinator {
             await awaitInference(
                 session: session,
                 model: model,
-                messageListView: messageListView,
                 input: input
             )
 

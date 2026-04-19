@@ -132,9 +132,7 @@ final class AgentMainSessionRegistry {
         let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: agent.runtimeURL)
         let sessionDelegate = AgentSessionDelegate(
             sessionID: mainSessionID,
-            workspaceRootURL: agent.workspaceURL,
             runtimeRootURL: agent.runtimeURL,
-            baseSystemPrompt: modelConfig.systemPrompt,
             chatClient: nil,
             agentName: agent.name,
             agentEmoji: agent.emoji,
@@ -154,7 +152,12 @@ final class AgentMainSessionRegistry {
             storage: storageProvider,
             tools: toolProvider,
             delegate: sessionDelegate,
-            systemPrompt: modelConfig.systemPrompt ?? "You are a helpful assistant.",
+            systemPromptProvider: {
+                AgentContextLoader.composeSystemPrompt(
+                    baseSystemPrompt: modelConfig.systemPrompt,
+                    workspaceRootURL: agent.workspaceURL
+                ) ?? "You are a helpful assistant."
+            },
             collapseReasoningWhenComplete: true
         )
         let session = ConversationSessionManager.shared.session(

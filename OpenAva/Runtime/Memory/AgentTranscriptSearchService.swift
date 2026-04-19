@@ -1,6 +1,20 @@
 import Foundation
 
 struct AgentTranscriptSearchService {
+    private struct TranscriptLine: Decodable {
+        struct Message: Decodable {
+            struct ContentBlock: Decodable {
+                let text: String?
+            }
+
+            let role: String?
+            let content: [ContentBlock]?
+        }
+
+        let type: String?
+        let message: Message?
+    }
+
     struct SearchHit: Equatable {
         let sessionID: String
         let entryType: String
@@ -44,7 +58,8 @@ struct AgentTranscriptSearchService {
             for index in lines.indices.reversed() {
                 let line = lines[index]
                 guard !line.isEmpty else { continue }
-                let searchable = extractSearchableText(from: line)
+                guard let record = decodeTranscriptLine(from: line) else { continue }
+                let searchable = extractMessageText(from: record)
                 guard !searchable.isEmpty else { continue }
                 let haystack = caseInsensitive ? searchable.lowercased() : searchable
                 guard haystack.contains(needle) else { continue }
@@ -52,7 +67,7 @@ struct AgentTranscriptSearchService {
                 hits.append(
                     SearchHit(
                         sessionID: transcript.sessionID,
-                        entryType: extractEntryType(from: line),
+                        entryType: record.type ?? "unknown",
                         lineNumber: index + 1,
                         snippet: Self.compact(searchable),
                         fileURL: transcript.fileURL
@@ -116,45 +131,20 @@ struct AgentTranscriptSearchService {
         }
     }
 
-    private func extractEntryType(from line: String) -> String {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = object["type"] as? String
-        else {
-            return "unknown"
+    private func decodeTranscriptLine(from line: String) -> TranscriptLine? {
+        guard let data = line.data(using: .utf8) else {
+            return nil
         }
-        return type
+        return try? JSONDecoder().decode(TranscriptLine.self, from: data)
     }
 
-    private func extractSearchableText(from line: String) -> String {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return line
-        }
-
-        var parts: [String] = []
-        for key in ["summary", "text", "customTitle", "result", "toolName", "subtype"] {
-            if let value = object[key] as? String, !value.isEmpty {
-                parts.append(value)
+    private func extractMessageText(from line: TranscriptLine) -> String {
+        let texts = line.message?.content?
+            .compactMap { block in
+                block.text?.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-        }
-        if let message = object["message"] as? [String: Any] {
-            if let role = message["role"] as? String, !role.isEmpty {
-                parts.append(role)
-            }
-            if let content = message["content"] as? [[String: Any]] {
-                for block in content {
-                    if let text = block["text"] as? String, !text.isEmpty {
-                        parts.append(text)
-                    }
-                    if let toolName = block["toolName"] as? String, !toolName.isEmpty {
-                        parts.append(toolName)
-                    }
-                }
-            }
-        }
-        return parts.joined(separator: " ")
+            .filter { !$0.isEmpty } ?? []
+        return texts.joined(separator: " ")
     }
 
     private static func compact(_ raw: String, limit: Int = 240) -> String {

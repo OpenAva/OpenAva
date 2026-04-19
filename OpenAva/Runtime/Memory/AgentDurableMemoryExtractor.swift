@@ -74,22 +74,8 @@ actor AgentDurableMemoryExtractor {
                 guard !name.isEmpty, !description.isEmpty, !content.isEmpty else {
                     continue
                 }
-                let resolvedSlug = preferredSlug(
-                    for: candidate,
-                    type: type,
-                    name: name,
-                    description: description,
-                    existingEntries: existingEntries
-                )
-                let conflictSlugs = inferredConflictSlugs(
-                    for: candidate,
-                    type: type,
-                    name: name,
-                    description: description,
-                    content: content,
-                    resolvedSlug: resolvedSlug,
-                    existingEntries: existingEntries
-                )
+                let resolvedSlug = sanitizedSlug(candidate.slug)
+                let conflictSlugs = sanitizedConflictSlugs(candidate.conflictsWith, excluding: resolvedSlug)
                 _ = try await memoryStore.upsert(
                     name: name,
                     type: type,
@@ -190,94 +176,18 @@ actor AgentDurableMemoryExtractor {
                 stream: false
             )
         )
-        return parseResponse([response.text, response.reasoning])
+        return parseResponse(response.text)
     }
 
-    private func parseResponse(_ candidates: [String]) -> ExtractionResponse {
-        for raw in candidates {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-
-            let unwrapped = unwrapCodeFence(in: trimmed)
-            if let decoded = decodeExtractionResponse(from: unwrapped) {
-                return decoded
-            }
-            if let jsonObject = extractJSONObject(from: unwrapped),
-               let decoded = decodeExtractionResponse(from: jsonObject)
-            {
-                return decoded
-            }
-        }
-
-        return ExtractionResponse(memories: [])
-    }
-
-    private func decodeExtractionResponse(from raw: String) -> ExtractionResponse? {
-        guard let data = raw.data(using: .utf8) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(ExtractionResponse.self, from: data)
-    }
-
-    private func unwrapCodeFence(in raw: String) -> String {
-        guard raw.hasPrefix("```") else {
-            return raw
-        }
-
-        let lines = raw.components(separatedBy: .newlines)
-        guard lines.count >= 3,
-              let first = lines.first,
-              first.hasPrefix("```"),
-              let last = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
-              last == "```"
+    private func parseResponse(_ raw: String) -> ExtractionResponse {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(ExtractionResponse.self, from: data)
         else {
-            return raw
+            return ExtractionResponse(memories: [])
         }
-
-        return lines.dropFirst().dropLast().joined(separator: "\n")
-    }
-
-    private func extractJSONObject(from raw: String) -> String? {
-        var startIndex: String.Index?
-        var depth = 0
-        var isInsideString = false
-        var isEscaping = false
-
-        for index in raw.indices {
-            let character = raw[index]
-
-            if isInsideString {
-                if isEscaping {
-                    isEscaping = false
-                } else if character == "\\" {
-                    isEscaping = true
-                } else if character == "\"" {
-                    isInsideString = false
-                }
-                continue
-            }
-
-            if character == "\"" {
-                isInsideString = true
-                continue
-            }
-            if character == "{" {
-                if depth == 0 {
-                    startIndex = index
-                }
-                depth += 1
-                continue
-            }
-            if character == "}" {
-                guard depth > 0 else { continue }
-                depth -= 1
-                if depth == 0, let startIndex {
-                    return String(raw[startIndex ... index])
-                }
-            }
-        }
-
-        return nil
+        return decoded
     }
 
     private func recentMessages(from messages: [ConversationMessage], since messageID: String?) -> [ConversationMessage] {
@@ -290,25 +200,13 @@ actor AgentDurableMemoryExtractor {
             return Array(messages[nextIndex...])
         }
 
-        guard let fallbackTailID = latestCompactionTailID(in: messages),
-              let fallbackIndex = messages.firstIndex(where: { $0.id == fallbackTailID })
-        else {
-            return messages
-        }
-
-        let nextIndex = messages.index(after: fallbackIndex)
-        guard nextIndex < messages.endIndex else { return [] }
-        return Array(messages[nextIndex...])
-    }
-
-    private func latestCompactionTailID(in messages: [ConversationMessage]) -> String? {
         for message in messages.reversed() {
-            guard message.isCompactBoundary else { continue }
-            if let tailID = message.compactBoundaryMetadata?.preservedSegment?.tailUUID {
-                return tailID
+            if message.isCompactBoundary {
+                return []
             }
         }
-        return nil
+
+        return messages
     }
 
     private func shouldExtract(from messages: [ConversationMessage]) -> Bool {
@@ -378,79 +276,21 @@ actor AgentDurableMemoryExtractor {
         }.joined(separator: "\n")
     }
 
-    private func preferredSlug(
-        for candidate: ExtractionResponse.MemoryCandidate,
-        type: AgentMemoryStore.MemoryType,
-        name: String,
-        description: String,
-        existingEntries: [AgentMemoryStore.Entry]
-    ) -> String? {
-        let explicitSlug = candidate.slug?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if explicitSlug?.isEmpty == false {
-            return explicitSlug
+    private func sanitizedSlug(_ raw: String?) -> String? {
+        guard let slug = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !slug.isEmpty else {
+            return nil
         }
-
-        let activeEntries = existingEntries.filter { $0.isActive && $0.type == type }
-        let normalizedName = Self.normalizedComparableText(name)
-        let normalizedDescription = Self.normalizedComparableText(description)
-
-        if let exactNameMatch = activeEntries.first(where: { Self.normalizedComparableText($0.name) == normalizedName }) {
-            return exactNameMatch.slug
-        }
-        if let exactDescriptionMatch = activeEntries.first(where: {
-            Self.normalizedComparableText($0.description) == normalizedDescription
-        }) {
-            return exactDescriptionMatch.slug
-        }
-        if let overlappingMatch = activeEntries.first(where: {
-            let existingName = Self.normalizedComparableText($0.name)
-            return !normalizedName.isEmpty && !existingName.isEmpty && (
-                existingName.contains(normalizedName) || normalizedName.contains(existingName)
-            )
-        }) {
-            return overlappingMatch.slug
-        }
-        return nil
+        return slug
     }
 
-    private func inferredConflictSlugs(
-        for candidate: ExtractionResponse.MemoryCandidate,
-        type: AgentMemoryStore.MemoryType,
-        name _: String,
-        description: String,
-        content: String,
-        resolvedSlug: String?,
-        existingEntries: [AgentMemoryStore.Entry]
-    ) -> [String] {
-        let explicitConflicts = Set(
-            (candidate.conflictsWith ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        )
-
-        guard type == .user || type == .feedback || type == .project else {
-            return Array(explicitConflicts).sorted()
+    private func sanitizedConflictSlugs(_ raw: [String]?, excluding slug: String?) -> [String] {
+        let excluded = slug?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let values = (raw ?? []).compactMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != excluded else { return nil }
+            return trimmed
         }
-
-        let normalizedDescription = Self.normalizedComparableText(description)
-        let normalizedContent = Self.normalizedComparableText(content)
-        let inferredConflicts = existingEntries.compactMap { entry -> String? in
-            guard entry.isActive else { return nil }
-            guard entry.type == type else { return nil }
-            guard entry.slug != resolvedSlug else { return nil }
-            guard Self.normalizedComparableText(entry.description) == normalizedDescription else { return nil }
-            let existingContent = Self.normalizedComparableText(entry.content)
-            guard !existingContent.isEmpty, existingContent != normalizedContent else { return nil }
-            return entry.slug
-        }
-
-        return Array(explicitConflicts.union(inferredConflicts)).sorted()
-    }
-
-    private static func normalizedComparableText(_ raw: String) -> String {
-        raw.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        return Array(Set(values)).sorted()
     }
 
     private static func isModelVisibleMessage(_ message: ConversationMessage) -> Bool {

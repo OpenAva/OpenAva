@@ -27,17 +27,13 @@ actor AgentMemoryStore {
         let status: EntryStatus
         let resolvedBySlug: String?
         let expiresAt: Date?
-        let topicKey: String
 
         var isActive: Bool {
             status == .active
         }
     }
 
-    struct RecallHit: Equatable {
-        let entry: Entry
-        let score: Int
-    }
+    typealias RecallHit = Entry
 
     private let runtimeRootURL: URL
     private let fileManager: FileManager
@@ -53,36 +49,23 @@ actor AgentMemoryStore {
         self.fileManager = fileManager
     }
 
-    func promptContext(maxEntries: Int = 24) throws -> String {
-        let entries = try loadEntries()
-        guard !entries.isEmpty else { return "" }
-
-        let lines = entries.prefix(maxEntries).map { entry in
-            let versionSuffix = entry.version > 1 ? " v\(entry.version)" : ""
-            return "- [\(entry.name)](\(entry.slug).md) [\(entry.type.rawValue)\(versionSuffix)] — \(entry.description)"
-        }
-        return (["Indexed agent memories:"] + lines).joined(separator: "\n")
-    }
-
     func recall(query: String, limit: Int = 5) throws -> [RecallHit] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let entries = try loadEntries()
         guard !entries.isEmpty else { return [] }
 
-        let tokens = Self.tokens(from: trimmedQuery)
-        let loweredQuery = trimmedQuery.lowercased()
+        guard !trimmedQuery.isEmpty else {
+            return Array(entries.prefix(max(1, limit)))
+        }
+
+        let normalizedQuery = Self.normalizedSearchText(trimmedQuery)
+        guard !normalizedQuery.isEmpty else {
+            return Array(entries.prefix(max(1, limit)))
+        }
 
         return entries
-            .compactMap { entry in
-                let score = Self.score(entry: entry, query: loweredQuery, tokens: tokens)
-                guard score > 0 || trimmedQuery.isEmpty else { return nil }
-                return RecallHit(entry: entry, score: score)
-            }
-            .sorted { lhs, rhs in
-                if lhs.score != rhs.score {
-                    return lhs.score > rhs.score
-                }
-                return lhs.entry.modifiedAt > rhs.entry.modifiedAt
+            .filter { entry in
+                Self.matchesRecallQuery(entry: entry, normalizedQuery: normalizedQuery)
             }
             .prefix(max(1, limit))
             .map { $0 }
@@ -104,21 +87,12 @@ actor AgentMemoryStore {
         let normalizedDescription = Self.normalizeSingleLine(description, fallback: normalizedName)
         let normalizedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedExpiresAt = Self.parseDate(expiresAt)
-        let topicKey = Self.normalizedTopicKey(type: type, name: normalizedName)
         let allEntries = try loadEntries(includeInactive: true)
         let resolvedSlug: String
         if let slug {
             resolvedSlug = Self.normalizedSlug(slug, fallback: normalizedName)
-        } else if let dedupeEntry = Self.dedupeCandidate(
-            for: type,
-            name: normalizedName,
-            description: normalizedDescription,
-            content: normalizedContent,
-            entries: allEntries
-        ) {
-            resolvedSlug = dedupeEntry.slug
         } else {
-            resolvedSlug = Self.normalizedSlug(nil, fallback: normalizedName)
+            resolvedSlug = Self.uniqueSlug(fallback: normalizedName, existingEntries: allEntries)
         }
 
         let fileURL = memoryFileURL(for: resolvedSlug)
@@ -133,15 +107,9 @@ actor AgentMemoryStore {
            existingEntry.name == normalizedName,
            existingEntry.description == normalizedDescription,
            existingEntry.content == normalizedContent,
-           existingEntry.topicKey == topicKey,
            Self.sameDate(existingEntry.expiresAt, normalizedExpiresAt)
         {
-            try deactivateEntriesResolvedBy(
-                slug: resolvedSlug,
-                topicKey: topicKey,
-                type: type,
-                explicitConflictSlugs: normalizedConflictSlugs
-            )
+            try deactivateConflictingEntries(resolvedSlug: resolvedSlug, explicitConflictSlugs: normalizedConflictSlugs)
             return existingEntry
         }
 
@@ -160,16 +128,10 @@ actor AgentMemoryStore {
             version: nextVersion,
             status: Self.status(for: .active, expiresAt: normalizedExpiresAt),
             resolvedBySlug: nil,
-            expiresAt: normalizedExpiresAt,
-            topicKey: topicKey
+            expiresAt: normalizedExpiresAt
         )
 
-        try deactivateEntriesResolvedBy(
-            slug: resolvedSlug,
-            topicKey: topicKey,
-            type: type,
-            explicitConflictSlugs: normalizedConflictSlugs
-        )
+        try deactivateConflictingEntries(resolvedSlug: resolvedSlug, explicitConflictSlugs: normalizedConflictSlugs)
         return try loadEntry(from: fileURL)
     }
 
@@ -257,7 +219,6 @@ actor AgentMemoryStore {
         let expiresAt = Self.parseDate(header["expires_at"])
         let status = Self.status(for: rawStatus, expiresAt: expiresAt)
         let resolvedBySlug = Self.nonEmpty(header["resolved_by"])
-        let topicKey = Self.normalizeSingleLine(header["topic_key"], fallback: Self.normalizedTopicKey(type: type, name: name))
         return Entry(
             slug: slug,
             name: name,
@@ -269,8 +230,7 @@ actor AgentMemoryStore {
             version: version,
             status: status,
             resolvedBySlug: resolvedBySlug,
-            expiresAt: expiresAt,
-            topicKey: topicKey
+            expiresAt: expiresAt
         )
     }
 
@@ -284,8 +244,7 @@ actor AgentMemoryStore {
         version: Int,
         status: EntryStatus,
         resolvedBySlug: String?,
-        expiresAt: Date?,
-        topicKey: String
+        expiresAt: Date?
     ) throws {
         var headerLines = [
             "name: \(name)",
@@ -293,7 +252,6 @@ actor AgentMemoryStore {
             "description: \(description)",
             "version: \(version)",
             "status: \(status.rawValue)",
-            "topic_key: \(topicKey)",
         ]
         if let resolvedBySlug = Self.nonEmpty(resolvedBySlug) {
             headerLines.append("resolved_by: \(resolvedBySlug)")
@@ -324,18 +282,9 @@ actor AgentMemoryStore {
         try raw.write(to: snapshotURL, atomically: true, encoding: .utf8)
     }
 
-    private func deactivateEntriesResolvedBy(
-        slug resolvedSlug: String,
-        topicKey: String,
-        type: MemoryType,
-        explicitConflictSlugs: Set<String>
-    ) throws {
+    private func deactivateConflictingEntries(resolvedSlug: String, explicitConflictSlugs: Set<String>) throws {
         let allEntries = try loadEntries(includeInactive: true)
         for entry in allEntries where entry.slug != resolvedSlug && entry.isActive {
-            if entry.type == type, entry.topicKey == topicKey {
-                try markEntryInactive(entry, status: .superseded, resolvedBySlug: resolvedSlug)
-                continue
-            }
             if explicitConflictSlugs.contains(entry.slug) {
                 try markEntryInactive(entry, status: .conflicted, resolvedBySlug: resolvedSlug)
             }
@@ -355,8 +304,7 @@ actor AgentMemoryStore {
             version: entry.version,
             status: status,
             resolvedBySlug: resolvedBySlug,
-            expiresAt: entry.expiresAt,
-            topicKey: entry.topicKey
+            expiresAt: entry.expiresAt
         )
     }
 
@@ -400,23 +348,6 @@ actor AgentMemoryStore {
         return value
     }
 
-    private static func normalizedTopicKey(type: MemoryType, name: String) -> String {
-        "\(type.rawValue)::\(normalizedComparableText(name))"
-    }
-
-    private static func normalizedComparableText(_ raw: String) -> String {
-        raw.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
-
-    private static func contentSignature(description: String, content: String) -> String {
-        [description, content]
-            .map(normalizedComparableText)
-            .joined(separator: " | ")
-    }
-
     private static func normalizedSlug(_ raw: String?, fallback: String) -> String {
         let source = normalizeSingleLine(raw, fallback: fallback).lowercased()
         let mapped = source.map { character -> Character in
@@ -429,6 +360,23 @@ actor AgentMemoryStore {
             .replacingOccurrences(of: "--+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "memory" : slug
+    }
+
+    private static func uniqueSlug(fallback: String, existingEntries: [Entry]) -> String {
+        let base = normalizedSlug(nil, fallback: fallback)
+        let existingSlugs = Set(existingEntries.map(\.slug))
+        guard existingSlugs.contains(base) else {
+            return base
+        }
+
+        var suffix = 2
+        while true {
+            let candidate = "\(base)-\(suffix)"
+            if !existingSlugs.contains(candidate) {
+                return candidate
+            }
+            suffix += 1
+        }
     }
 
     private static func parseDate(_ raw: String?) -> Date? {
@@ -459,77 +407,20 @@ actor AgentMemoryStore {
         }
     }
 
-    private static func dedupeCandidate(
-        for type: MemoryType,
-        name: String,
-        description: String,
-        content: String,
-        entries: [Entry]
-    ) -> Entry? {
-        let topicKey = normalizedTopicKey(type: type, name: name)
-        let signature = contentSignature(description: description, content: content)
-        let candidates = entries
-            .filter { $0.type == type }
-            .sorted { lhs, rhs in
-                if lhs.isActive != rhs.isActive {
-                    return lhs.isActive && !rhs.isActive
-                }
-                if lhs.modifiedAt != rhs.modifiedAt {
-                    return lhs.modifiedAt > rhs.modifiedAt
-                }
-                return lhs.version > rhs.version
-            }
-
-        if let topicMatch = candidates.first(where: { $0.topicKey == topicKey }) {
-            return topicMatch
-        }
-        return candidates.first {
-            contentSignature(description: $0.description, content: $0.content) == signature
-        }
-    }
-
-    private static func tokens(from raw: String) -> [String] {
+    private static func normalizedSearchText(_ raw: String) -> String {
         raw.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 2 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
-    private static func score(entry: Entry, query: String, tokens: [String]) -> Int {
-        let haystackName = entry.name.lowercased()
-        let haystackDescription = entry.description.lowercased()
-        let haystackContent = entry.content.lowercased()
-        var score = 0
-
-        if !query.isEmpty {
-            if haystackName.contains(query) {
-                score += 18
-            }
-            if haystackDescription.contains(query) {
-                score += 12
-            }
-            if haystackContent.contains(query) {
-                score += 5
-            }
-            if entry.type.rawValue == query {
-                score += 10
-            }
-        }
-
-        for token in tokens {
-            if haystackName.contains(token) {
-                score += 6
-            }
-            if haystackDescription.contains(token) {
-                score += 4
-            }
-            if haystackContent.contains(token) {
-                score += 1
-            }
-            if entry.type.rawValue.contains(token) {
-                score += 2
-            }
-        }
-
-        return score
+    private static func matchesRecallQuery(entry: Entry, normalizedQuery: String) -> Bool {
+        let fields = [
+            normalizedSearchText(entry.name),
+            normalizedSearchText(entry.description),
+            normalizedSearchText(entry.slug),
+            normalizedSearchText(entry.type.rawValue),
+        ]
+        return fields.contains { !$0.isEmpty && $0.contains(normalizedQuery) }
     }
 }

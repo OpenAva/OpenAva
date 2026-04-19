@@ -4,75 +4,40 @@ import Foundation
 import OSLog
 
 private let requestBuildLogger = Logger(subsystem: "ChatUI", category: "RequestBuild")
-private let requestHistoryKeepRecentMessageCount = 4
-private let requestHistoryContinuationWindow: TimeInterval = 30 * 60
 
 extension ConversationSession {
-    /// Build request messages from conversation history.
-    func buildRequestMessages(capabilities: Set<ModelCapability>) -> [ChatRequestBody.Message] {
+    /// Build request messages from conversation history only.
+    func buildHistoryRequestMessages(capabilities: Set<ModelCapability>) -> [ChatRequestBody.Message] {
         requestHistoryMessages().flatMap { buildRequestMessages(from: $0, capabilities: capabilities) }
     }
 
-    func requestHistoryMessages(referenceDate: Date = Date()) -> [ConversationMessage] {
-        let candidates = requestHistoryCandidates()
-        guard candidates.count > requestHistoryKeepRecentMessageCount else {
-            return candidates
+    /// Build the full request payload for execution by combining history and
+    /// the current instruction message in one pass.
+    func buildExecutionRequestMessages(capabilities: Set<ModelCapability>) async -> [ChatRequestBody.Message] {
+        var requestMessages = buildHistoryRequestMessages(capabilities: capabilities)
+        guard let instructionMessage = await buildInstructionRequestMessage(
+            for: requestMessages,
+            capabilities: capabilities
+        ) else {
+            return requestMessages
         }
 
-        var startIndex = candidates.count - requestHistoryKeepRecentMessageCount
-        while startIndex > 0 {
-            let previous = candidates[startIndex - 1]
-            let age = referenceDate.timeIntervalSince(previous.createdAt)
-            guard age <= requestHistoryContinuationWindow else {
-                break
+        let insertIndex = requestMessages.lastIndex { message in
+            switch message {
+            case .system, .developer:
+                true
+            default:
+                false
             }
-            startIndex -= 1
-        }
-
-        let selectedMessages = Array(candidates[startIndex...])
-        let selectedContainsUserMessage = selectedMessages.contains { message in
-            message.role == .user && !message.isCompactionSummary
-        }
-
-        if !selectedContainsUserMessage,
-           let latestUserIndex = latestHistoricalUserMessageIndex(in: candidates, before: startIndex)
-        {
-            startIndex = latestUserIndex
-        }
-
-        if let summaryIndex = latestCompactionSummaryIndex(in: candidates, before: startIndex) {
-            return [candidates[summaryIndex]] + Array(candidates[startIndex...])
-        }
-
-        return Array(candidates[startIndex...])
+        }.map { $0 + 1 } ?? 0
+        requestMessages.insert(instructionMessage, at: insertIndex)
+        return requestMessages
     }
 
-    private func requestHistoryCandidates() -> [ConversationMessage] {
-        let boundaryIndex = messages.lastIndex(where: { $0.isCompactBoundary })
-        let startIndex = boundaryIndex.map { $0 + 1 } ?? 0
-        guard startIndex < messages.count else { return [] }
-
-        return Array(messages[startIndex...]).filter { message in
-            !message.isCompactBoundary && !message.isCompactAttachment
-        }
-    }
-
-    private func latestCompactionSummaryIndex(
-        in messages: [ConversationMessage],
-        before upperBound: Int
-    ) -> Int? {
-        guard upperBound > 0 else { return nil }
-        return messages[..<upperBound].lastIndex(where: { $0.isCompactionSummary })
-    }
-
-    private func latestHistoricalUserMessageIndex(
-        in messages: [ConversationMessage],
-        before upperBound: Int
-    ) -> Int? {
-        guard upperBound > 0 else { return nil }
-        return messages[..<upperBound].lastIndex(where: { message in
-            message.role == .user && !message.isCompactionSummary
-        })
+    func requestHistoryMessages() -> [ConversationMessage] {
+        messages
+            .messagesAfterLatestCompactBoundary(includingBoundary: false)
+            .filter { !$0.isCompactBoundary }
     }
 
     func buildRequestMessages(
@@ -86,10 +51,6 @@ extension ConversationSession {
             if message.isCompactBoundary {
                 return []
             }
-            if message.isCompactionSummary {
-                return [.user(content: .text(content))]
-            }
-            guard !ConversationMarkers.isToolUseSummary(content) else { return [] }
             if capabilities.contains(.developerRole) {
                 return [.developer(content: .text(content))]
             }
@@ -98,7 +59,7 @@ extension ConversationSession {
         case .user:
             return [
                 buildUserRequestMessage(
-                    text: userRequestText(for: message),
+                    text: message.textContent,
                     attachments: message.parts,
                     capabilities: capabilities
                 ),
@@ -129,17 +90,7 @@ extension ConversationSession {
             return result
 
         default:
-            if message.role.rawValue == "tool",
-               let toolResult = message.parts.compactMap({ part -> ToolResultContentPart? in
-                   guard case let .toolResult(value) = part else { return nil }
-                   return value
-               }).first
-            {
-                return [.tool(content: .text(toolResult.result), toolCallID: toolResult.toolCallID)]
-            }
-
-            let text = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? [] : [.user(content: .text(text))]
+            return []
         }
     }
 
@@ -148,23 +99,6 @@ extension ConversationSession {
         attachments: [ContentPart],
         capabilities: Set<ModelCapability>
     ) -> ChatRequestBody.Message {
-        let parts = buildUserRequestContentParts(
-            text: text,
-            attachments: attachments,
-            capabilities: capabilities
-        )
-
-        if parts.count == 1, case let .text(singleText) = parts.first {
-            return .user(content: .text(singleText))
-        }
-        return .user(content: .parts(parts))
-    }
-
-    func buildUserRequestContentParts(
-        text: String,
-        attachments: [ContentPart],
-        capabilities: Set<ModelCapability>
-    ) -> [ChatRequestBody.Message.ContentPart] {
         var parts: [ChatRequestBody.Message.ContentPart] = []
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedText.isEmpty {
@@ -223,10 +157,9 @@ extension ConversationSession {
             parts.append(.text(trimmedText.isEmpty ? "(empty)" : trimmedText))
         }
 
-        return parts
-    }
-
-    func userRequestText(for message: ConversationMessage) -> String {
-        AppConfig.nonEmpty(message.metadata[UserInput.requestTextMetadataKey]) ?? message.textContent
+        if parts.count == 1, case let .text(singleText) = parts.first {
+            return .user(content: .text(singleText))
+        }
+        return .user(content: .parts(parts))
     }
 }

@@ -250,7 +250,7 @@ extension SubAgentTools {
         let metadata = taskMetadata(from: snapshot)
         await MainActor.run {
             guard let session = cachedSession(for: sessionID),
-                  let message = session.message(for: messageID)
+                  let message = session.messages.first(where: { $0.id == messageID })
             else {
                 return
             }

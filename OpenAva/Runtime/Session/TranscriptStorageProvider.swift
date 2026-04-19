@@ -11,8 +11,6 @@ private enum TranscriptEntryKind: String {
     case user
     case assistant
     case system
-    case summary
-    case compactBoundary
     case customTitle
     case lastPrompt
     case unknown
@@ -20,7 +18,7 @@ private enum TranscriptEntryKind: String {
     /// Whether this entry kind participates in the parentUuid chain.
     var isChainParticipant: Bool {
         switch self {
-        case .user, .assistant, .system, .compactBoundary: return true
+        case .user, .assistant, .system: return true
         default: return false
         }
     }
@@ -82,18 +80,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let message: TranscriptMessageRecord
     }
 
-    private struct SummaryTranscriptEntry: Codable {
-        let type: String
-        let leafUuid: String
-        let summary: String
-
-        init(leafUuid: String, summary: String) {
-            type = "summary"
-            self.leafUuid = leafUuid
-            self.summary = summary
-        }
-    }
-
     private struct CustomTitleTranscriptEntry: Codable {
         let type: String
         let customTitle: String
@@ -124,7 +110,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     /// per-kind payload, then wrapped by this enum for read/write dispatch.
     private enum SessionTranscriptEntry: Codable {
         case chain(ChainTranscriptEntry)
-        case summary(SummaryTranscriptEntry)
         case customTitle(CustomTitleTranscriptEntry)
         case lastPrompt(LastPromptTranscriptEntry)
         case unknown(UnknownTranscriptEntry)
@@ -134,16 +119,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             switch (probe.type, probe.subtype) {
             case (MessageRole.user.rawValue, _),
                  (MessageRole.assistant.rawValue, _),
-                 ("system", "compact_boundary"),
-                 ("system", nil):
+                 ("system", _):
                 if let entry = try? ChainTranscriptEntry(from: decoder) {
                     self = .chain(entry)
-                } else {
-                    self = try .unknown(UnknownTranscriptEntry(from: decoder))
-                }
-            case ("summary", _):
-                if let entry = try? SummaryTranscriptEntry(from: decoder) {
-                    self = .summary(entry)
                 } else {
                     self = try .unknown(UnknownTranscriptEntry(from: decoder))
                 }
@@ -167,7 +145,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         func encode(to encoder: Encoder) throws {
             switch self {
             case let .chain(entry): try entry.encode(to: encoder)
-            case let .summary(entry): try entry.encode(to: encoder)
             case let .customTitle(entry): try entry.encode(to: encoder)
             case let .lastPrompt(entry): try entry.encode(to: encoder)
             case let .unknown(entry): try entry.encode(to: encoder)
@@ -184,15 +161,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             return nil
         }
 
-        var leafUuid: String? {
-            if case let .summary(entry) = self { return entry.leafUuid }
-            return nil
-        }
-
         var type: String {
             switch self {
             case let .chain(entry): return entry.type
-            case let .summary(entry): return entry.type
             case let .customTitle(entry): return entry.type
             case let .lastPrompt(entry): return entry.type
             case let .unknown(entry): return entry.type
@@ -227,11 +198,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
         var lastPrompt: String? {
             if case let .lastPrompt(entry) = self { return entry.lastPrompt }
-            return nil
-        }
-
-        var summary: String? {
-            if case let .summary(entry) = self { return entry.summary }
             return nil
         }
     }
@@ -360,22 +326,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let previousByID = Dictionary(uniqueKeysWithValues: previousMessages.map { ($0.id, $0) })
         let nextByID = Dictionary(uniqueKeysWithValues: sortedMessages.map { ($0.id, $0) })
         let removedIDs = previousMessages.map(\.id).filter { nextByID[$0] == nil }
-        let summaryMessage = sortedMessages.first(where: { $0.isCompactionSummary })
-
-        if let summaryMessage, !removedIDs.isEmpty {
-            // Compaction metadata is intentionally narrow: keep the summary text
-            // searchable/stream-recoverable, but persist the actual summary body
-            // as an ordinary user chain message.
-            _ = appendEntryLocked(
-                type: "summary",
-                sessionID: sessionID,
-                parentUuid: nil,
-                leafUuid: summaryMessage.id,
-                summary: summaryText(from: summaryMessage)
-            )
-            // Re-append metadata so it stays in the tail window.
-            reAppendMetadataLocked(sessionID: sessionID)
-        } else if !removedIDs.isEmpty {
+        if !removedIDs.isEmpty {
             cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
             cache.messages = sortedMessages.map(copyMessage(_:))
             cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
@@ -436,12 +387,12 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         return messages.sorted { $0.createdAt < $1.createdAt }.map(copyMessage(_:))
     }
 
-    func sessionStatus(for sessionID: String) -> String {
+    func sessionExecutionState(for sessionID: String) -> SessionExecutionState {
         lock.lock()
         ensureSessionLoadedLocked(sessionID)
         let shouldShowRetry = loadedSessionCacheByID[sessionID]?.shouldShowRetry ?? false
         lock.unlock()
-        return shouldShowRetry ? "interrupted" : "idle"
+        return shouldShowRetry ? .interrupted : .idle
     }
 
     func delete(_ messageIDs: [String]) {
@@ -570,7 +521,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
         // Last message is user.
         if last.role == .user {
-            if last.isCompactionSummary || last.isCompactBoundary || last.isCompactAttachment {
+            if last.isCompactionSummary || last.isCompactBoundary {
                 return .none
             }
 
@@ -666,8 +617,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             case .lastPrompt:
                 if let prompt = entry.lastPrompt { state.lastPrompt = prompt }
                 continue
-            case .summary:
-                continue
             case .unknown:
                 continue
             default: break
@@ -747,34 +696,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         return state
     }
 
-    // MARK: - Private: Re-append Metadata
-
-    /// After compaction, metadata entries (title, last-prompt) may end up
-    /// before the boundary, outside the tail read window. This function
-    /// re-appends them to the end of the file so they remain accessible
-    /// during lite reads.
-    private func reAppendMetadataLocked(sessionID: String) {
-        let cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
-
-        // Re-append each metadata type (they won't advance the chain).
-        if let prompt = cache.lastPrompt {
-            _ = appendEntryLocked(
-                type: "last-prompt",
-                sessionID: sessionID,
-                parentUuid: nil,
-                lastPrompt: prompt
-            )
-        }
-        if let title = cache.customTitle {
-            _ = appendEntryLocked(
-                type: "custom-title",
-                sessionID: sessionID,
-                parentUuid: nil,
-                customTitle: title
-            )
-        }
-    }
-
     private func reconcileIncompleteToolCalls(in messages: inout [ConversationMessage]) {
         for message in messages where message.role == .assistant {
             let toolResultIDs = Set(message.parts.compactMap { part -> String? in
@@ -807,11 +728,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         subtype: String? = nil,
         sessionID: String,
         parentUuid: String? = nil,
-        leafUuid: String? = nil,
         message: TranscriptMessageRecord? = nil,
         customTitle: String? = nil,
-        lastPrompt: String? = nil,
-        summary: String? = nil
+        lastPrompt: String? = nil
     ) -> String? {
         let timestamp = Self.iso8601Formatter.string(from: Date())
         let kind = entryKind(forEntryType: type, subtype: subtype)
@@ -819,7 +738,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let entry: SessionTranscriptEntry
 
         switch kind {
-        case .user, .assistant, .system, .compactBoundary:
+        case .user, .assistant, .system:
             guard let entryUuid, let message else { return nil }
             entry = .chain(
                 ChainTranscriptEntry(
@@ -832,9 +751,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                     message: message
                 )
             )
-        case .summary:
-            guard let leafUuid, let summary else { return nil }
-            entry = .summary(SummaryTranscriptEntry(leafUuid: leafUuid, summary: summary))
         case .customTitle:
             guard let customTitle else { return nil }
             entry = .customTitle(CustomTitleTranscriptEntry(customTitle: customTitle))
@@ -860,13 +776,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
         let parentUUIDsByMessageID = parentUUIDsByMessageID(for: sortedMessages)
         var lines: [String] = []
-
-        if let summaryMessage = sortedMessages.first(where: { $0.isCompactionSummary }),
-           let summary = summaryText(from: summaryMessage),
-           let summaryLine = encodedTranscriptLine(for: .summary(SummaryTranscriptEntry(leafUuid: summaryMessage.id, summary: summary)))
-        {
-            lines.append(summaryLine)
-        }
 
         for message in sortedMessages {
             let kind = entryKind(for: message)
@@ -911,14 +820,11 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         entryKind(forEntryType: entry.type, subtype: entry.subtype)
     }
 
-    private func entryKind(forEntryType type: String, subtype: String?) -> TranscriptEntryKind {
+    private func entryKind(forEntryType type: String, subtype _: String?) -> TranscriptEntryKind {
         switch type {
         case MessageRole.user.rawValue: return .user
         case MessageRole.assistant.rawValue: return .assistant
-        case "system":
-            if subtype == "compact_boundary" { return .compactBoundary }
-            return .system
-        case "summary": return .summary
+        case "system": return .system
         case "custom-title": return .customTitle
         case "last-prompt": return .lastPrompt
         default: return .unknown
@@ -1131,9 +1037,6 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 return heartbeatPreview
             }
             let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            if ConversationMarkers.isToolUseSummary(trimmed) {
-                continue
-            }
             if !trimmed.isEmpty {
                 return String(trimmed.prefix(120))
             }
@@ -1170,18 +1073,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     private func lastPromptText(from message: ConversationMessage) -> String? {
         guard message.role == .user else { return nil }
+        guard !message.isCompactionSummary else { return nil }
         let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
-    }
-
-    private func summaryText(from message: ConversationMessage) -> String? {
-        let trimmed = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if message.isCompactionSummary {
-            return ConversationMarkers.stripContextSummaryPrefix(from: trimmed)
-        }
-        return trimmed
     }
 
     // MARK: - Private: Serialization
@@ -1371,10 +1266,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             ?? lastMetadataValue(in: headEntries, extractor: { $0.customTitle })
         let lastPrompt = lastMetadataValue(in: tailEntries, extractor: { $0.lastPrompt })
             ?? lastMetadataValue(in: headEntries, extractor: { $0.lastPrompt })
-        let summary = lastMetadataValue(in: tailEntries, extractor: { $0.summary })
-            ?? lastMetadataValue(in: headEntries, extractor: { $0.summary })
         let firstPrompt = firstPromptText(in: headEntries)
-        let displayName = title ?? lastPrompt ?? summary ?? firstPrompt
+        let firstSummary = firstCompactionSummaryText(in: headEntries)
+            ?? firstCompactionSummaryText(in: tailEntries)
+        let displayName = title ?? lastPrompt ?? firstPrompt ?? firstSummary
         guard let displayName, !displayName.isEmpty else { return nil }
 
         return SessionRecord(
@@ -1448,6 +1343,26 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             guard entry.type == MessageRole.user.rawValue,
                   let message = entry.message,
                   message.metadata?["isCompactionSummary"] != "true"
+            else {
+                continue
+            }
+
+            let text = message.content
+                .filter { $0.type == "text" }
+                .compactMap(\.text)
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            return text.count > 200 ? String(text.prefix(200)) + "…" : text
+        }
+        return nil
+    }
+
+    private func firstCompactionSummaryText(in entries: [SessionTranscriptEntry]) -> String? {
+        for entry in entries {
+            guard entry.type == MessageRole.user.rawValue,
+                  let message = entry.message,
+                  message.metadata?["isCompactionSummary"] == "true"
             else {
                 continue
             }

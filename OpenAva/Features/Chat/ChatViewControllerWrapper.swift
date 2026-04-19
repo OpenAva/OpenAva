@@ -294,9 +294,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                 storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
                 sessionDelegate = AgentSessionDelegate(
                     sessionID: sessionID,
-                    workspaceRootURL: workspaceRootURL,
                     runtimeRootURL: runtimeRootURL,
-                    baseSystemPrompt: systemPrompt,
                     chatClient: chatClient,
                     agentName: activeAgentName,
                     agentEmoji: activeAgentEmoji
@@ -326,7 +324,12 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             storage: storageProvider,
             tools: toolProvider,
             delegate: sessionDelegate,
-            systemPrompt: systemPrompt ?? "You are a helpful assistant.",
+            systemPromptProvider: {
+                AgentContextLoader.composeSystemPrompt(
+                    baseSystemPrompt: systemPrompt,
+                    workspaceRootURL: workspaceRootURL
+                ) ?? systemPrompt ?? "You are a helpful assistant."
+            },
             collapseReasoningWhenComplete: true
         )
 
@@ -392,7 +395,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
         if let serializedExecutionContext {
-            chatViewController.inferenceHandler = { _, _, messageListView, userInput, completion in
+            chatViewController.inferenceHandler = { _, _, userInput, completion in
                 Task { @MainActor in
                     do {
                         try await AgentMainSessionRegistry.shared.submitToMainSession(
@@ -407,7 +410,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                             await awaitInference(
                                 session: resources.session,
                                 model: model,
-                                messageListView: messageListView,
                                 input: userInput
                             )
                             completion(true)

@@ -482,6 +482,17 @@ open class ChatViewController: UIViewController {
                 self?.scheduleContextUsageRefresh()
             }
             .store(in: &sessionCancellables)
+        session.loadingStateDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                if let status {
+                    self.messageListView.loading(with: status)
+                } else {
+                    self.messageListView.stopLoading()
+                }
+            }
+            .store(in: &sessionCancellables)
         session.usageDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -545,7 +556,7 @@ open class ChatViewController: UIViewController {
         }
         messageListView.onRetryInterruptedInference = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedInference(messageListView: self.messageListView)
+            session.retryInterruptedInference()
         }
         messageListView.onRollbackUserQuery = { [weak self] messageID, queryText in
             guard let self, let session = self.currentSession else { return }
@@ -737,12 +748,12 @@ extension ChatViewController: ChatInputDelegate {
         clearPersistedDraft()
         messageListView.markNextUpdateAsUserInitiated()
         isExecutingCurrentTurn = true
-        let handler = inferenceHandler ?? { session, model, messageListView, userInput, completion in
-            session.runInference(model: model, messageListView: messageListView, input: userInput) {
+        let handler = inferenceHandler ?? { session, model, userInput, completion in
+            session.runInference(model: model, input: userInput) {
                 completion(true)
             }
         }
-        handler(session, model, messageListView, userInput) { accepted in
+        handler(session, model, userInput) { accepted in
             Task { @MainActor [weak self] in
                 logger.notice("submit completion session=\(session.id, privacy: .public)")
                 self?.isExecutingCurrentTurn = false

@@ -1,28 +1,5 @@
 import Foundation
 
-public enum ConversationMarkers {
-    public static let compactBoundaryPrefix = "[Compact Boundary]"
-    public static let contextSummaryPrefix = "[Context Summary]"
-    public static let compactAttachmentPrefix = "[Compact Attachment]"
-    public static let toolUseSummaryPrefix = "[Tool Use Summary]"
-
-    public static func isContextSummary(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(contextSummaryPrefix)
-    }
-
-    public static func isToolUseSummary(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(toolUseSummaryPrefix)
-    }
-
-    public static func stripContextSummaryPrefix(from text: String) -> String {
-        guard isContextSummary(text) else { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: contextSummaryPrefix, with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 public enum PartialCompactDirection: String, Sendable {
     case from
     case upTo = "up_to"
@@ -76,10 +53,6 @@ public extension ConversationMessage {
         metadata["isCompactionSummary"] == "true"
     }
 
-    var isCompactAttachment: Bool {
-        metadata["isCompactAttachment"] == "true" || subtype == "compact_attachment"
-    }
-
     var subtype: String? {
         get { metadata["subtype"] }
         set { metadata["subtype"] = newValue }
@@ -111,5 +84,20 @@ public extension ConversationMessage {
 
     var isCompactBoundary: Bool {
         subtype == "compact_boundary"
+    }
+}
+
+public extension Array where Element == ConversationMessage {
+    func messagesAfterLatestCompactBoundary(includingBoundary: Bool = true) -> [ConversationMessage] {
+        guard let boundaryIndex = lastIndex(where: { $0.isCompactBoundary }) else {
+            return self
+        }
+
+        let startIndex = includingBoundary ? boundaryIndex : index(after: boundaryIndex)
+        guard startIndex < endIndex else {
+            return []
+        }
+
+        return Array(self[startIndex...])
     }
 }

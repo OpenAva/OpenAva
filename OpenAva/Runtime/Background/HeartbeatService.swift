@@ -339,7 +339,6 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
             await awaitInference(
                 session: session,
                 model: model,
-                messageListView: MessageListView(),
                 input: HeartbeatSupport.makeUserInput(heartbeatMarkdown: heartbeatMarkdown)
             )
 

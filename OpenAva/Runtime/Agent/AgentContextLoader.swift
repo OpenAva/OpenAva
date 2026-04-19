@@ -99,7 +99,6 @@ enum AgentContextLoader {
     /// Compose system prompt by loading context and delegating to AgentPromptBuilder.
     static func composeSystemPrompt(
         baseSystemPrompt: String?,
-        memoryContext: String? = nil,
         workspaceRootURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -127,7 +126,6 @@ enum AgentContextLoader {
             baseSystemPrompt: basePrompt,
             context: context,
             skillCatalog: skillCatalog,
-            memoryContext: memoryContext,
             rootDirectory: rootDirectory
         )
         return AppConfig.nonEmpty(prompt)

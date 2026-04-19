@@ -160,6 +160,21 @@ extension MessageListView {
         var entries: [Entry] = []
         var latestDisplayedDay: Date?
 
+        func shouldDisplayInTranscript(_ message: ConversationMessage) -> Bool {
+            if message.isCompactionSummary {
+                return false
+            }
+
+            switch message.role {
+            case .user, .assistant:
+                return true
+            case .system:
+                return message.isCompactBoundary || message.isSubAgentTask
+            default:
+                return false
+            }
+        }
+
         func compactBoundaryTitle(for metadata: CompactBoundaryMetadata?) -> String {
             switch metadata?.trigger {
             case "auto":
@@ -220,7 +235,7 @@ extension MessageListView {
         }
 
         for message in messages {
-            if message.isCompactionSummary || message.isCompactAttachment {
+            guard shouldDisplayInTranscript(message) else {
                 continue
             }
 
@@ -513,10 +528,7 @@ extension MessageListView {
                 )
 
             default:
-                // Custom roles: display as hint
-                if !textContent.isEmpty {
-                    entries.append(.hint(message.id, textContent))
-                }
+                continue
             }
         }
 

@@ -4,11 +4,8 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// SessionDelegate that builds the full agent system prompt via AgentPromptBuilder.
-///
-/// Used by ChatViewControllerWrapper so the direct-ChatClient path produces the
-/// same rich system prompt (tooling, workspace context, time, runtime, etc.)
-/// as the LocalGatewayHost path.
+/// SessionDelegate that owns host-side session behavior such as background
+/// execution, durable memory extraction, notifications, and usage tracking.
 final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private static var isMacCatalyst: Bool {
         #if targetEnvironment(macCatalyst)
@@ -19,9 +16,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     private let sessionID: String
-    private let workspaceRootURL: URL
     private let runtimeRootURL: URL
-    private let baseSystemPrompt: String?
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
     private let sessionLogStorage: any StorageProvider
     private let durableMemoryExtractor: AgentDurableMemoryExtractor
@@ -34,9 +29,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
 
     init(
         sessionID: String,
-        workspaceRootURL: URL?,
         runtimeRootURL: URL?,
-        baseSystemPrompt: String?,
         chatClient: (any ChatClient)?,
         agentName: String,
         agentEmoji: String,
@@ -46,12 +39,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         guard let runtimeRootURL else {
             preconditionFailure("AgentSessionDelegate requires an explicit agent runtime root URL.")
         }
-        guard let workspaceRootURL else {
-            preconditionFailure("AgentSessionDelegate requires an explicit agent workspace root URL.")
-        }
         self.sessionID = sessionID
-        self.workspaceRootURL = workspaceRootURL.standardizedFileURL
-        self.baseSystemPrompt = baseSystemPrompt
         self.agentName = agentName
         self.agentEmoji = agentEmoji
         self.shouldExtractDurableMemory = shouldExtractDurableMemory
@@ -61,15 +49,6 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
         durableMemoryExtractor = AgentDurableMemoryExtractor(
             runtimeRootURL: resolvedRuntimeRootURL,
             chatClient: chatClient
-        )
-    }
-
-    /// Compose the full system prompt at inference time so the tool list
-    /// is always current (ToolRegistry may change between sessions).
-    func composeSystemPrompt() async -> String? {
-        AgentContextLoader.composeSystemPrompt(
-            baseSystemPrompt: baseSystemPrompt,
-            workspaceRootURL: workspaceRootURL
         )
     }
 

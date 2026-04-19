@@ -145,7 +145,6 @@ enum HeartbeatSupport {
     ) -> ConversationSession.UserInput {
         .init(
             text: buildPrompt(heartbeatMarkdown: heartbeatMarkdown, now: now),
-            displayText: buildDisplayText(now: now),
             source: .heartbeat,
             metadata: [
                 metadataModeKey: metadataModeScheduledValue,

@@ -11,8 +11,6 @@ private let compactThresholdRatio: Double = 0.80
 private let compactKeepRecentMessageCount = 4
 private let compactMinimumSummaryMessageCount = 4
 private let partialCompactMinimumSummaryMessageCount = 2
-private let compactMaxPTLRetries = 3
-private let compactRetryDropRatio = 0.20
 private let compactTranscriptPartLimit = 4000
 
 private enum CompactSummaryMode {
@@ -42,18 +40,14 @@ private struct CompactionResult {
     let boundaryMarker: ConversationMessage
     let summaryMessages: [ConversationMessage]
     let messagesToKeep: [ConversationMessage]
-    let attachments: [ConversationMessage]
-    let hookResults: [ConversationMessage]
     let keptPlacement: CompactionKeptPlacement
-    let preCompactTokenCount: Int?
-    let postCompactTokenCount: Int?
 }
 
 // MARK: - Extension
 
 extension ConversationSession {
     /// Called from the execute flow. Compacts old messages when token usage exceeds the threshold.
-    /// Rebuilds `requestMessages` and re-injects the system prompt after compaction.
+    /// Rebuilds the full execution request after compaction.
     @discardableResult
     func compactIfNeeded(
         requestMessages: inout [ChatRequestBody.Message],
@@ -71,15 +65,14 @@ extension ConversationSession {
         compactLogger.info("Token usage \(estimated)/\(contextLength) exceeds threshold \(threshold), starting compaction")
 
         do {
-            let result = try await performBestAvailableCompaction(
+            let result = try await performAutomaticCompaction(
                 model: model,
                 trigger: "auto",
                 preTokens: estimated,
                 tools: tools
             )
             applyCompactionResult(result)
-            requestMessages = buildRequestMessages(capabilities: capabilities)
-            await injectSystemPrompt(&requestMessages, capabilities: capabilities)
+            requestMessages = await buildExecutionRequestMessages(capabilities: capabilities)
             compactLogger.info("Compaction complete, rebuilt request messages")
             return true
         } catch {
@@ -90,10 +83,10 @@ extension ConversationSession {
 
     /// Public API for manually triggering full-history compaction.
     public func compact(model: ConversationSession.Model) async throws {
-        let requestMessages = buildRequestMessages(capabilities: model.capabilities)
+        let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
         let tools = await compactEnabledTools(for: model)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
-        let result = try await performBestAvailableCompaction(
+        let result = try await performAutomaticCompaction(
             model: model,
             trigger: "manual",
             preTokens: preTokens,
@@ -110,7 +103,7 @@ extension ConversationSession {
         feedback: String? = nil,
         model: ConversationSession.Model
     ) async throws {
-        let requestMessages = buildRequestMessages(capabilities: model.capabilities)
+        let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
         let tools = await compactEnabledTools(for: model)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
         let plan = try partialCompactionPlan(
@@ -127,7 +120,7 @@ extension ConversationSession {
 
     // MARK: - Core
 
-    private func performBestAvailableCompaction(
+    private func performAutomaticCompaction(
         model: ConversationSession.Model,
         trigger: String,
         preTokens: Int,
@@ -231,7 +224,7 @@ extension ConversationSession {
         customInstructions: String?,
         recentMessagesPreserved: Bool
     ) async throws -> String {
-        var messagesToSummarize = sanitizeMessagesForCompaction(sourceMessages)
+        let messagesToSummarize = sanitizeMessagesForCompaction(sourceMessages)
         guard !messagesToSummarize.isEmpty else {
             throw CompactionError.tooFewMessages
         }
@@ -242,45 +235,26 @@ extension ConversationSession {
             recentMessagesPreserved: recentMessagesPreserved
         )
 
-        var attempts = 0
-        while true {
-            let transcript = buildCompactionTranscript(from: messagesToSummarize)
-            guard !transcript.isEmpty else {
-                throw CompactionError.emptySummary
-            }
-
-            let summaryRequestBody = ChatRequestBody(
-                messages: [
-                    .system(content: .text(systemPrompt)),
-                    .user(content: .text(buildCompactPromptBody(from: transcript))),
-                ],
-                stream: false,
-                tools: nil
-            )
-
-            do {
-                let response = try await model.client.chat(body: summaryRequestBody)
-                let summaryText = formatCompactSummary(response.text)
-                guard !summaryText.isEmpty else {
-                    throw CompactionError.emptySummary
-                }
-                return summaryText
-            } catch {
-                let combinedError = [error.localizedDescription, model.client.collectedErrors]
-                    .compactMap { $0 }
-                    .joined(separator: "\n")
-                let canRetry = attempts < compactMaxPTLRetries && isPromptTooLongError(combinedError)
-                if canRetry, let truncated = truncateMessagesForPTLRetry(messagesToSummarize) {
-                    attempts += 1
-                    compactLogger.warning(
-                        "Compaction prompt exceeded context; retrying with fewer messages attempt=\(attempts) remaining=\(truncated.count)"
-                    )
-                    messagesToSummarize = truncated
-                    continue
-                }
-                throw error
-            }
+        let transcript = buildCompactionTranscript(from: messagesToSummarize)
+        guard !transcript.isEmpty else {
+            throw CompactionError.emptySummary
         }
+
+        let summaryRequestBody = ChatRequestBody(
+            messages: [
+                .system(content: .text(systemPrompt)),
+                .user(content: .text(buildCompactPromptBody(from: transcript))),
+            ],
+            stream: false,
+            tools: nil
+        )
+
+        let response = try await model.client.chat(body: summaryRequestBody)
+        let summaryText = formatCompactSummary(response.text)
+        guard !summaryText.isEmpty else {
+            throw CompactionError.emptySummary
+        }
+        return summaryText
     }
 
     private func buildCompactionResult(
@@ -288,7 +262,7 @@ extension ConversationSession {
         summaryText: String
     ) -> CompactionResult {
         let boundaryMessage = storageProvider.createMessage(in: id, role: .system)
-        boundaryMessage.textContent = "\(ConversationMarkers.compactBoundaryPrefix)\n\nConversation compacted."
+        boundaryMessage.textContent = "Conversation compacted."
         boundaryMessage.subtype = "compact_boundary"
 
         let summaryMessage = storageProvider.createMessage(in: id, role: .user)
@@ -299,18 +273,10 @@ extension ConversationSession {
         )
         summaryMessage.metadata["isCompactionSummary"] = "true"
 
-        let attachments = buildPostCompactAttachments(
-            discoveredToolNames: plan.discoveredToolNames,
-            keptPlacement: plan.keptPlacement,
-            keptCount: plan.messagesToKeep.count,
-            mode: plan.summaryMode
-        )
-
         applyPostCompactOrdering(
             boundary: boundaryMessage,
             summary: summaryMessage,
             keptMessages: plan.messagesToKeep,
-            attachments: attachments,
             placement: plan.keptPlacement
         )
 
@@ -325,11 +291,7 @@ extension ConversationSession {
             boundaryMarker: boundaryMessage,
             summaryMessages: [summaryMessage],
             messagesToKeep: plan.messagesToKeep,
-            attachments: attachments,
-            hookResults: [],
-            keptPlacement: plan.keptPlacement,
-            preCompactTokenCount: plan.preTokens,
-            postCompactTokenCount: nil
+            keptPlacement: plan.keptPlacement
         )
     }
 
@@ -378,8 +340,6 @@ extension ConversationSession {
             built.append(contentsOf: result.messagesToKeep)
             built.append(contentsOf: result.summaryMessages)
         }
-        built.append(contentsOf: result.attachments)
-        built.append(contentsOf: result.hookResults)
         return built
     }
 
@@ -402,11 +362,8 @@ extension ConversationSession {
         }
         let boundaryIndex = messages.lastIndex(where: { $0.isCompactBoundary })
         let replacementStart = boundaryIndex ?? 0
-        let candidateStart = boundaryIndex.map { $0 + 1 } ?? 0
-        let sourceMessages = candidateStart < messages.count ? Array(messages[candidateStart...]) : []
-        let candidates = sourceMessages.filter {
-            !$0.isCompactBoundary && !$0.isCompactAttachment
-        }
+        let sourceMessages = messages.messagesAfterLatestCompactBoundary(includingBoundary: false)
+        let candidates = sourceMessages.filter { !$0.isCompactBoundary }
         return (replacementStart, candidates)
     }
 
@@ -423,7 +380,7 @@ extension ConversationSession {
     }
 
     private func sanitizeMessagesForCompaction(_ input: [ConversationMessage]) -> [ConversationMessage] {
-        input.filter { !$0.isCompactAttachment && !$0.isCompactBoundary }
+        input.filter { !$0.isCompactBoundary }
     }
 
     private func buildCompactionTranscript(from messages: [ConversationMessage]) -> String {
@@ -489,9 +446,10 @@ extension ConversationSession {
         let sharedPreamble = """
         CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 
-        - Do NOT use any tools, functions, or external calls.
-        - Tool use is disabled for this compaction request.
-        - Your response must contain an <analysis> block followed by a <summary> block.
+        - Do NOT use Read, Bash, Grep, Glob, Write, or any other tool.
+        - You already have all the context you need in the conversation below.
+        - Tool calls will be rejected and will waste your only turn.
+        - Your entire response must be plain text: an <analysis> block followed by a <summary> block.
         - The <analysis> block is scratch space and will be discarded.
         - The <summary> block must be precise, implementation-focused, and suitable for continuing the work.
         """
@@ -531,7 +489,7 @@ extension ConversationSession {
 
         let preservedNote = recentMessagesPreserved
             ? "Recent messages are preserved verbatim outside this summary. Prefer preserved turns when they are more specific than the summary."
-            : "No recent messages are preserved outside this summary."
+            : nil
 
         let customBlock = {
             let trimmed = customInstructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -539,7 +497,9 @@ extension ConversationSession {
             return "\n\nAdditional compaction instructions:\n\(trimmed)"
         }()
 
-        return [sharedPreamble, instructions, preservedNote + customBlock].joined(separator: "\n\n")
+        return [sharedPreamble, instructions, preservedNote, customBlock.isEmpty ? nil : customBlock]
+            .compactMap { $0 }
+            .joined(separator: "\n\n")
     }
 
     private func buildCompactPromptBody(from transcript: String) -> String {
@@ -581,119 +541,38 @@ extension ConversationSession {
         mode: CompactSummaryMode,
         recentMessagesPreserved: Bool
     ) -> String {
-        let prefix: String
+        let intro: String
         switch mode {
-        case .full:
-            prefix = "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation."
-        case let .partial(direction):
-            switch direction {
-            case .from:
-                prefix = "This summary replaces a later portion of the conversation that was compacted to save context. Earlier preserved messages remain verbatim above."
-            case .upTo:
-                prefix = "This summary replaces an earlier portion of the conversation that was compacted to save context. Newer preserved messages remain verbatim after this summary."
-            }
+        case .full, .partial(direction: .upTo):
+            intro = "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation."
+        case .partial(direction: .from):
+            intro = "This session is being continued from a previous conversation that ran out of context. The summary below covers a later compacted portion of the conversation."
         }
 
-        var result = "\(ConversationMarkers.contextSummaryPrefix)\n\n\(prefix)\n\n\(summary)"
+        var result = "\(intro)\n\n\(summary)"
         if recentMessagesPreserved {
             result += "\n\nRecent messages are preserved verbatim."
         }
         return result
     }
 
-    private func buildPostCompactAttachments(
-        discoveredToolNames: [String]?,
-        keptPlacement: CompactionKeptPlacement,
-        keptCount: Int,
-        mode: CompactSummaryMode
-    ) -> [ConversationMessage] {
-        var attachments: [ConversationMessage] = []
-
-        let modeScopeDescription: String
-        switch mode {
-        case .full:
-            modeScopeDescription = "the earlier conversation"
-        case .partial(direction: .from):
-            modeScopeDescription = "a later compacted suffix"
-        case .partial(direction: .upTo):
-            modeScopeDescription = "an earlier compacted prefix"
-        }
-
-        let continuationAttachment = storageProvider.createMessage(in: id, role: .system)
-        continuationAttachment.subtype = "compact_attachment"
-        continuationAttachment.metadata["isCompactAttachment"] = "true"
-        continuationAttachment.textContent = "\(ConversationMarkers.compactAttachmentPrefix)\n\nCompaction guidance: the summary replaces \(modeScopeDescription). Prefer verbatim preserved turns over compressed summary details when they disagree."
-        attachments.append(continuationAttachment)
-
-        if keptCount > 0 {
-            let preservedAttachment = storageProvider.createMessage(in: id, role: .system)
-            preservedAttachment.subtype = "compact_attachment"
-            preservedAttachment.metadata["isCompactAttachment"] = "true"
-            let preservedLabel: String
-            switch keptPlacement {
-            case .afterSummary:
-                preservedLabel = "after"
-            case .beforeSummary:
-                preservedLabel = "before"
-            }
-            preservedAttachment.textContent = "\(ConversationMarkers.compactAttachmentPrefix)\n\nPreserved verbatim messages: \(keptCount). Their original order and details remain \(preservedLabel) the summary."
-            attachments.append(preservedAttachment)
-        }
-
-        if let discoveredToolNames, !discoveredToolNames.isEmpty {
-            let toolAttachment = storageProvider.createMessage(in: id, role: .system)
-            toolAttachment.subtype = "compact_attachment"
-            toolAttachment.metadata["isCompactAttachment"] = "true"
-            let toolList = discoveredToolNames.map { "- \($0)" }.joined(separator: "\n")
-            toolAttachment.textContent = "\(ConversationMarkers.compactAttachmentPrefix)\n\nEnabled tools at compaction time:\n\(toolList)"
-            attachments.append(toolAttachment)
-        }
-
-        return attachments
-    }
-
     private func applyPostCompactOrdering(
         boundary: ConversationMessage,
         summary: ConversationMessage,
         keptMessages: [ConversationMessage],
-        attachments: [ConversationMessage],
         placement: CompactionKeptPlacement
     ) {
         switch placement {
         case .afterSummary:
             let firstKeptDate = keptMessages.first?.createdAt ?? Date()
-            let lastKeptDate = keptMessages.last?.createdAt ?? firstKeptDate
             boundary.createdAt = firstKeptDate.addingTimeInterval(-0.003)
             summary.createdAt = firstKeptDate.addingTimeInterval(-0.002)
-            for (index, attachment) in attachments.enumerated() {
-                attachment.createdAt = lastKeptDate.addingTimeInterval(Double(index + 1) * 0.0001)
-            }
         case .beforeSummary:
             let referenceDate = keptMessages.first?.createdAt ?? Date()
             boundary.createdAt = referenceDate.addingTimeInterval(-0.001)
             let summaryReference = (keptMessages.last?.createdAt ?? referenceDate).addingTimeInterval(0.001)
             summary.createdAt = summaryReference
-            for (index, attachment) in attachments.enumerated() {
-                attachment.createdAt = summaryReference.addingTimeInterval(Double(index + 1) * 0.0001)
-            }
         }
-    }
-
-    private func isPromptTooLongError(_ text: String) -> Bool {
-        let lowercased = text.lowercased()
-        return lowercased.contains("prompt too long") ||
-            lowercased.contains("context length") ||
-            lowercased.contains("maximum context") ||
-            lowercased.contains("max context") ||
-            lowercased.contains("too many tokens") ||
-            lowercased.contains("reduce the length")
-    }
-
-    private func truncateMessagesForPTLRetry(_ messages: [ConversationMessage]) -> [ConversationMessage]? {
-        guard messages.count > compactMinimumSummaryMessageCount else { return nil }
-        let dropCount = max(1, Int(ceil(Double(messages.count) * compactRetryDropRatio)))
-        let remaining = Array(messages.dropFirst(dropCount))
-        return remaining.count >= partialCompactMinimumSummaryMessageCount ? remaining : nil
     }
 }
 

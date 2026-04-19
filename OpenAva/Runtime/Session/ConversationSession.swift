@@ -9,6 +9,8 @@ private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.
 /// Coordinates the message state and inference execution for a conversation.
 @MainActor
 public final class ConversationSession: Identifiable, Sendable {
+    public typealias SystemPromptProvider = @Sendable () -> String
+
     public enum InterruptReason: String, Sendable {
         case userStop = "user_stop"
         case taskReplaced = "task_replaced"
@@ -51,20 +53,20 @@ public final class ConversationSession: Identifiable, Sendable {
         public let storage: StorageProvider
         public let tools: ToolProvider?
         public let delegate: SessionDelegate?
-        public let systemPrompt: String
+        public let systemPromptProvider: SystemPromptProvider
         public let collapseReasoningWhenComplete: Bool
 
         public init(
             storage: StorageProvider,
             tools: ToolProvider? = nil,
             delegate: SessionDelegate? = nil,
-            systemPrompt: String = "You are a helpful assistant.",
+            systemPromptProvider: @escaping SystemPromptProvider = { "You are a helpful assistant." },
             collapseReasoningWhenComplete: Bool = true
         ) {
             self.storage = storage
             self.tools = tools
             self.delegate = delegate
-            self.systemPrompt = systemPrompt
+            self.systemPromptProvider = systemPromptProvider
             self.collapseReasoningWhenComplete = collapseReasoningWhenComplete
         }
     }
@@ -79,7 +81,7 @@ public final class ConversationSession: Identifiable, Sendable {
     let storageProvider: StorageProvider
     let toolProvider: ToolProvider?
     let sessionDelegate: SessionDelegate?
-    let systemPrompt: String
+    let systemPromptProvider: SystemPromptProvider
     let collapseReasoningWhenComplete: Bool
 
     // MARK: - Reactive
@@ -99,9 +101,20 @@ public final class ConversationSession: Identifiable, Sendable {
 
     private lazy var usageSubject = PassthroughSubject<TokenUsage, Never>()
 
+    private lazy var loadingStateSubject = CurrentValueSubject<String?, Never>(nil)
+
     /// Publisher emitting token usage after each inference step.
     public var usageDidChange: AnyPublisher<TokenUsage, Never> {
         usageSubject.eraseToAnyPublisher()
+    }
+
+    public var loadingStateDidChange: AnyPublisher<String?, Never> {
+        loadingStateSubject.eraseToAnyPublisher()
+    }
+
+    func setLoadingState(_ status: String?) {
+        let trimmed = status?.trimmingCharacters(in: .whitespacesAndNewlines)
+        loadingStateSubject.send(trimmed?.isEmpty == false ? trimmed : nil)
     }
 
     func reportUsage(_ usage: TokenUsage) {
@@ -141,11 +154,11 @@ public final class ConversationSession: Identifiable, Sendable {
         storageProvider = configuration.storage
         toolProvider = configuration.tools
         sessionDelegate = configuration.delegate
-        systemPrompt = configuration.systemPrompt
+        systemPromptProvider = configuration.systemPromptProvider
         collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
         models = .init()
         refreshContentsFromDatabase()
-        showsInterruptedRetryAction = storageProvider.sessionStatus(for: id) == "interrupted"
+        showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
     }
 
     // MARK: - Message Management
@@ -177,16 +190,8 @@ public final class ConversationSession: Identifiable, Sendable {
         storageProvider.save(message: message)
     }
 
-    func message(for messageID: String) -> ConversationMessage? {
-        messages.first { $0.id == messageID }
-    }
-
-    func removeMessage(with messageID: String) {
-        messages.removeAll { $0.id == messageID }
-    }
-
     func toggleReasoningCollapse(for messageID: String) {
-        guard let conversationMessage = message(for: messageID) else { return }
+        guard let conversationMessage = messages.first(where: { $0.id == messageID }) else { return }
         for (index, part) in conversationMessage.parts.enumerated() {
             if case var .reasoning(reasoningPart) = part {
                 reasoningPart.isCollapsed.toggle()
@@ -199,7 +204,7 @@ public final class ConversationSession: Identifiable, Sendable {
     }
 
     func toggleToolResultCollapse(for messageID: String, toolCallID: String) {
-        guard let conversationMessage = message(for: messageID) else { return }
+        guard let conversationMessage = messages.first(where: { $0.id == messageID }) else { return }
         var didToggle = false
         for (index, part) in conversationMessage.parts.enumerated() {
             guard case var .toolResult(toolResult) = part,
@@ -286,7 +291,7 @@ public final class ConversationSession: Identifiable, Sendable {
 
     func startThinking(for messageID: String) {
         if thinkingDurationTimer[messageID] != nil { return }
-        guard let message = message(for: messageID) else { return }
+        guard let message = messages.first(where: { $0.id == messageID }) else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
             for (index, part) in message.parts.enumerated() {
