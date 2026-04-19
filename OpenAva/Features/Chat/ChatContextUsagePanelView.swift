@@ -90,13 +90,13 @@ struct ChatContextUsagePanelView: View {
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.remaining"), value: "\(format(snapshot.remainingTokens)) (\(snapshot.remainingPercentage)%)")
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.threshold"), value: "\(format(snapshot.autoCompactThresholdTokens)) (80%)")
+                PanelRow(title: L10n.tr("chat.contextUsage.threshold"), value: format(snapshot.autoCompactThresholdTokens))
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.trimLimit"), value: format(snapshot.trimLimitTokens))
+                PanelRow(title: L10n.tr("chat.contextUsage.trimLimit"), value: format(snapshot.blockingLimitTokens))
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.responseHeadroom"), value: format(snapshot.responseHeadroomTokens))
+                PanelRow(title: L10n.tr("chat.contextUsage.responseHeadroom"), value: format(snapshot.effectiveContextWindowTokens))
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.autoCompact"), value: snapshot.autoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))
+                PanelRow(title: L10n.tr("chat.contextUsage.autoCompact"), value: snapshot.isAutoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))
             }
         }
     }

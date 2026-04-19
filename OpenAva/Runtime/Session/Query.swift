@@ -145,24 +145,26 @@ private func advanceQueryState(
     _ requestMessages: inout [ChatRequestBody.Message],
     tools: [ChatRequestBody.Tool]?
 ) async throws {
-    if model.autoCompactEnabled {
-        let didCompactThisTurn = await session.compactIfNeeded(
-            requestMessages: &requestMessages,
-            tools: tools,
-            model: model,
-            capabilities: model.capabilities
-        )
-        if didCompactThisTurn {
-            session.notifyMessagesDidChange(scrolling: false)
-            session.persistMessages()
-        }
+    let autoCompactResult = await session.autoCompactIfNeeded(
+        &requestMessages,
+        tools: tools,
+        model: model,
+        capabilities: model.capabilities
+    )
+
+    if !autoCompactResult.wasCompacted, session.autoCompactTrackingState.compacted {
+        session.autoCompactTrackingState.turnCounter += 1
+    }
+
+    if let consecutiveFailures = autoCompactResult.consecutiveFailures {
+        session.autoCompactTrackingState.consecutiveFailures = consecutiveFailures
     }
 
     session.setLoadingState(String.localized("Calculating context window..."))
-    await session.trimToContextLength(
-        &requestMessages,
+    try await session.ensureCanContinueWithoutCompaction(
+        requestMessages: requestMessages,
         tools: tools,
-        maxTokens: model.contextLength
+        model: model
     )
     session.notifyMessagesDidChange(scrolling: true)
 }

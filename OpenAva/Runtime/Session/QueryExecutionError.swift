@@ -7,6 +7,9 @@ public enum QueryExecutionError: LocalizedError, Sendable {
     /// The model returned no content (no text, reasoning, or tool calls).
     case noResponseFromModel
 
+    /// The active context is too large to continue without compaction.
+    case contextWindowExceeded(message: String)
+
     /// Tool execution was attempted without an available provider.
     case toolProviderUnavailable
 
@@ -23,6 +26,8 @@ public enum QueryExecutionError: LocalizedError, Sendable {
         switch self {
         case .noResponseFromModel:
             String.localized("No response from model.")
+        case let .contextWindowExceeded(message):
+            message
         case .toolProviderUnavailable:
             String.localized("Tool execution is unavailable.")
         case let .toolNotFound(name):

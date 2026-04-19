@@ -1,12 +1,38 @@
-//  Context window management — removes oldest messages when exceeding limit.
+//  Context window management — Claude Code style autocompact thresholds.
 
 import ChatClient
 import ChatUI
 import Foundation
 import OSLog
 
-private let trimLogger = Logger(subsystem: "ChatUI", category: "Trim")
+private let autoCompactLogger = Logger(subsystem: "ChatUI", category: "AutoCompact")
 private let tokenEstimator = ApproximateTokenEstimator()
+private let compactMaxReservedOutputTokens = 20_000
+private let autoCompactBufferTokens = 13_000
+private let warningThresholdBufferTokens = 20_000
+private let errorThresholdBufferTokens = 20_000
+private let manualCompactBufferTokens = 3_000
+private let maxConsecutiveAutoCompactFailures = 3
+
+struct AutoCompactTrackingState: Sendable {
+    var compacted = false
+    var turnCounter = 0
+    var turnID = UUID().uuidString
+    var consecutiveFailures = 0
+}
+
+struct TokenWarningState: Sendable {
+    let percentLeft: Int
+    let isAboveWarningThreshold: Bool
+    let isAboveErrorThreshold: Bool
+    let isAboveAutoCompactThreshold: Bool
+    let isAtBlockingLimit: Bool
+}
+
+struct AutoCompactResult {
+    let wasCompacted: Bool
+    let consecutiveFailures: Int?
+}
 
 private actor ApproximateTokenEstimator {
     func count(for text: String) -> Int {
@@ -16,53 +42,124 @@ private actor ApproximateTokenEstimator {
 }
 
 extension ConversationSession {
-    /// Remove oldest non-system messages to fit within the model's context length.
-    func trimToContextLength(
+    func getEffectiveContextWindowSize(for model: ConversationSession.Model) -> Int {
+        let reservedTokensForSummary = min(compactMaxReservedOutputTokens, max(model.contextLength / 4, 0))
+        return max(model.contextLength - reservedTokensForSummary, 0)
+    }
+
+    func getAutoCompactThreshold(for model: ConversationSession.Model) -> Int {
+        max(0, getEffectiveContextWindowSize(for: model) - autoCompactBufferTokens)
+    }
+
+    func getBlockingLimit(for model: ConversationSession.Model) -> Int {
+        max(0, getEffectiveContextWindowSize(for: model) - manualCompactBufferTokens)
+    }
+
+    func isAutoCompactEnabled(for model: ConversationSession.Model) -> Bool {
+        model.autoCompactEnabled
+    }
+
+    func calculateTokenWarningState(
+        tokenUsage: Int,
+        model: ConversationSession.Model
+    ) -> TokenWarningState {
+        let autoCompactThreshold = getAutoCompactThreshold(for: model)
+        let threshold = isAutoCompactEnabled(for: model)
+            ? autoCompactThreshold
+            : getEffectiveContextWindowSize(for: model)
+
+        let percentLeft: Int
+        if threshold > 0 {
+            percentLeft = max(0, Int(round((Double(threshold - tokenUsage) / Double(threshold)) * 100)))
+        } else {
+            percentLeft = 0
+        }
+
+        let warningThreshold = max(0, threshold - warningThresholdBufferTokens)
+        let errorThreshold = max(0, threshold - errorThresholdBufferTokens)
+        let blockingLimit = getBlockingLimit(for: model)
+
+        return TokenWarningState(
+            percentLeft: percentLeft,
+            isAboveWarningThreshold: tokenUsage >= warningThreshold,
+            isAboveErrorThreshold: tokenUsage >= errorThreshold,
+            isAboveAutoCompactThreshold: isAutoCompactEnabled(for: model) && tokenUsage >= autoCompactThreshold,
+            isAtBlockingLimit: tokenUsage >= blockingLimit
+        )
+    }
+
+    @discardableResult
+    func autoCompactIfNeeded(
         _ requestMessages: inout [ChatRequestBody.Message],
         tools: [ChatRequestBody.Tool]?,
-        maxTokens: Int
-    ) async {
-        guard maxTokens > 0 else { return }
+        model: ConversationSession.Model,
+        capabilities: Set<ModelCapability>
+    ) async -> AutoCompactResult {
+        guard isAutoCompactEnabled(for: model) else {
+            return .init(wasCompacted: false, consecutiveFailures: nil)
+        }
+        guard model.contextLength > 0 else {
+            return .init(wasCompacted: false, consecutiveFailures: nil)
+        }
+        guard autoCompactTrackingState.consecutiveFailures < maxConsecutiveAutoCompactFailures else {
+            autoCompactLogger.warning("autocompact circuit breaker active; skipping session=\(self.id, privacy: .public)")
+            return .init(wasCompacted: false, consecutiveFailures: autoCompactTrackingState.consecutiveFailures)
+        }
 
         let estimatedTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
-
-        // Leave 25% headroom for the response
-        let limit = Int(Double(maxTokens) * 0.75)
-        guard estimatedTokens > limit else { return }
-
-        var removed = 0
-        let protectedIndex = requestMessages.lastIndex(where: { message in
-            if case .user = message { return true }
-            return false
-        })
-
-        while await estimateTokenCount(messages: requestMessages, tools: tools) > limit {
-            guard let index = requestMessages.indices.first(where: { index in
-                if let protectedIndex, index == protectedIndex { return false }
-                switch requestMessages[index] {
-                case .system, .developer:
-                    return false
-                default:
-                    return true
-                }
-            }) else { break }
-
-            requestMessages.remove(at: index)
-            removed += 1
-
-            if removed > 100 { break }
+        let threshold = getAutoCompactThreshold(for: model)
+        guard estimatedTokens >= threshold else {
+            return .init(wasCompacted: false, consecutiveFailures: nil)
         }
 
-        if await estimateTokenCount(messages: requestMessages, tools: tools) > limit {
-            trimLogger.warning("request still exceeds context limit after trimming history; latest user message was preserved")
-        }
+        autoCompactLogger.info(
+            "autocompact start session=\(self.id, privacy: .public) tokens=\(estimatedTokens) threshold=\(threshold)"
+        )
 
-        if removed > 0 {
-            let hintMessage = appendNewMessage(role: .system) { msg in
-                msg.textContent = String.localized("Some messages have been removed to fit the model context length.")
-            }
-            _ = hintMessage
+        do {
+            let result = try await compactConversation(
+                model: model,
+                trigger: "auto",
+                preTokens: estimatedTokens,
+                tools: tools
+            )
+            applyCompactionResult(result)
+            requestMessages = await buildExecutionRequestMessages(capabilities: capabilities)
+            autoCompactTrackingState = .init(compacted: true, turnCounter: 0, turnID: UUID().uuidString, consecutiveFailures: 0)
+            let rebuiltMessageCount = requestMessages.count
+            autoCompactLogger.info(
+                "autocompact complete session=\(self.id, privacy: .public) rebuiltMessages=\(rebuiltMessageCount)"
+            )
+            return .init(wasCompacted: true, consecutiveFailures: 0)
+        } catch is CancellationError {
+            return .init(wasCompacted: false, consecutiveFailures: autoCompactTrackingState.consecutiveFailures)
+        } catch {
+            let nextFailures = autoCompactTrackingState.consecutiveFailures + 1
+            autoCompactTrackingState.consecutiveFailures = nextFailures
+            autoCompactLogger.error(
+                "autocompact failed session=\(self.id, privacy: .public) failures=\(nextFailures) error=\(error.localizedDescription, privacy: .public)"
+            )
+            return .init(wasCompacted: false, consecutiveFailures: nextFailures)
         }
+    }
+
+    func ensureCanContinueWithoutCompaction(
+        requestMessages: [ChatRequestBody.Message],
+        tools: [ChatRequestBody.Tool]?,
+        model: ConversationSession.Model
+    ) async throws {
+        guard !isAutoCompactEnabled(for: model) else { return }
+        guard model.contextLength > 0 else { return }
+
+        let estimatedTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
+        let warningState = calculateTokenWarningState(tokenUsage: estimatedTokens, model: model)
+        guard warningState.isAtBlockingLimit else { return }
+
+        throw QueryExecutionError.contextWindowExceeded(
+            message: String.localized(
+                "Conversation too long. Use /compact to free space, or enable auto-compact."
+            )
+        )
     }
 
     func estimateTokenCount(

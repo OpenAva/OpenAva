@@ -2,9 +2,6 @@ import ChatClient
 import ChatUI
 import Foundation
 
-private let contextTrimLimitRatio: Double = 0.75
-private let contextAutoCompactRatio: Double = 0.80
-
 public struct ContextUsageSnapshot: Sendable {
     public struct LastCompaction: Sendable {
         public let trigger: String
@@ -15,13 +12,13 @@ public struct ContextUsageSnapshot: Sendable {
 
     public let estimatedInputTokens: Int
     public let contextLength: Int
+    public let effectiveContextWindowTokens: Int
     public let usedPercentage: Int
     public let remainingTokens: Int
     public let remainingPercentage: Int
-    public let trimLimitTokens: Int
-    public let responseHeadroomTokens: Int
+    public let blockingLimitTokens: Int
     public let autoCompactThresholdTokens: Int
-    public let autoCompactEnabled: Bool
+    public let isAutoCompactEnabled: Bool
     public let instructionTokens: Int
     public let conversationTokens: Int
     public let toolDefinitionTokens: Int
@@ -85,9 +82,9 @@ extension ConversationSession {
             remainingPercentage = 0
         }
 
-        let trimLimitTokens = Int(Double(contextLength) * contextTrimLimitRatio)
-        let responseHeadroomTokens = max(contextLength - trimLimitTokens, 0)
-        let autoCompactThresholdTokens = Int(Double(contextLength) * contextAutoCompactRatio)
+        let effectiveContextWindowTokens = getEffectiveContextWindowSize(for: model)
+        let blockingLimitTokens = getBlockingLimit(for: model)
+        let autoCompactThresholdTokens = getAutoCompactThreshold(for: model)
         let lastCompaction = messages.reversed()
             .compactMap(\.compactBoundaryMetadata)
             .first
@@ -103,13 +100,13 @@ extension ConversationSession {
         return ContextUsageSnapshot(
             estimatedInputTokens: estimatedInputTokens,
             contextLength: contextLength,
+            effectiveContextWindowTokens: effectiveContextWindowTokens,
             usedPercentage: usedPercentage,
             remainingTokens: remainingTokens,
             remainingPercentage: remainingPercentage,
-            trimLimitTokens: trimLimitTokens,
-            responseHeadroomTokens: responseHeadroomTokens,
+            blockingLimitTokens: blockingLimitTokens,
             autoCompactThresholdTokens: autoCompactThresholdTokens,
-            autoCompactEnabled: model.autoCompactEnabled,
+            isAutoCompactEnabled: isAutoCompactEnabled(for: model),
             instructionTokens: instructionTokens,
             conversationTokens: conversationTokens,
             toolDefinitionTokens: toolDefinitionTokens,

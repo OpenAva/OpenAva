@@ -522,7 +522,7 @@ open class ChatViewController: UIViewController {
     @MainActor
     public func performManualCompact() async throws {
         guard let session = currentSession, let model = session.models.chat else { return }
-        try await session.compact(model: model)
+        try await session.compactConversation(model: model)
         scheduleContextUsageRefresh()
     }
 
@@ -532,7 +532,7 @@ open class ChatViewController: UIViewController {
         direction: PartialCompactDirection
     ) async throws {
         guard let session = currentSession, let model = session.models.chat else { return }
-        try await session.partialCompact(around: messageID, direction: direction, model: model)
+        try await session.partialCompactConversation(around: messageID, direction: direction, model: model)
         scheduleContextUsageRefresh()
     }
 

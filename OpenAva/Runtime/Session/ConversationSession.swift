@@ -99,6 +99,7 @@ public final class ConversationSession: Identifiable, Sendable {
 
     /// Token usage from the last execution turn.
     public private(set) var lastUsage: TokenUsage?
+    var autoCompactTrackingState = AutoCompactTrackingState()
 
     private lazy var usageSubject = PassthroughSubject<TokenUsage, Never>()
 
