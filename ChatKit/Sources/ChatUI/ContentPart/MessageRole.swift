@@ -7,7 +7,7 @@ import Foundation
 
 /// An extensible message role type (similar to Notification.Name pattern).
 ///
-/// The framework provides three built-in roles: `.user`, `.assistant`, `.system`.
+/// The framework provides four built-in roles: `.user`, `.assistant`, `.tool`, `.system`.
 /// Third-party apps can extend with custom roles:
 ///
 ///     extension MessageRole {
@@ -23,5 +23,6 @@ public struct MessageRole: RawRepresentable, Hashable, Codable, Sendable {
 
     public static let user = MessageRole(rawValue: "user")
     public static let assistant = MessageRole(rawValue: "assistant")
+    public static let tool = MessageRole(rawValue: "tool")
     public static let system = MessageRole(rawValue: "system")
 }

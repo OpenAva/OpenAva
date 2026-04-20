@@ -20,6 +20,11 @@ private struct QueryAutoCompactState {
     var tracking: AutoCompactTrackingState?
 }
 
+private enum ToolExecutionOutcome {
+    case continueQuery
+    case stopAfterTerminalToolResults(finishReason: FinishReason)
+}
+
 @MainActor
 private func applyAutoCompactResult(
     _ autoCompactResult: AutoCompactResult,
@@ -186,13 +191,23 @@ func query(
             logger.notice(
                 "query loop executing tools session=\(session.id, privacy: .public) count=\(pendingToolCalls.count) totalToolCalls=\(state.totalToolCalls)"
             )
-            try await executeToolCalls(
+            let toolExecutionOutcome = try await executeToolCalls(
                 pendingToolCalls,
                 assistantMessage: assistantMessage,
                 requestMessages: &requestMessages,
                 toolUseContext: toolUseContext
             )
             markAutoCompactTurnCompletedIfNeeded(&autoCompactState, session: session)
+            switch toolExecutionOutcome {
+            case .continueQuery:
+                break
+            case let .stopAfterTerminalToolResults(finishReason):
+                return finalizeQueryResult(
+                    finishReason: finishReason,
+                    session: session,
+                    state: state
+                )
+            }
         }
     }
 
@@ -422,20 +437,51 @@ private func updateToolCallPart(
 private func appendToolResult(
     for request: ToolRequest,
     text: String,
-    assistantMessage: ConversationMessage,
+    state: ToolCallState,
+    session: ConversationSession,
     requestMessages: inout [ChatRequestBody.Message]
 ) {
-    assistantMessage.parts.append(
-        .toolResult(
-            .init(toolCallID: request.id, result: text, isCollapsed: true)
-        )
-    )
+    let toolMessage = session.appendNewMessage(role: .tool) { message in
+        message.parts = [
+            .toolResult(
+                .init(toolCallID: request.id, result: text, isCollapsed: true)
+            ),
+        ]
+        message.metadata[ToolMessageMetadata.toolCallState] = state.rawValue
+    }
+    session.recordMessageInTranscript(toolMessage)
     requestMessages.append(
         .tool(
             content: .text(text),
             toolCallID: request.id
         )
     )
+}
+
+@MainActor
+private func hasToolResultMessage(
+    for toolCallID: String,
+    in session: ConversationSession
+) -> Bool {
+    session.messages.contains { message in
+        guard message.role == .tool else { return false }
+        return message.parts.contains { part in
+            guard case let .toolResult(result) = part else { return false }
+            return result.toolCallID == toolCallID
+        }
+    }
+}
+
+@MainActor
+private func markLatestToolResultAsTerminalIfNeeded(in session: ConversationSession) {
+    guard let toolMessage = session.messages.reversed().first(where: { $0.role == .tool }) else {
+        return
+    }
+    guard toolMessage.metadata[ToolMessageMetadata.terminalResult] != "true" else {
+        return
+    }
+    toolMessage.metadata[ToolMessageMetadata.terminalResult] = "true"
+    session.recordMessageInTranscript(toolMessage)
 }
 
 @MainActor
@@ -446,25 +492,31 @@ private func appendInterruptedToolResults(
     toolUseContext: ToolExecutionContext
 ) {
     let interruptionText = toolUseContext.interruptionText()
+    var didMutateAssistant = false
     for entry in interruptedToolCalls {
         updateToolCallPart(
             at: entry.toolCallPartIndex,
             in: assistantMessage,
             state: .failed
         )
+        didMutateAssistant = true
 
-        let alreadyHasResult = assistantMessage.parts.contains { part in
-            guard case let .toolResult(result) = part else { return false }
-            return result.toolCallID == entry.request.id
-        }
+        let alreadyHasResult = hasToolResultMessage(
+            for: entry.request.id,
+            in: toolUseContext.session
+        )
         guard !alreadyHasResult else { continue }
 
         appendToolResult(
             for: entry.request,
             text: interruptionText,
-            assistantMessage: assistantMessage,
+            state: .failed,
+            session: toolUseContext.session,
             requestMessages: &requestMessages
         )
+    }
+    if didMutateAssistant {
+        toolUseContext.session.recordMessageInTranscript(assistantMessage)
     }
 }
 
@@ -572,6 +624,7 @@ private func finalizeQueryTurn(
         requestMessages: requestMessages,
         snapshot: snapshot
     ) {
+        markLatestToolResultAsTerminalIfNeeded(in: session)
         return discardEmptyFollowUpMessage(message, from: session)
     }
 
@@ -710,10 +763,28 @@ private func executeToolCalls(
     assistantMessage: ConversationMessage,
     requestMessages: inout [ChatRequestBody.Message],
     toolUseContext: ToolExecutionContext
-) async throws {
-    guard !pendingToolCalls.isEmpty else { return }
+) async throws -> ToolExecutionOutcome {
+    guard !pendingToolCalls.isEmpty else { return .continueQuery }
     guard let toolProvider = toolUseContext.toolProvider else {
-        throw QueryExecutionError.toolProviderUnavailable
+        let unavailableText = QueryExecutionError.toolProviderUnavailable.localizedDescription
+        for request in pendingToolCalls {
+            let partIndex = ensureRunningToolCallPart(
+                for: request,
+                in: assistantMessage,
+                session: toolUseContext.session
+            )
+            updateToolCallPart(at: partIndex, in: assistantMessage, state: .failed)
+            toolUseContext.session.recordMessageInTranscript(assistantMessage)
+            appendToolResult(
+                for: request,
+                text: unavailableText,
+                state: .failed,
+                session: toolUseContext.session,
+                requestMessages: &requestMessages
+            )
+        }
+        toolUseContext.session.notifyMessagesDidChange(scrolling: true)
+        return .stopAfterTerminalToolResults(finishReason: .stop)
     }
 
     logger.notice(
@@ -751,8 +822,16 @@ private func executeToolCalls(
         )
         guard let tool = await toolProvider.findTool(for: request) else {
             updateToolCallPart(at: partIndex, in: assistantMessage, state: .failed)
+            toolUseContext.session.recordMessageInTranscript(assistantMessage)
+            appendToolResult(
+                for: request,
+                text: QueryExecutionError.toolNotFound(name: request.name).localizedDescription,
+                state: .failed,
+                session: toolUseContext.session,
+                requestMessages: &requestMessages
+            )
             toolUseContext.session.notifyMessagesDidChange(scrolling: true)
-            throw QueryExecutionError.toolNotFound(name: request.name)
+            continue
         }
 
         interruptedToolCalls.append((request: request, toolCallPartIndex: partIndex))
@@ -795,14 +874,18 @@ private func executeToolCalls(
         )
 
         updateToolCallPart(at: partIndex, in: assistantMessage, state: responseState)
+        toolUseContext.session.recordMessageInTranscript(assistantMessage)
         appendToolResult(
             for: request,
             text: responseText,
-            assistantMessage: assistantMessage,
+            state: responseState,
+            session: toolUseContext.session,
             requestMessages: &requestMessages
         )
         toolUseContext.session.notifyMessagesDidChange(scrolling: true)
     }
+
+    return .continueQuery
 }
 
 @MainActor

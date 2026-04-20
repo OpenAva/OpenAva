@@ -780,6 +780,8 @@ extension ConversationSession {
             if message.role == .assistant, !currentGroup.isEmpty {
                 groups.append(currentGroup)
                 currentGroup = [message]
+            } else if message.role == .tool {
+                currentGroup.append(message)
             } else {
                 currentGroup.append(message)
             }

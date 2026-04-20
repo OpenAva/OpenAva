@@ -166,7 +166,7 @@ extension MessageListView {
             }
 
             switch message.role {
-            case .user, .assistant:
+            case .user, .assistant, .tool:
                 return true
             case .system:
                 return message.isCompactBoundary || message.isSubAgentTask
@@ -200,6 +200,7 @@ extension MessageListView {
         }
 
         func isReasoningStillStreaming(in message: ConversationMessage) -> Bool {
+            guard message.role == .assistant else { return false }
             var hasVisibleReasoning = false
 
             for part in message.parts {
@@ -220,6 +221,29 @@ extension MessageListView {
             return hasVisibleReasoning
         }
 
+        func assistantMessageID(forToolResult toolCallID: String, startingAt index: Int) -> String? {
+            if index > 0 {
+                for i in stride(from: index - 1, through: 0, by: -1) {
+                    let candidate = messages[i]
+                    guard candidate.role == .assistant else { continue }
+                    let hasCall = candidate.parts.contains { part in
+                        guard case let .toolCall(call) = part else { return false }
+                        return call.id == toolCallID
+                    }
+                    if hasCall {
+                        return candidate.id
+                    }
+                }
+            }
+            return messages.first(where: { message in
+                guard message.role == .assistant else { return false }
+                return message.parts.contains { part in
+                    guard case let .toolCall(call) = part else { return false }
+                    return call.id == toolCallID
+                }
+            })?.id
+        }
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
 
@@ -234,7 +258,7 @@ extension MessageListView {
             entries.append(.hint("date.\(dayKey)", hintText))
         }
 
-        for message in messages {
+        for (messageIndex, message) in messages.enumerated() {
             guard shouldDisplayInTranscript(message) else {
                 continue
             }
@@ -320,9 +344,12 @@ extension MessageListView {
                         )
                         entries.append(.reasoningContent(reasoningPart.id, reasoningRep))
                     case let .toolCall(tc):
-                        let matchingResults = message.parts.compactMap { part -> ToolResultContentPart? in
-                            guard case let .toolResult(value) = part, value.toolCallID == tc.id else { return nil }
-                            return value
+                        let matchingResults = messages.compactMap { m -> ToolResultContentPart? in
+                            guard m.role == .tool else { return nil }
+                            return m.parts.compactMap { part -> ToolResultContentPart? in
+                                guard case let .toolResult(value) = part, value.toolCallID == tc.id else { return nil }
+                                return value
+                            }.first
                         }
                         entries.append(
                             .toolCallHint(
@@ -466,25 +493,35 @@ extension MessageListView {
                             }
                         }
                     case let .toolResult(toolResult):
-                        guard !toolResult.isCollapsed else { continue }
-                        let toolCall = message.parts.first { part in
-                            guard case let .toolCall(value) = part else { return false }
-                            return value.id == toolResult.toolCallID
-                        }
-                        let parameters: String = {
-                            guard case let .toolCall(value)? = toolCall else { return "" }
-                            return value.parameters
-                        }()
-                        let representation = ToolResultRepresentation(
-                            parameters: parameters,
-                            result: toolResult.result
-                        )
-                        guard !representation.displayText.isEmpty else { continue }
-                        entries.append(.toolResultContent(toolResult.id, representation))
+                        continue
                     case .image, .audio, .file:
                         continue
                     }
                 }
+
+            case .tool:
+                guard let toolResult = message.parts.compactMap({ part -> ToolResultContentPart? in
+                    guard case let .toolResult(value) = part else { return nil }
+                    return value
+                }).first else {
+                    break
+                }
+                guard !toolResult.isCollapsed else { break }
+                let assistantID = assistantMessageID(forToolResult: toolResult.toolCallID, startingAt: messageIndex) ?? message.id
+                let toolCall = messages.first(where: { $0.id == assistantID })?.parts.first { part in
+                    guard case let .toolCall(value) = part else { return false }
+                    return value.id == toolResult.toolCallID
+                }
+                let parameters: String = {
+                    guard case let .toolCall(value)? = toolCall else { return "" }
+                    return value.parameters
+                }()
+                let representation = ToolResultRepresentation(
+                    parameters: parameters,
+                    result: toolResult.result
+                )
+                guard !representation.displayText.isEmpty else { break }
+                entries.append(.toolResultContent(toolResult.id, representation))
 
             case .system:
                 if message.isSubAgentTask, let metadata = message.subAgentTaskMetadata {

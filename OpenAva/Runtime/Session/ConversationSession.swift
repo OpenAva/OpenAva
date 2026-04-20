@@ -216,7 +216,20 @@ public final class ConversationSession: Identifiable, Sendable {
     }
 
     func toggleToolResultCollapse(for messageID: String, toolCallID: String) {
-        guard let conversationMessage = messages.first(where: { $0.id == messageID }) else { return }
+        let conversationMessage = messages.first { message in
+            guard message.id == messageID, message.role == .tool else { return false }
+            return message.parts.contains { part in
+                guard case let .toolResult(toolResult) = part else { return false }
+                return toolResult.toolCallID == toolCallID
+            }
+        } ?? messages.first { message in
+            guard message.role == .tool else { return false }
+            return message.parts.contains { part in
+                guard case let .toolResult(toolResult) = part else { return false }
+                return toolResult.toolCallID == toolCallID
+            }
+        }
+        guard let conversationMessage else { return }
         var didToggle = false
         for (index, part) in conversationMessage.parts.enumerated() {
             guard case var .toolResult(toolResult) = part,

@@ -66,17 +66,34 @@ final class ConversationSessionBuildMessagesTests: XCTestCase {
         XCTAssertFalse(selectedIDs.contains(boundary.id))
     }
 
-    func testBuildRequestMessagesDropsUnsupportedCustomRoles() {
+    func testBuildRequestMessagesEmitsToolMessageForToolRole() {
         let session = makeSession(id: "unsupported-role")
         let message = appendMessage(
             to: session,
-            role: MessageRole(rawValue: "tool"),
-            text: "legacy tool message",
+            role: .tool,
+            text: "",
             createdAt: Date()
         )
+        message.parts = [
+            .toolResult(
+                ToolResultContentPart(
+                    toolCallID: "call-1",
+                    result: "legacy tool message",
+                    isCollapsed: true
+                )
+            ),
+        ]
 
         let requestMessages = session.buildRequestMessages(from: message, capabilities: [])
-        XCTAssertTrue(requestMessages.isEmpty)
+        guard let firstMessage = requestMessages.first,
+              case let .tool(content, toolCallID) = firstMessage,
+              case let .text(text) = content
+        else {
+            return XCTFail("Expected tool request message")
+        }
+        XCTAssertEqual(requestMessages.count, 1)
+        XCTAssertEqual(toolCallID, "call-1")
+        XCTAssertEqual(text, "legacy tool message")
     }
 
     private func makeSession(id: String) -> ConversationSession {

@@ -5,11 +5,12 @@ import Foundation
 // MARK: - Transcript Entry Types
 
 /// Entry types for the JSONL transcript.
-/// Only chain participants (user, assistant, system) advance the parentUuid chain.
+/// Only chain participants (user, assistant, tool, system) advance the parentUuid chain.
 /// All other entries are metadata that sit outside the chain.
 private enum TranscriptEntryKind: String {
     case user
     case assistant
+    case tool
     case system
     case customTitle
     case lastPrompt
@@ -18,7 +19,7 @@ private enum TranscriptEntryKind: String {
     /// Whether this entry kind participates in the parentUuid chain.
     var isChainParticipant: Bool {
         switch self {
-        case .user, .assistant, .system: return true
+        case .user, .assistant, .tool, .system: return true
         default: return false
         }
     }
@@ -119,6 +120,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             switch (probe.type, probe.subtype) {
             case (MessageRole.user.rawValue, _),
                  (MessageRole.assistant.rawValue, _),
+                 (MessageRole.tool.rawValue, _),
                  ("system", _):
                 if let entry = try? ChainTranscriptEntry(from: decoder) {
                     self = .chain(entry)
@@ -213,6 +215,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         var customTitle: String?
         var lastPrompt: String?
         var shouldShowRetry = false
+        var persistedMessageUUIDs: Set<String> = []
     }
 
     // MARK: - Replay State
@@ -310,14 +313,17 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         var cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
         let cacheSignatures = cache.messages.map(transcriptSignature(for:))
         let replaySignatures = replayState.messages.map(transcriptSignature(for:))
+        let replayPersistedMessageUUIDs = Set(replayState.messages.map(\.id))
         let metadataOutOfSync = cache.customTitle != replayState.customTitle ||
             cache.lastPrompt != replayState.lastPrompt
         let interruptionOutOfSync = cache.shouldShowRetry != replayState.showsInterruptedRetryAction
-        if cacheSignatures != replaySignatures || metadataOutOfSync || interruptionOutOfSync {
+        let persistedUUIDsOutOfSync = cache.persistedMessageUUIDs != replayPersistedMessageUUIDs
+        if cacheSignatures != replaySignatures || metadataOutOfSync || interruptionOutOfSync || persistedUUIDsOutOfSync {
             cache.messages = replayState.messages
             cache.customTitle = replayState.customTitle
             cache.lastPrompt = replayState.lastPrompt
             cache.shouldShowRetry = replayState.showsInterruptedRetryAction
+            cache.persistedMessageUUIDs = replayPersistedMessageUUIDs
             loadedSessionCacheByID[sessionID] = cache
         }
 
@@ -331,6 +337,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             cache.messages = sortedMessages.map(copyMessage(_:))
             cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
             cache.shouldShowRetry = Self.interruptionRetryVisible(for: sortedMessages)
+            cache.persistedMessageUUIDs = Set(sortedMessages.map(\.id))
             loadedSessionCacheByID[sessionID] = cache
             rewriteTranscriptLocked(
                 sessionID: sessionID,
@@ -347,6 +354,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
 
         let parentUUIDsByMessageID = parentUUIDsByMessageID(for: sortedMessages)
+        let persistedMessageUUIDs = cache.persistedMessageUUIDs
+        var messagesToAppend: [ConversationMessage] = []
+        var shouldRewriteTranscript = false
 
         for message in sortedMessages {
             let previous = previousByID[message.id]
@@ -357,6 +367,36 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 continue
             }
 
+            if persistedMessageUUIDs.contains(message.id) {
+                shouldRewriteTranscript = true
+                break
+            }
+
+            messagesToAppend.append(message)
+        }
+
+        if shouldRewriteTranscript {
+            cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
+            cache.messages = sortedMessages.map(copyMessage(_:))
+            cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
+            cache.shouldShowRetry = Self.interruptionRetryVisible(for: sortedMessages)
+            cache.persistedMessageUUIDs = Set(sortedMessages.map(\.id))
+            loadedSessionCacheByID[sessionID] = cache
+            rewriteTranscriptLocked(
+                sessionID: sessionID,
+                messages: sortedMessages,
+                customTitle: cache.customTitle,
+                lastPrompt: cache.lastPrompt
+            )
+            upsertSessionLocked(
+                for: sessionID,
+                displayNameOverride: sessionListDisplayNameLocked(sessionID: sessionID, messages: sortedMessages)
+            )
+            lock.unlock()
+            return
+        }
+
+        for message in messagesToAppend {
             _ = appendEntryLocked(
                 type: message.role.rawValue,
                 uuid: message.id,
@@ -365,12 +405,13 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 parentUuid: parentUUIDsByMessageID[message.id] ?? nil,
                 message: makeTranscriptMessageRecord(from: message)
             )
+            cache.persistedMessageUUIDs.insert(message.id)
         }
 
-        cache = loadedSessionCacheByID[sessionID] ?? LoadedSessionCache()
         cache.messages = sortedMessages.map(copyMessage(_:))
         cache.lastPrompt = sortedMessages.reversed().compactMap(lastPromptText(from:)).first
         cache.shouldShowRetry = Self.interruptionRetryVisible(for: sortedMessages)
+        cache.persistedMessageUUIDs.formUnion(messagesToAppend.map(\.id))
         loadedSessionCacheByID[sessionID] = cache
         upsertSessionLocked(
             for: sessionID,
@@ -407,6 +448,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 nextCache.messages = filtered
                 nextCache.lastPrompt = filtered.reversed().compactMap(lastPromptText(from:)).first
                 nextCache.shouldShowRetry = Self.interruptionRetryVisible(for: filtered)
+                nextCache.persistedMessageUUIDs = Set(filtered.map(\.id))
                 loadedSessionCacheByID[sessionID] = nextCache
                 rewriteTranscriptLocked(
                     sessionID: sessionID,
@@ -498,7 +540,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         // Skip non-conversation messages from the end.
         var lastConversationMessage: ConversationMessage?
         for message in messages.reversed() {
-            if message.role == .user || message.role == .assistant {
+            if message.role == .user || message.role == .assistant || message.role == .tool {
                 lastConversationMessage = message
                 break
             }
@@ -525,18 +567,15 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                 return .none
             }
 
-            // Check if the user message has unresolved tool results.
-            let hasToolResult = last.parts.contains { part in
-                if case .toolResult = part { return true }
-                return false
-            }
-            if hasToolResult {
-                // Tool result without a following assistant → interrupted.
-                return .interruptedTurn
-            }
-
             // Regular user prompt without assistant reply.
             return .interruptedPrompt
+        }
+
+        if last.role == .tool {
+            if last.metadata[ToolMessageMetadata.terminalResult] == "true" {
+                return .none
+            }
+            return .interruptedTurn
         }
 
         return .none
@@ -578,7 +617,8 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             messages: replayState.messages,
             customTitle: replayState.customTitle,
             lastPrompt: replayState.lastPrompt,
-            shouldShowRetry: replayState.showsInterruptedRetryAction
+            shouldShowRetry: replayState.showsInterruptedRetryAction,
+            persistedMessageUUIDs: Set(replayState.messages.map(\.id))
         )
         if !replayState.messages.isEmpty || replayState.title != nil || replayState.lastPrompt != nil {
             upsertSessionLocked(
@@ -697,20 +737,30 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func reconcileIncompleteToolCalls(in messages: inout [ConversationMessage]) {
-        for message in messages where message.role == .assistant {
-            let toolResultIDs = Set(message.parts.compactMap { part -> String? in
-                guard case let .toolResult(value) = part else { return nil }
-                return value.toolCallID
-            })
+        let toolResultStatesByCallID: [String: ToolCallState] = messages.reduce(into: [:]) { partialResult, message in
+            guard message.role == .tool,
+                  let toolResult = message.parts.compactMap({ part -> ToolResultContentPart? in
+                      guard case let .toolResult(value) = part else { return nil }
+                      return value
+                  }).first
+            else {
+                return
+            }
 
+            let storedState = message.metadata[ToolMessageMetadata.toolCallState]
+                .flatMap(ToolCallState.init(rawValue:)) ?? .succeeded
+            partialResult[toolResult.toolCallID] = storedState
+        }
+
+        for message in messages where message.role == .assistant {
             for (index, part) in message.parts.enumerated() {
                 guard case var .toolCall(toolCall) = part,
-                      toolCall.state == .running,
-                      !toolResultIDs.contains(toolCall.id)
+                      toolCall.state == .running
                 else {
                     continue
                 }
-                toolCall.state = .failed
+
+                toolCall.state = toolResultStatesByCallID[toolCall.id] ?? .failed
                 message.parts[index] = .toolCall(toolCall)
             }
         }
@@ -738,7 +788,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         let entry: SessionTranscriptEntry
 
         switch kind {
-        case .user, .assistant, .system:
+        case .user, .assistant, .tool, .system:
             guard let entryUuid, let message else { return nil }
             entry = .chain(
                 ChainTranscriptEntry(
@@ -824,6 +874,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         switch type {
         case MessageRole.user.rawValue: return .user
         case MessageRole.assistant.rawValue: return .assistant
+        case MessageRole.tool.rawValue: return .tool
         case "system": return .system
         case "custom-title": return .customTitle
         case "last-prompt": return .lastPrompt
@@ -929,6 +980,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         switch message.role {
         case .user: return .user
         case .assistant: return .assistant
+        case .tool: return .tool
         default: return .system
         }
     }
@@ -942,14 +994,31 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         nextMessages.sort { $0.createdAt < $1.createdAt }
 
         if transcriptSignature(for: previous) != transcriptSignature(for: message) {
-            let parentUuid = parentUUIDsByMessageID(for: nextMessages)[message.id] ?? nil
-            _ = appendEntryLocked(
-                type: message.role.rawValue,
-                uuid: message.id,
-                sessionID: sessionID,
-                parentUuid: parentUuid,
-                message: makeTranscriptMessageRecord(from: message)
-            )
+            if cache.persistedMessageUUIDs.contains(message.id) {
+                if let lastPromptOverride {
+                    cache.lastPrompt = lastPromptOverride
+                }
+                cache.messages = nextMessages
+                cache.shouldShowRetry = Self.interruptionRetryVisible(for: nextMessages)
+                cache.persistedMessageUUIDs = Set(nextMessages.map(\.id))
+                loadedSessionCacheByID[sessionID] = cache
+                rewriteTranscriptLocked(
+                    sessionID: sessionID,
+                    messages: nextMessages,
+                    customTitle: cache.customTitle,
+                    lastPrompt: cache.lastPrompt
+                )
+            } else {
+                let parentUuid = parentUUIDsByMessageID(for: nextMessages)[message.id] ?? nil
+                _ = appendEntryLocked(
+                    type: message.role.rawValue,
+                    uuid: message.id,
+                    sessionID: sessionID,
+                    parentUuid: parentUuid,
+                    message: makeTranscriptMessageRecord(from: message)
+                )
+                cache.persistedMessageUUIDs.insert(message.id)
+            }
         }
 
         cache.messages = nextMessages

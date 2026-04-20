@@ -71,20 +71,26 @@ extension ConversationSession {
                     id: value.id, function: .init(name: value.apiName.isEmpty ? value.toolName : value.apiName, arguments: value.parameters)
                 )
             }
-            let toolResults: [ChatRequestBody.Message] = message.parts.compactMap { part in
-                guard case let .toolResult(value) = part else { return nil }
-                return .tool(content: .text(value.result), toolCallID: value.toolCallID)
-            }
-
-            var result: [ChatRequestBody.Message] = [
+            return [
                 .assistant(
                     content: text.isEmpty ? nil : .text(text),
                     toolCalls: toolCalls.isEmpty ? nil : toolCalls,
                     reasoning: reasoning
                 ),
             ]
-            result.append(contentsOf: toolResults)
-            return result
+
+        case .tool:
+            guard let toolResult = message.parts.first(where: { part in
+                if case .toolResult = part { return true }
+                return false
+            }),
+                case let .toolResult(value) = toolResult
+            else {
+                return []
+            }
+            return [
+                .tool(content: .text(value.result), toolCallID: value.toolCallID),
+            ]
 
         default:
             return []

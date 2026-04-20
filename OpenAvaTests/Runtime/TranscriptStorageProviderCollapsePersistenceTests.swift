@@ -109,8 +109,12 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(session.messages[0].role, .user)
         XCTAssertEqual(session.messages[1].role, .assistant)
         XCTAssertEqual(session.messages[1].finishReason, .toolCalls)
-        XCTAssertEqual(session.messages[2].role, .assistant)
-        XCTAssertTrue(session.messages[2].textContent.contains("Tool execution is unavailable."))
+        XCTAssertEqual(session.messages[2].role, .tool)
+        let toolResult = try XCTUnwrap(session.messages[2].parts.compactMap { part -> ToolResultContentPart? in
+            guard case let .toolResult(value) = part else { return nil }
+            return value
+        }.first)
+        XCTAssertTrue(toolResult.result.contains("Tool execution is unavailable."))
     }
 
     func testFirstPersistedAssistantUpdateKeepsUserChainAcrossReload() throws {
@@ -178,7 +182,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let assistantUUIDs = assistantEntries.compactMap { entry -> String? in
             (entry["message"] as? [String: Any])?["uuid"] as? String
         }
-        XCTAssertEqual(assistantEntries.count, 3)
+        XCTAssertEqual(assistantEntries.count, 1)
         XCTAssertEqual(Set(assistantUUIDs), [assistantMessage.id])
         XCTAssertEqual(
             ((assistantEntries.last?["message"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String,
@@ -191,7 +195,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(reloadedMessages.map(\.textContent), ["hello", "draft 3"])
     }
 
-    func testPersistMessagesAppendsUpdatedMessageSnapshotWithoutDuplicatingMessageUUIDs() throws {
+    func testPersistMessagesRewritesUpdatedMessageSnapshotWithoutDuplicatingMessageUUIDs() throws {
         let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
         TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
@@ -227,7 +231,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             (entry["message"] as? [String: Any])?["uuid"] as? String
         }
         XCTAssertEqual(Set(assistantUUIDs).count, 1)
-        XCTAssertEqual(assistantEntries.count, 2)
+        XCTAssertEqual(assistantEntries.count, 1)
         XCTAssertEqual(
             ((assistantEntries.last?["message"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String,
             "final answer"
@@ -347,7 +351,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let toolCallID = "tool-call-1"
 
-        let message = session.appendNewMessage(role: .assistant) { message in
+        _ = session.appendNewMessage(role: .assistant) { message in
             message.parts = [
                 .toolCall(
                     ToolCallContentPart(
@@ -358,6 +362,10 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
                         state: .succeeded
                     )
                 ),
+            ]
+        }
+        let message = session.appendNewMessage(role: .tool) { message in
+            message.parts = [
                 .toolResult(
                     ToolResultContentPart(
                         toolCallID: toolCallID,
@@ -366,6 +374,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
                     )
                 ),
             ]
+            message.metadata[ToolMessageMetadata.toolCallState] = ToolCallState.succeeded.rawValue
+            message.metadata[ToolMessageMetadata.terminalResult] = "true"
         }
         session.persistMessages()
 
@@ -375,8 +385,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
-        guard let reloadedMessage = reloadedMessages.first else {
-            return XCTFail("Expected reloaded message")
+        guard let reloadedMessage = reloadedMessages.first(where: { $0.role == .tool }) else {
+            return XCTFail("Expected reloaded tool message")
         }
         guard let toolResult = reloadedMessage.parts.compactMap({ part -> ToolResultContentPart? in
             guard case let .toolResult(value) = part else { return nil }
@@ -389,7 +399,9 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
-        XCTAssertEqual(assistantEntries.count, 2)
+        XCTAssertEqual(assistantEntries.count, 1)
+        let toolEntries = entries.filter { ($0["type"] as? String) == MessageRole.tool.rawValue }
+        XCTAssertEqual(toolEntries.count, 1)
     }
 
     func testToggleReasoningCollapsePersistsAcrossReload() throws {
@@ -438,7 +450,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
-        XCTAssertEqual(assistantEntries.count, 2)
+        XCTAssertEqual(assistantEntries.count, 1)
     }
 
     func testReloadedInterruptedSessionMarksOrphanRunningToolCallFailed() throws {
