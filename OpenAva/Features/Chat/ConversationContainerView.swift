@@ -8,11 +8,8 @@
 import ChatUI
 import Combine
 import Foundation
-import OSLog
 import SnapKit
 import UIKit
-
-private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.container")
 
 /// The main chat container view that third-party apps embed.
 ///
@@ -27,7 +24,7 @@ open class ConversationContainerView: UIView {
     private var activeSessionConfiguration: ConversationSession.Configuration?
     private weak var currentSession: ConversationSession?
     private var sessionCancellables = Set<AnyCancellable>()
-    public var messageSubmissionHandler: ConversationMessageSubmissionHandler?
+    public var promptSubmissionHandler: ConversationPromptSubmissionHandler?
     public var conversationModels: ConversationSession.Models = .init()
     public var newSessionIDProvider: @MainActor () -> String = { UUID().uuidString }
 
@@ -78,6 +75,7 @@ open class ConversationContainerView: UIView {
         applyConversationModels(models, to: session)
         currentSession = session
         sessionCancellables.removeAll()
+        chatInputView.setExecuting(session.isQueryActive)
         messageListView.prepareForNewSession()
         messageListView.onToggleReasoningCollapse = { [weak self] messageID in
             self?.currentSession?.toggleReasoningCollapse(for: messageID)
@@ -87,13 +85,21 @@ open class ConversationContainerView: UIView {
         }
         messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedMessageSubmission()
+            session.retryInterruptedPromptSubmission()
         }
         session.messagesDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages, scrolling in
                 self?.messageListView.showsInterruptedRetryAction = session.showsInterruptedRetryAction
                 self?.messageListView.render(messages: messages, scrolling: scrolling)
+            }
+            .store(in: &sessionCancellables)
+        session.queryActivityDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak session] isActive in
+                guard let self, let session else { return }
+                guard self.currentSession === session else { return }
+                self.chatInputView.setExecuting(isActive)
             }
             .store(in: &sessionCancellables)
         session.loadingStateDidChange
@@ -114,44 +120,21 @@ open class ConversationContainerView: UIView {
 extension ConversationContainerView: ChatInputDelegate {
     public func chatInputDidSubmit(_ input: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
         _ = input
-        guard let session = currentSession else {
-            logger.notice("submit ignored reason=no_active_session")
-            completion(false)
-            return
-        }
-        guard let model = session.models.chat else {
-            logger.notice("submit ignored session=\(session.id, privacy: .public) reason=no_chat_model")
-            completion(false)
-            return
-        }
-        logger.notice(
-            "submit accepted session=\(session.id, privacy: .public) textLength=\(object.text.count) attachments=\(object.attachments.count) hasTask=\(String(session.currentTask != nil), privacy: .public)"
+        handlePromptSubmit(
+            session: currentSession,
+            object: object,
+            messageListView: messageListView,
+            promptSubmissionHandler: promptSubmissionHandler,
+            clearDraft: { [weak self] in
+                self?.draftInputObject = nil
+            },
+            completion: completion
         )
-        let userInput = makeUserInput(from: object)
-        draftInputObject = nil
-        messageListView.markNextUpdateAsUserInitiated()
-        input.setExecuting(true)
-        let handler = messageSubmissionHandler ?? { session, model, userInput, completion in
-            session.submitMessage(model: model, input: userInput) {
-                completion(true)
-            }
-        }
-        handler(session, model, userInput) { accepted in
-            Task { @MainActor [weak input] in
-                logger.notice("submit completion session=\(session.id, privacy: .public)")
-                input?.setExecuting(false)
-            }
-            completion(accepted)
-        }
     }
 
     public func chatInputDidRequestStop(_ input: ChatInputView) {
         _ = input
-        logger.notice(
-            "stop tapped session=\(self.currentSession?.id ?? "nil", privacy: .public) hasTask=\(String(self.currentSession?.currentTask != nil), privacy: .public)"
-        )
-        currentSession?.interruptCurrentTurn(reason: .userStop)
-        chatInputView.setExecuting(false)
+        handlePromptStop(session: currentSession)
     }
 
     public func chatInputDidUpdateObject(_: ChatInputView, object: ChatInputContent) {

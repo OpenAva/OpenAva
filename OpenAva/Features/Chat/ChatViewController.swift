@@ -211,18 +211,7 @@ open class ChatViewController: UIViewController {
 
     private var draftInputObject: ChatInputContent?
     private var providedSession: ConversationSession?
-    var messageSubmissionHandler: ConversationMessageSubmissionHandler?
-
-    private var isExecutingCurrentTurn = false {
-        didSet {
-            guard oldValue != isExecutingCurrentTurn else { return }
-            guard isViewLoaded else { return }
-            logger.notice(
-                "ui executing state changed session=\(self.sessionID, privacy: .public) executing=\(String(self.isExecutingCurrentTurn), privacy: .public)"
-            )
-            chatInputView.setExecuting(isExecutingCurrentTurn)
-        }
-    }
+    var promptSubmissionHandler: ConversationPromptSubmissionHandler?
 
     private lazy var titleBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: self, action: #selector(handleTitleTap))
 
@@ -246,6 +235,14 @@ open class ChatViewController: UIViewController {
     public var draftPersistenceKey: String?
 
     private static let draftDefaultsPrefix = "chat.inputDraft."
+
+    private func setPromptInputExecuting(_ isExecuting: Bool) {
+        guard isViewLoaded else { return }
+        logger.notice(
+            "ui query activity changed session=\(self.sessionID, privacy: .public) active=\(String(isExecuting), privacy: .public)"
+        )
+        chatInputView.setExecuting(isExecuting)
+    }
 
     private func persistDraft(_ object: ChatInputContent) {
         guard let key = draftPersistenceKey else { return }
@@ -466,12 +463,13 @@ open class ChatViewController: UIViewController {
 
     private func bindNavigationTitleUpdates(session: ConversationSession) {
         sessionCancellables.removeAll()
-        isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
-        ConversationSessionManager.shared.executingSessionsPublisher
+        setPromptInputExecuting(session.isQueryActive)
+        session.queryActivityDidChange
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak session] _ in
+            .sink { [weak self, weak session] isActive in
                 guard let self, let session else { return }
-                self.isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
+                guard self.currentSession === session else { return }
+                self.setPromptInputExecuting(isActive)
             }
             .store(in: &sessionCancellables)
         session.messagesDidChange
@@ -546,7 +544,7 @@ open class ChatViewController: UIViewController {
         let session = providedSession ?? ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
         applyConversationModels(conversationModels, to: session)
         currentSession = session
-        isExecutingCurrentTurn = session.currentTask != nil || ConversationSessionManager.shared.isSessionExecuting(session)
+        setPromptInputExecuting(session.isQueryActive)
         messageListView.prepareForNewSession()
         messageListView.onToggleReasoningCollapse = { [weak self] messageID in
             self?.currentSession?.toggleReasoningCollapse(for: messageID)
@@ -556,7 +554,7 @@ open class ChatViewController: UIViewController {
         }
         messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedMessageSubmission()
+            session.retryInterruptedPromptSubmission()
         }
         messageListView.onRollbackUserQuery = { [weak self] messageID, queryText in
             guard let self, let session = self.currentSession else { return }
@@ -735,39 +733,21 @@ open class ChatViewController: UIViewController {
 
 extension ChatViewController: ChatInputDelegate {
     public func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
-        guard let session = currentSession, let model = session.models.chat else {
-            logger.notice("submit ignored session=\(self.sessionID, privacy: .public) reason=no_active_session_or_model")
-            completion(false)
-            return
-        }
-        logger.notice(
-            "submit accepted session=\(session.id, privacy: .public) textLength=\(object.text.count) attachments=\(object.attachments.count) hasTask=\(String(session.currentTask != nil), privacy: .public)"
+        handlePromptSubmit(
+            session: currentSession,
+            object: object,
+            messageListView: messageListView,
+            promptSubmissionHandler: promptSubmissionHandler,
+            clearDraft: { [weak self] in
+                self?.draftInputObject = nil
+                self?.clearPersistedDraft()
+            },
+            completion: completion
         )
-        let userInput = makeUserInput(from: object)
-        draftInputObject = nil
-        clearPersistedDraft()
-        messageListView.markNextUpdateAsUserInitiated()
-        isExecutingCurrentTurn = true
-        let handler = messageSubmissionHandler ?? { session, model, userInput, completion in
-            session.submitMessage(model: model, input: userInput) {
-                completion(true)
-            }
-        }
-        handler(session, model, userInput) { accepted in
-            Task { @MainActor [weak self] in
-                logger.notice("submit completion session=\(session.id, privacy: .public)")
-                self?.isExecutingCurrentTurn = false
-            }
-            completion(accepted)
-        }
     }
 
     public func chatInputDidRequestStop(_: ChatInputView) {
-        logger.notice(
-            "stop tapped session=\(self.sessionID, privacy: .public) hasSession=\(String(self.currentSession != nil), privacy: .public) hasTask=\(String(self.currentSession?.currentTask != nil), privacy: .public)"
-        )
-        currentSession?.interruptCurrentTurn(reason: .userStop)
-        isExecutingCurrentTurn = false
+        handlePromptStop(session: currentSession, fallbackSessionID: sessionID)
     }
 
     public func chatInputDidUpdateObject(_: ChatInputView, object: ChatInputContent) {

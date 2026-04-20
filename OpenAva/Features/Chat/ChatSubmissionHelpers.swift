@@ -5,12 +5,26 @@ import UniformTypeIdentifiers
 
 private let submissionLogger = Logger(subsystem: "ChatUI", category: "Submission")
 
-public typealias ConversationMessageSubmissionHandler = @MainActor (
+public typealias ConversationPromptSubmissionHandler = @MainActor (
     _ session: ConversationSession,
     _ model: ConversationSession.Model,
-    _ input: ConversationSession.UserInput,
-    _ completion: @escaping @Sendable (Bool) -> Void
-) -> Void
+    _ prompt: ConversationSession.PromptInput,
+    _ reservationGeneration: Int
+) async -> Bool
+
+@MainActor
+private func defaultPromptSubmissionHandler(
+    session: ConversationSession,
+    model: ConversationSession.Model,
+    prompt: ConversationSession.PromptInput,
+    reservationGeneration: Int
+) async -> Bool {
+    await session.submitPrompt(
+        model: model,
+        prompt: prompt,
+        reservationGeneration: reservationGeneration
+    )
+}
 
 @MainActor func applyConversationModels(
     _ models: ConversationSession.Models,
@@ -24,12 +38,12 @@ public typealias ConversationMessageSubmissionHandler = @MainActor (
     }
 }
 
-func makeUserInput(from object: ChatInputContent) -> ConversationSession.UserInput {
+func makePromptInput(from object: ChatInputContent) -> ConversationSession.PromptInput {
     let attachmentSummary = object.attachments.map { attachment in
         "\(attachment.type.rawValue)(fileBytes=\(attachment.fileData.count),previewBytes=\(attachment.previewImageData.count),textChars=\(attachment.textContent.count))"
     }.joined(separator: ", ")
     submissionLogger.info(
-        "makeUserInput textChars=\(object.text.count) attachments=\(object.attachments.count) [\(attachmentSummary)]"
+        "makePromptInput textChars=\(object.text.count) attachments=\(object.attachments.count) [\(attachmentSummary)]"
     )
 
     return .init(
@@ -39,16 +53,61 @@ func makeUserInput(from object: ChatInputContent) -> ConversationSession.UserInp
 }
 
 @MainActor
-func awaitMessageSubmission(
-    session: ConversationSession,
-    model: ConversationSession.Model,
-    input: ConversationSession.UserInput
-) async {
-    await withCheckedContinuation { continuation in
-        session.submitMessage(model: model, input: input) {
-            continuation.resume()
-        }
+func handlePromptSubmit(
+    session: ConversationSession?,
+    object: ChatInputContent,
+    messageListView: MessageListView,
+    promptSubmissionHandler: ConversationPromptSubmissionHandler?,
+    clearDraft: @escaping @MainActor () -> Void,
+    completion: @escaping @Sendable (Bool) -> Void
+) {
+    guard let session else {
+        submissionLogger.notice("submit ignored reason=no_active_session")
+        completion(false)
+        return
     }
+    guard let model = session.models.chat else {
+        submissionLogger.notice("submit ignored session=\(session.id, privacy: .public) reason=no_chat_model")
+        completion(false)
+        return
+    }
+
+    submissionLogger.notice(
+        "submit accepted session=\(session.id, privacy: .public) textLength=\(object.text.count) attachments=\(object.attachments.count) queryActive=\(String(session.isQueryActive), privacy: .public)"
+    )
+
+    let promptInput = makePromptInput(from: object)
+    guard let reservationGeneration = session.queryGuard.reserve() else {
+        submissionLogger.notice(
+            "submit ignored session=\(session.id, privacy: .public) reason=query_already_active"
+        )
+        completion(false)
+        return
+    }
+    clearDraft()
+    messageListView.markNextUpdateAsUserInitiated()
+
+    let handler = promptSubmissionHandler ?? defaultPromptSubmissionHandler
+    Task { @MainActor in
+        let accepted = await handler(session, model, promptInput, reservationGeneration)
+        if !accepted {
+            session.queryGuard.cancelReservation()
+        }
+        submissionLogger.notice("submit completion session=\(session.id, privacy: .public) accepted=\(String(accepted), privacy: .public)")
+        completion(accepted)
+    }
+}
+
+@MainActor
+func handlePromptStop(
+    session: ConversationSession?,
+    fallbackSessionID: String? = nil
+) {
+    let sessionID = session?.id ?? fallbackSessionID ?? "nil"
+    submissionLogger.notice(
+        "stop tapped session=\(sessionID, privacy: .public) hasSession=\(String(session != nil), privacy: .public) queryActive=\(String(session?.isQueryActive ?? false), privacy: .public)"
+    )
+    session?.interruptCurrentTurn(reason: .userStop)
 }
 
 private func makeContentPart(from attachment: ChatInputAttachment) -> ContentPart {

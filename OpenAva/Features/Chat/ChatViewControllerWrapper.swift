@@ -395,32 +395,28 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
         if let serializedExecutionContext {
-            chatViewController.messageSubmissionHandler = { _, _, userInput, completion in
-                Task { @MainActor in
-                    do {
-                        try await AgentMainSessionRegistry.shared.submitToMainSession(
-                            for: serializedExecutionContext.agent,
-                            modelConfig: serializedExecutionContext.modelConfig,
-                            invocationSessionID: serializedExecutionContext.invocationSessionID
-                        ) { resources in
-                            guard let model = resources.session.models.chat else {
-                                completion(false)
-                                return
-                            }
-                            await awaitMessageSubmission(
-                                session: resources.session,
-                                model: model,
-                                input: userInput
-                            )
-                            completion(true)
+            chatViewController.promptSubmissionHandler = { _, _, prompt, reservationGeneration in
+                do {
+                    return try await AgentMainSessionRegistry.shared.submitToMainSession(
+                        for: serializedExecutionContext.agent,
+                        modelConfig: serializedExecutionContext.modelConfig,
+                        invocationSessionID: serializedExecutionContext.invocationSessionID
+                    ) { resources in
+                        guard let model = resources.session.models.chat else {
+                            return false
                         }
-                    } catch {
-                        completion(false)
+                        return await resources.session.submitPrompt(
+                            model: model,
+                            prompt: prompt,
+                            reservationGeneration: reservationGeneration
+                        )
                     }
+                } catch {
+                    return false
                 }
             }
         } else {
-            chatViewController.messageSubmissionHandler = nil
+            chatViewController.promptSubmissionHandler = nil
         }
         chatViewController.updateHeader(.init(
             agentName: activeAgentName,
@@ -1057,7 +1053,7 @@ extension ChatViewControllerWrapper {
 
         private func makeAgentMenuImage(for agent: AgentProfile, showsSwarmBusy: Bool = false) -> UIImage? {
             let prefix = "agent:\(agent.id.uuidString)::"
-            let isRunning = showsSwarmBusy || ConversationSessionManager.shared.hasExecutingSession(withPrefix: prefix)
+            let isRunning = showsSwarmBusy || ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
             return makeEmojiMenuImage(from: agent.emoji, showsRunningIndicator: isRunning)
         }
 
