@@ -7,21 +7,21 @@ import OSLog
 
 private let autoCompactLogger = Logger(subsystem: "ChatUI", category: "AutoCompact")
 private let tokenEstimator = ApproximateTokenEstimator()
-private let compactMaxReservedOutputTokens = 20_000
-private let autoCompactBufferTokens = 13_000
-private let warningThresholdBufferTokens = 20_000
-private let errorThresholdBufferTokens = 20_000
-private let manualCompactBufferTokens = 3_000
+private let compactMaxReservedOutputTokens = 20000
+private let autoCompactBufferTokens = 13000
+private let warningThresholdBufferTokens = 20000
+private let errorThresholdBufferTokens = 20000
+private let manualCompactBufferTokens = 3000
 private let maxConsecutiveAutoCompactFailures = 3
 
-struct AutoCompactTrackingState: Sendable {
+struct AutoCompactTrackingState {
     var compacted = false
     var turnCounter = 0
     var turnID = UUID().uuidString
     var consecutiveFailures = 0
 }
 
-struct TokenWarningState: Sendable {
+struct TokenWarningState {
     let percentLeft: Int
     let isAboveWarningThreshold: Bool
     let isAboveErrorThreshold: Bool
@@ -124,7 +124,7 @@ extension ConversationSession {
                 tools: tools
             )
             applyCompactionResult(result)
-            requestMessages = await buildExecutionRequestMessages(capabilities: capabilities)
+            requestMessages = await buildMessages(capabilities: capabilities)
             autoCompactTrackingState = .init(compacted: true, turnCounter: 0, turnID: UUID().uuidString, consecutiveFailures: 0)
             let rebuiltMessageCount = requestMessages.count
             autoCompactLogger.info(

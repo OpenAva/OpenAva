@@ -7,7 +7,7 @@ private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.
 
 public extension ConversationSession {
     /// Input object representing what the user typed/attached.
-    struct UserInput: Sendable {
+    struct PromptInput: Sendable {
         public enum Source: String, Sendable {
             case user
             case heartbeat
@@ -36,27 +36,40 @@ public extension ConversationSession {
         }
     }
 
-    func submitMessage(
+    func submitPrompt(
         model: ConversationSession.Model,
-        input: UserInput,
-        completion: @escaping @Sendable () -> Void
-    ) {
+        prompt: PromptInput,
+        reservationGeneration: Int? = nil
+    ) async -> Bool {
         logger.notice(
-            "submit message requested session=\(self.id, privacy: .public) textLength=\(input.text.count) attachments=\(input.attachments.count) hasTaskBefore=\(String(self.currentTask != nil), privacy: .public)"
+            "submit prompt requested session=\(self.id, privacy: .public) textLength=\(prompt.text.count) attachments=\(prompt.attachments.count) queryActiveBefore=\(String(self.isQueryActive), privacy: .public)"
         )
-        lastSubmittedMessageInput = input
+        lastSubmittedPromptInput = prompt
         showsInterruptedRetryAction = false
+        var accepted = false
+        var effectiveReservationGeneration = reservationGeneration
 
         cancelCurrentTask { [self] in
+            if effectiveReservationGeneration == nil {
+                effectiveReservationGeneration = queryGuard.reserve()
+            }
+            guard let effectiveReservationGeneration,
+                  let generation = queryGuard.tryStart(expectedGeneration: effectiveReservationGeneration)
+            else {
+                logger.notice("submit prompt ignored session=\(self.id, privacy: .public) reason=query_already_active")
+                return
+            }
+            accepted = true
+            currentTaskGeneration = generation
+
             let bgToken = sessionDelegate?.beginBackgroundTask { [weak self] in
                 Task { @MainActor [weak self] in
                     self?.currentTask?.cancel()
                 }
             }
 
-            currentTask = Task { @MainActor in
+            currentTask = Task { @MainActor [generation] in
                 logger.notice("task started session=\(self.id, privacy: .public)")
-                ConversationSessionManager.shared.markSessionExecuting(self)
                 sessionDelegate?.sessionExecutionDidStart(for: id)
 
                 defer {
@@ -68,7 +81,7 @@ public extension ConversationSession {
                 setLoadingState(nil)
 
                 do {
-                    let result = try await queryEngine.submitMessage(input, model: model)
+                    let result = try await queryEngine.submitPrompt(prompt, model: model)
                     showsInterruptedRetryAction = false
                     sessionDelegate?.sessionExecutionDidFinish(
                         for: id,
@@ -80,14 +93,14 @@ public extension ConversationSession {
                     setLoadingState(nil)
                     let interruptReason = consumeInterruptReason().rawValue
                     logger.notice(
-                        "submit message interrupted session=\(self.id, privacy: .public) reason=\(interruptReason, privacy: .public)"
+                        "submit prompt interrupted session=\(self.id, privacy: .public) reason=\(interruptReason, privacy: .public)"
                     )
                     sessionDelegate?.sessionExecutionDidInterrupt(for: id, reason: interruptReason)
                 } catch {
                     showsInterruptedRetryAction = false
                     setLoadingState(nil)
                     logger.error(
-                        "submit message failed session=\(self.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                        "submit prompt failed session=\(self.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
                     )
                     _ = appendNewMessage(role: .assistant) { msg in
                         msg.textContent = "```\n\(error.localizedDescription)\n```"
@@ -103,23 +116,38 @@ public extension ConversationSession {
                 logger.notice(
                     "task finished session=\(self.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
                 )
-                self.currentTask = nil
-                ConversationSessionManager.shared.markSessionCompleted(self)
-                completion()
+                _ = self.queryGuard.end(generation)
+                if self.currentTaskGeneration == generation {
+                    self.currentTask = nil
+                    self.currentTaskGeneration = nil
+                }
             }
         }
+
+        guard accepted else { return false }
+        let task = currentTask
+        await task?.value
+        return true
     }
 
     /// Retry the last interrupted turn after user explicitly taps retry.
-    func retryInterruptedMessageSubmission() {
+    func retryInterruptedPromptSubmission() {
         guard showsInterruptedRetryAction,
-              currentTask == nil,
+              !isQueryActive,
               let model = models.chat,
-              let lastSubmittedMessageInput
+              let lastSubmittedPromptInput,
+              let reservationGeneration = queryGuard.reserve()
         else {
             return
         }
         showsInterruptedRetryAction = false
-        submitMessage(model: model, input: lastSubmittedMessageInput) {}
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.submitPrompt(
+                model: model,
+                prompt: lastSubmittedPromptInput,
+                reservationGeneration: reservationGeneration
+            )
+        }
     }
 }

@@ -2,10 +2,9 @@
 //  ConversationSessionManager.swift
 //  ChatUI
 //
-//  Manages active conversation sessions and their execution state.
+//  Manages active conversation sessions.
 //
 
-import Combine
 import Foundation
 
 /// Manages all active conversation sessions.
@@ -19,12 +18,6 @@ public final class ConversationSessionManager: @unchecked Sendable {
     }
 
     private var sessions: [SessionCacheKey: ConversationSession] = [:]
-    private var executingSessionCounts: [SessionCacheKey: Int] = [:]
-
-    private let executingSessionsSubject = CurrentValueSubject<Void, Never>(())
-    public var executingSessionsPublisher: AnyPublisher<Void, Never> {
-        executingSessionsSubject.eraseToAnyPublisher()
-    }
 
     private init() {}
 
@@ -51,15 +44,11 @@ public final class ConversationSessionManager: @unchecked Sendable {
     public func removeSession(for sessionID: String) {
         let keysToRemove = sessions.keys.filter { $0.sessionID == sessionID }
         keysToRemove.forEach { sessions.removeValue(forKey: $0) }
-        keysToRemove.forEach { executingSessionCounts.removeValue(forKey: $0) }
-        publishExecutingSessions()
     }
 
     /// Clear all cached sessions. Useful when app-level runtime scope changes.
     public func removeAllSessions() {
         sessions.removeAll()
-        executingSessionCounts.removeAll()
-        publishExecutingSessions()
     }
 
     /// Remove cached sessions by scoped conversation id prefix.
@@ -69,68 +58,28 @@ public final class ConversationSessionManager: @unchecked Sendable {
         let keysToRemove = sessions.keys.filter { $0.sessionID.hasPrefix(prefix) }
         for key in keysToRemove {
             sessions.removeValue(forKey: key)
-            executingSessionCounts.removeValue(forKey: key)
         }
-        publishExecutingSessions()
     }
 
-    func markSessionExecuting(_ session: ConversationSession) {
-        let key = cacheKey(for: session)
-        executingSessionCounts[key, default: 0] += 1
-        publishExecutingSessions()
+    public func hasActiveQuery() -> Bool {
+        sessions.values.contains(where: \.isQueryActive)
     }
 
-    func markSessionExecuting(_ sessionID: String, storage: StorageProvider) {
-        let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
-        executingSessionCounts[key, default: 0] += 1
-        publishExecutingSessions()
-    }
-
-    func markSessionCompleted(_ session: ConversationSession) {
-        let key = cacheKey(for: session)
-        decrementExecutingCount(for: key)
-    }
-
-    func markSessionCompleted(_ sessionID: String, storage: StorageProvider) {
-        let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
-        decrementExecutingCount(for: key)
-    }
-
-    private func decrementExecutingCount(for key: SessionCacheKey) {
-        guard let count = executingSessionCounts[key] else { return }
-        if count <= 1 {
-            executingSessionCounts.removeValue(forKey: key)
-        } else {
-            executingSessionCounts[key] = count - 1
-        }
-        publishExecutingSessions()
-    }
-
-    private func cacheKey(for session: ConversationSession) -> SessionCacheKey {
-        SessionCacheKey(sessionID: session.id, storageID: ObjectIdentifier(session.storageProvider))
-    }
-
-    public func hasExecutingSession() -> Bool {
-        !executingSessionCounts.isEmpty
-    }
-
-    /// Returns whether any executing session belongs to the given scoped prefix.
-    public func hasExecutingSession(withPrefix prefix: String) -> Bool {
+    /// Returns whether any active query belongs to the given scoped prefix.
+    public func hasActiveQuery(withPrefix prefix: String) -> Bool {
         guard !prefix.isEmpty else { return false }
-        return executingSessionCounts.keys.contains(where: { $0.sessionID.hasPrefix(prefix) })
+        return sessions.contains { entry in
+            entry.key.sessionID.hasPrefix(prefix) && entry.value.isQueryActive
+        }
     }
 
-    public func isSessionExecuting(_ session: ConversationSession) -> Bool {
-        (executingSessionCounts[cacheKey(for: session)] ?? 0) > 0
+    public func isQueryActive(_ session: ConversationSession) -> Bool {
+        session.isQueryActive
     }
 
-    public func isSessionExecuting(_ sessionID: String, storage: StorageProvider) -> Bool {
+    public func isQueryActive(_ sessionID: String, storage: StorageProvider) -> Bool {
         guard !sessionID.isEmpty else { return false }
         let key = SessionCacheKey(sessionID: sessionID, storageID: ObjectIdentifier(storage))
-        return (executingSessionCounts[key] ?? 0) > 0
-    }
-
-    private func publishExecutingSessions() {
-        executingSessionsSubject.send(())
+        return sessions[key]?.isQueryActive ?? false
     }
 }

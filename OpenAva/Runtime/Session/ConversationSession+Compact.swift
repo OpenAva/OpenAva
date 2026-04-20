@@ -47,7 +47,7 @@ struct CompactionResult {
 extension ConversationSession {
     /// Public API for manually triggering full-history compaction.
     public func compactConversation(model: ConversationSession.Model) async throws {
-        let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
+        let requestMessages = await buildMessages(capabilities: model.capabilities)
         let tools = await compactEnabledTools(for: model)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
         let result = try await compactConversation(
@@ -67,7 +67,7 @@ extension ConversationSession {
         feedback: String? = nil,
         model: ConversationSession.Model
     ) async throws {
-        let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
+        let requestMessages = await buildMessages(capabilities: model.capabilities)
         let tools = await compactEnabledTools(for: model)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
         let plan = try partialCompactionPlan(

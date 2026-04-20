@@ -75,6 +75,8 @@ public final class ConversationSession: Identifiable, Sendable {
 
     var messages: [ConversationMessage] = []
     var currentTask: Task<Void, Never>?
+    var currentTaskGeneration: Int?
+    let queryGuard = QueryGuard()
     lazy var queryEngine = QueryEngine(session: self)
 
     // MARK: - Providers
@@ -114,6 +116,14 @@ public final class ConversationSession: Identifiable, Sendable {
         loadingStateSubject.eraseToAnyPublisher()
     }
 
+    public var queryActivityDidChange: AnyPublisher<Bool, Never> {
+        queryGuard.activityDidChange
+    }
+
+    var isQueryActive: Bool {
+        queryGuard.isActive
+    }
+
     func setLoadingState(_ status: String?) {
         let trimmed = status?.trimmingCharacters(in: .whitespacesAndNewlines)
         loadingStateSubject.send(trimmed?.isEmpty == false ? trimmed : nil)
@@ -135,21 +145,13 @@ public final class ConversationSession: Identifiable, Sendable {
 
     // MARK: - Interrupted Retry
 
-    /// Last submitted message input used for manual retry after interruption.
-    var lastSubmittedMessageInput: UserInput?
+    /// Last submitted prompt input used for manual retry after interruption.
+    var lastSubmittedPromptInput: PromptInput?
     /// Whether UI should show the trailing "retry" action row.
     var showsInterruptedRetryAction = false
     private(set) var currentInterruptReason: InterruptReason?
 
     // MARK: - Lifecycle
-
-    nonisolated deinit {
-        let sessionId = id
-        let storageProvider = storageProvider
-        DispatchQueue.main.async {
-            ConversationSessionManager.shared.markSessionCompleted(sessionId, storage: storageProvider)
-        }
-    }
 
     public init(id: String, configuration: Configuration) {
         self.id = id
@@ -260,11 +262,19 @@ public final class ConversationSession: Identifiable, Sendable {
     }
 
     public func interruptCurrentTurn(reason: InterruptReason = .userStop) {
-        guard let task = currentTask else { return }
+        guard queryGuard.isActive else { return }
+        guard let task = currentTask else {
+            logger.notice(
+                "interrupt requested session=\(self.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) hasTask=false"
+            )
+            queryGuard.forceEnd()
+            return
+        }
         logger.notice(
             "interrupt requested session=\(self.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) hasTask=true taskCancelledBefore=\(String(task.isCancelled), privacy: .public)"
         )
         currentInterruptReason = reason
+        queryGuard.forceEnd()
         task.cancel()
     }
 
@@ -283,7 +293,9 @@ public final class ConversationSession: Identifiable, Sendable {
                 "cancel current task session=\(self.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) taskCancelledBefore=\(String(task.isCancelled), privacy: .public)"
             )
             currentInterruptReason = reason
+            queryGuard.forceEnd()
             task.cancel()
+            currentTaskGeneration = nil
             currentTask = nil
         }
         action()

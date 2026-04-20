@@ -48,7 +48,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
             message.textContent = "Response style"
         }
 
-        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
+        let builtRequestMessages = await session.buildMessages(capabilities: [])
 
         guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
@@ -106,7 +106,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
             message.textContent = "Summarize the latest build pipeline issue."
         }
 
-        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
+        let builtRequestMessages = await session.buildMessages(capabilities: [])
 
         guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
@@ -169,7 +169,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
             message.textContent = "Catalyst host refresh token regression"
         }
 
-        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [])
+        let builtRequestMessages = await session.buildMessages(capabilities: [])
 
         guard case let .system(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected injected system prompt at first position")
@@ -184,7 +184,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         XCTAssertFalse(promptText.contains("Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression."))
     }
 
-    func testBuildExecutionRequestMessagesUsesDeveloperRoleForInstructionPrompt() async throws {
+    func testBuildMessagesUsesDeveloperRoleForInstructionPrompt() async throws {
         let session = ConversationSession(
             id: "session-developer-role",
             configuration: .init(
@@ -196,7 +196,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
             message.textContent = "Hello"
         }
 
-        let builtRequestMessages = await session.buildExecutionRequestMessages(capabilities: [.developerRole])
+        let builtRequestMessages = await session.buildMessages(capabilities: [.developerRole])
 
         guard case let .developer(content, _) = try XCTUnwrap(builtRequestMessages.first) else {
             XCTFail("Expected developer instruction prompt at first position")

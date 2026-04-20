@@ -33,7 +33,7 @@ public struct ContextUsageSnapshot: Sendable {
 
 extension ConversationSession {
     func contextUsageSnapshot(for model: ConversationSession.Model) async -> ContextUsageSnapshot {
-        let requestMessages = await buildExecutionRequestMessages(capabilities: model.capabilities)
+        let requestMessages = await buildMessages(capabilities: model.capabilities)
 
         var tools: [ChatRequestBody.Tool]? = nil
         if model.capabilities.contains(.tool), let toolProvider {

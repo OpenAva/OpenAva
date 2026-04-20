@@ -45,52 +45,106 @@ final class ConversationSessionManagerTests: XCTestCase {
         XCTAssertTrue(first === second)
     }
 
-    func testExecutionTrackingUsesReferenceCountForSameSessionID() {
+    func testHasActiveQueryReflectsCachedSessionQueryActivity() throws {
         let manager = ConversationSessionManager.shared
         manager.removeAllSessions()
         let storage = TestStorageProvider()
+        let session = manager.session(
+            for: "main",
+            configuration: .init(storage: storage)
+        )
 
-        manager.markSessionExecuting("main", storage: storage)
-        manager.markSessionExecuting("main", storage: storage)
-        XCTAssertTrue(manager.hasExecutingSession())
+        XCTAssertFalse(manager.hasActiveQuery())
 
-        manager.markSessionCompleted("main", storage: storage)
-        XCTAssertTrue(manager.hasExecutingSession())
+        let reservationGeneration = try XCTUnwrap(session.queryGuard.reserve())
+        XCTAssertTrue(manager.hasActiveQuery())
+        XCTAssertTrue(manager.isQueryActive(session))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storage))
 
-        manager.markSessionCompleted("main", storage: storage)
-        XCTAssertFalse(manager.hasExecutingSession())
+        let generation = try XCTUnwrap(session.queryGuard.tryStart(expectedGeneration: reservationGeneration))
+        XCTAssertTrue(manager.hasActiveQuery())
+        XCTAssertTrue(manager.isQueryActive(session))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storage))
+
+        XCTAssertTrue(session.queryGuard.end(generation))
+        XCTAssertFalse(manager.hasActiveQuery())
+        XCTAssertFalse(manager.isQueryActive("main", storage: storage))
     }
 
-    func testIsSessionExecutingChecksSpecificSessionOnly() {
+    func testIsQueryActiveChecksSpecificSessionOnly() throws {
         let manager = ConversationSessionManager.shared
         manager.removeAllSessions()
         let storage = TestStorageProvider()
+        let mainSession = manager.session(
+            for: "main",
+            configuration: .init(storage: storage)
+        )
+        _ = manager.session(
+            for: "other",
+            configuration: .init(storage: storage)
+        )
 
-        manager.markSessionExecuting("main", storage: storage)
+        _ = try XCTUnwrap(mainSession.queryGuard.tryStart())
 
-        XCTAssertTrue(manager.isSessionExecuting("main", storage: storage))
-        XCTAssertFalse(manager.isSessionExecuting("other", storage: storage))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storage))
+        XCTAssertFalse(manager.isQueryActive("other", storage: storage))
 
-        manager.markSessionCompleted("main", storage: storage)
-        XCTAssertFalse(manager.isSessionExecuting("main", storage: storage))
+        mainSession.queryGuard.forceEnd()
+        XCTAssertFalse(manager.isQueryActive("main", storage: storage))
     }
 
-    func testExecutionTrackingSeparatesSameSessionIDAcrossDifferentStorageProviders() {
+    func testExecutionTrackingSeparatesSameSessionIDAcrossDifferentStorageProviders() throws {
         let manager = ConversationSessionManager.shared
         manager.removeAllSessions()
         let storageA = TestStorageProvider()
         let storageB = TestStorageProvider()
+        let sessionA = manager.session(
+            for: "main",
+            configuration: .init(storage: storageA)
+        )
+        let sessionB = manager.session(
+            for: "main",
+            configuration: .init(storage: storageB)
+        )
 
-        manager.markSessionExecuting("main", storage: storageA)
-        manager.markSessionExecuting("main", storage: storageB)
+        let generationA = try XCTUnwrap(sessionA.queryGuard.tryStart())
+        let generationB = try XCTUnwrap(sessionB.queryGuard.tryStart())
 
-        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageA))
-        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageB))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storageA))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storageB))
+        XCTAssertTrue(manager.hasActiveQuery())
 
-        manager.markSessionCompleted("main", storage: storageA)
+        XCTAssertTrue(sessionA.queryGuard.end(generationA))
 
-        XCTAssertFalse(manager.isSessionExecuting("main", storage: storageA))
-        XCTAssertTrue(manager.isSessionExecuting("main", storage: storageB))
+        XCTAssertFalse(manager.isQueryActive("main", storage: storageA))
+        XCTAssertTrue(manager.isQueryActive("main", storage: storageB))
+
+        XCTAssertTrue(sessionB.queryGuard.end(generationB))
+        XCTAssertFalse(manager.hasActiveQuery())
+    }
+
+    func testHasActiveQueryWithPrefixReflectsScopedSessions() throws {
+        let manager = ConversationSessionManager.shared
+        manager.removeAllSessions()
+        let storage = TestStorageProvider()
+        let mainSession = manager.session(
+            for: "agent:123::main",
+            configuration: .init(storage: storage)
+        )
+        let otherSession = manager.session(
+            for: "agent:999::main",
+            configuration: .init(storage: storage)
+        )
+
+        let mainGeneration = try XCTUnwrap(mainSession.queryGuard.tryStart())
+        XCTAssertTrue(manager.hasActiveQuery(withPrefix: "agent:123::"))
+        XCTAssertFalse(manager.hasActiveQuery(withPrefix: "agent:999::"))
+
+        let otherGeneration = try XCTUnwrap(otherSession.queryGuard.tryStart())
+        XCTAssertTrue(manager.hasActiveQuery(withPrefix: "agent:999::"))
+
+        XCTAssertTrue(mainSession.queryGuard.end(mainGeneration))
+        XCTAssertTrue(otherSession.queryGuard.end(otherGeneration))
     }
 }
 

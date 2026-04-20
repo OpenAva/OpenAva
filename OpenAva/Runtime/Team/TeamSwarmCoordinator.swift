@@ -501,11 +501,10 @@ final class TeamSwarmCoordinator {
             let baselineLastMessageID = baselineMessages.last?.id
 
             session.refreshContentsFromDatabase(scrolling: false)
-            let input = ConversationSession.UserInput(text: prompt)
-            await awaitMessageSubmission(
-                session: session,
+            let promptInput = ConversationSession.PromptInput(text: prompt)
+            await session.submitPrompt(
                 model: model,
-                input: input
+                prompt: promptInput
             )
 
             let latestMessages = storageProvider.messages(in: Self.mainSessionID)

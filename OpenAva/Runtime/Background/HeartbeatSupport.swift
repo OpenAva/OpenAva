@@ -92,7 +92,7 @@ enum HeartbeatSupport {
     static let retainMessageLimit = 20
     static let defaultInterval: TimeInterval = 30 * 60
     static let queryTextPrefix = "[Heartbeat] Scheduled check"
-    static let metadataSourceKey = ConversationSession.UserInput.sourceMetadataKey
+    static let metadataSourceKey = ConversationSession.PromptInput.sourceMetadataKey
     static let metadataSourceValue = "heartbeat"
     static let metadataModeKey = "heartbeatMode"
     static let metadataModeScheduledValue = "scheduled"
@@ -139,10 +139,10 @@ enum HeartbeatSupport {
         """
     }
 
-    static func makeUserInput(
+    static func makePromptInput(
         heartbeatMarkdown: String,
         now: Date = Date()
-    ) -> ConversationSession.UserInput {
+    ) -> ConversationSession.PromptInput {
         .init(
             text: buildPrompt(heartbeatMarkdown: heartbeatMarkdown, now: now),
             source: .heartbeat,

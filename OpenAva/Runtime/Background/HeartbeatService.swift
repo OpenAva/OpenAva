@@ -270,8 +270,8 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
                 return .skipped
             }
 
-            if isCurrentMainSessionExecuting(configuration) {
-                Self.logger.debug("skip heartbeat because current main session is executing")
+            if isCurrentMainSessionQueryActive(configuration) {
+                Self.logger.debug("skip heartbeat because current main session has an active query")
                 return .skipped
             }
 
@@ -281,8 +281,8 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
                     return .skipped
                 }
             }
-        } else if isCurrentMainSessionExecuting(configuration) {
-            Self.logger.debug("skip manual heartbeat because current main session is executing")
+        } else if isCurrentMainSessionQueryActive(configuration) {
+            Self.logger.debug("skip manual heartbeat because current main session has an active query")
             return .skipped
         }
 
@@ -336,10 +336,9 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
             }
 
             session.refreshContentsFromDatabase(scrolling: false)
-            await awaitMessageSubmission(
-                session: session,
+            await session.submitPrompt(
                 model: model,
-                input: HeartbeatSupport.makeUserInput(heartbeatMarkdown: heartbeatMarkdown)
+                prompt: HeartbeatSupport.makePromptInput(heartbeatMarkdown: heartbeatMarkdown)
             )
 
             self.annotateLatestHeartbeatMessages(in: session)
@@ -396,10 +395,10 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func isCurrentMainSessionExecuting(_ configuration: HeartbeatRuntimeConfiguration) -> Bool {
+    private func isCurrentMainSessionQueryActive(_ configuration: HeartbeatRuntimeConfiguration) -> Bool {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
         let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
-        return ConversationSessionManager.shared.isSessionExecuting(mainSessionID, storage: storageProvider)
+        return ConversationSessionManager.shared.isQueryActive(mainSessionID, storage: storageProvider)
     }
 
     private func stateURL(for runtimeRootURL: URL) -> URL {

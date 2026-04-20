@@ -6,15 +6,12 @@ import OSLog
 private let requestBuildLogger = Logger(subsystem: "ChatUI", category: "RequestBuild")
 
 extension ConversationSession {
-    /// Build request messages from conversation history only.
-    func buildHistoryRequestMessages(capabilities: Set<ModelCapability>) -> [ChatRequestBody.Message] {
-        requestHistoryMessages().flatMap { buildRequestMessages(from: $0, capabilities: capabilities) }
-    }
-
     /// Build the full request payload for execution by combining history and
     /// the current instruction message in one pass.
-    func buildExecutionRequestMessages(capabilities: Set<ModelCapability>) async -> [ChatRequestBody.Message] {
-        var requestMessages = buildHistoryRequestMessages(capabilities: capabilities)
+    func buildMessages(capabilities: Set<ModelCapability>) async -> [ChatRequestBody.Message] {
+        var requestMessages = historyMessages().flatMap {
+            buildRequestMessages(from: $0, capabilities: capabilities)
+        }
         guard let instructionMessage = await buildInstructionRequestMessage(
             for: requestMessages,
             capabilities: capabilities
@@ -34,7 +31,7 @@ extension ConversationSession {
         return requestMessages
     }
 
-    func requestHistoryMessages() -> [ConversationMessage] {
+    func historyMessages() -> [ConversationMessage] {
         messages
             .getMessagesAfterCompactBoundary(includingBoundary: false)
             .filter { !$0.isCompactBoundary }

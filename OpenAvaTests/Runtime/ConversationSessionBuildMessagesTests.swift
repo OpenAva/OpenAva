@@ -30,7 +30,7 @@ final class ConversationSessionBuildMessagesTests: XCTestCase {
             appendMessage(to: session, role: .user, text: "message-5", createdAt: now.addingTimeInterval(-60)).id,
         ]
 
-        let selectedIDs = session.requestHistoryMessages().map(\.id)
+        let selectedIDs = session.historyMessages().map(\.id)
         XCTAssertEqual(selectedIDs, keptIDs)
     }
 
@@ -61,7 +61,7 @@ final class ConversationSessionBuildMessagesTests: XCTestCase {
             appendMessage(to: session, role: .user, text: "recent-4", createdAt: now.addingTimeInterval(-60)).id,
         ]
 
-        let selectedIDs = session.requestHistoryMessages().map(\.id)
+        let selectedIDs = session.historyMessages().map(\.id)
         XCTAssertEqual(selectedIDs, [summary.id] + keptIDs)
         XCTAssertFalse(selectedIDs.contains(boundary.id))
     }

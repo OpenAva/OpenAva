@@ -13,12 +13,12 @@ final class QueryEngine {
         self.session = session
     }
 
-    func submitMessage(
-        _ input: ConversationSession.UserInput,
+    func submitPrompt(
+        _ prompt: ConversationSession.PromptInput,
         model: ConversationSession.Model
     ) async throws -> QueryResult {
         queryEngineLogger.notice(
-            "query engine submit message session=\(self.session.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
+            "query engine submit prompt session=\(self.session.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
         )
 
         self.sessionDelegate?.preventIdleTimer()
@@ -35,11 +35,11 @@ final class QueryEngine {
 
             self.sessionDelegate?.allowIdleTimer()
             queryEngineLogger.notice(
-                "query engine submit message exited session=\(self.session.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
+                "query engine submit prompt exited session=\(self.session.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
             )
         }
 
-        var requestMessages = await prepareRequestMessages(for: input, model: model)
+        var requestMessages = await prepareRequestMessages(for: prompt, model: model)
         let tools = await loadTools(for: model.capabilities)
         let toolUseContext = ToolExecutionContext(
             session: session,
@@ -67,16 +67,16 @@ final class QueryEngine {
     }
 
     private func prepareRequestMessages(
-        for input: ConversationSession.UserInput,
+        for prompt: ConversationSession.PromptInput,
         model: ConversationSession.Model
     ) async -> [ChatRequestBody.Message] {
         let userMessage = session.appendNewMessage(role: .user) { message in
-            message.textContent = input.text
-            for attachment in input.attachments {
+            message.textContent = prompt.text
+            for attachment in prompt.attachments {
                 message.parts.append(attachment)
             }
 
-            for (key, value) in input.metadata {
+            for (key, value) in prompt.metadata {
                 message.metadata[key] = value
             }
         }
@@ -84,7 +84,7 @@ final class QueryEngine {
         session.recordMessageInTranscript(userMessage)
 
         let capabilities = model.capabilities
-        return await session.buildExecutionRequestMessages(capabilities: capabilities)
+        return await session.buildMessages(capabilities: capabilities)
     }
 
     private func loadTools(

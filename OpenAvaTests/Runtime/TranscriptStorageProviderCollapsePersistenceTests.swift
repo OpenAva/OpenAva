@@ -28,14 +28,10 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             .text(part3),
         ])
 
-        let finished = expectation(description: "message execution finished")
-        session.submitMessage(
+        await session.submitPrompt(
             model: .init(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true),
-            input: .init(text: "请输出长文本")
-        ) {
-            finished.fulfill()
-        }
-        await fulfillment(of: [finished], timeout: 5)
+            prompt: .init(text: "请输出长文本")
+        )
 
         let transcriptURL = runtimeRootURL
             .appendingPathComponent("sessions", isDirectory: true)
@@ -59,7 +55,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(session.messages.map(\.textContent), ["请输出长文本", expectedText])
     }
 
-    func testSubmitMessageDoesNotDuplicateCurrentUserMessageInFirstRequest() async throws {
+    func testSubmitPromptDoesNotDuplicateCurrentUserMessageInFirstRequest() async throws {
         let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
         TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
@@ -72,14 +68,10 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let client = StreamingStubChatClient(chunks: [])
 
-        let finished = expectation(description: "message execution finished")
-        session.submitMessage(
+        await session.submitPrompt(
             model: .init(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true),
-            input: .init(text: "只保留一条当前用户消息")
-        ) {
-            finished.fulfill()
-        }
-        await fulfillment(of: [finished], timeout: 5)
+            prompt: .init(text: "只保留一条当前用户消息")
+        )
 
         let firstBody = try XCTUnwrap(client.firstStreamingBody)
         let userTexts = firstBody.messages.compactMap { message -> String? in
@@ -93,7 +85,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(userTexts, ["只保留一条当前用户消息"])
     }
 
-    func testSubmitMessageFailsWhenToolCallArrivesWithoutToolProvider() async throws {
+    func testSubmitPromptFailsWhenToolCallArrivesWithoutToolProvider() async throws {
         let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
         TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
@@ -108,14 +100,10 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             .tool(.init(id: "tool-call-1", name: "bash", arguments: "{}")),
         ])
 
-        let finished = expectation(description: "message execution finished")
-        session.submitMessage(
+        await session.submitPrompt(
             model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
-            input: .init(text: "调用工具")
-        ) {
-            finished.fulfill()
-        }
-        await fulfillment(of: [finished], timeout: 5)
+            prompt: .init(text: "调用工具")
+        )
 
         XCTAssertEqual(session.messages.count, 3)
         XCTAssertEqual(session.messages[0].role, .user)

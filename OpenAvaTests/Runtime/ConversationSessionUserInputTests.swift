@@ -4,15 +4,15 @@ import XCTest
 @testable import OpenAva
 
 @MainActor
-final class ConversationSessionUserInputTests: XCTestCase {
-    func testUserInputStoresSourceMetadata() {
-        let input = ConversationSession.UserInput(
+final class ConversationSessionPromptInputTests: XCTestCase {
+    func testPromptInputStoresSourceMetadata() {
+        let input = ConversationSession.PromptInput(
             text: "internal request",
             source: .heartbeat,
             metadata: [HeartbeatSupport.metadataModeKey: HeartbeatSupport.metadataModeScheduledValue]
         )
 
-        XCTAssertEqual(input.metadata[ConversationSession.UserInput.sourceMetadataKey], "heartbeat")
+        XCTAssertEqual(input.metadata[ConversationSession.PromptInput.sourceMetadataKey], "heartbeat")
     }
 
     func testBuildRequestMessagesUsesUserMessageText() {
