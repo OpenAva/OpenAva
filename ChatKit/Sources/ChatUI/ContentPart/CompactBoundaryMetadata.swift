@@ -104,5 +104,4 @@ public extension Array where Element == ConversationMessage {
 
         return Array(self[startIndex...])
     }
-
 }
