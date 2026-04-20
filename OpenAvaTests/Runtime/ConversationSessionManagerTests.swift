@@ -56,12 +56,12 @@ final class ConversationSessionManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.hasActiveQuery())
 
-        let reservationGeneration = try XCTUnwrap(session.queryGuard.reserve())
+        XCTAssertTrue(session.queryGuard.reserve())
         XCTAssertTrue(manager.hasActiveQuery())
         XCTAssertTrue(manager.isQueryActive(session))
         XCTAssertTrue(manager.isQueryActive("main", storage: storage))
 
-        let generation = try XCTUnwrap(session.queryGuard.tryStart(expectedGeneration: reservationGeneration))
+        let generation = try XCTUnwrap(session.queryGuard.tryStart())
         XCTAssertTrue(manager.hasActiveQuery())
         XCTAssertTrue(manager.isQueryActive(session))
         XCTAssertTrue(manager.isQueryActive("main", storage: storage))

@@ -169,6 +169,7 @@ final class AgentMainSessionRegistry {
                 client: LLMChatClient(modelConfig: modelConfig),
                 capabilities: [.visual, .tool],
                 contextLength: modelConfig.contextTokens,
+                maxOutputTokens: modelConfig.resolvedMaxOutputTokens,
                 autoCompactEnabled: agent.autoCompactEnabled
             )
         )

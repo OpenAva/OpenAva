@@ -6,6 +6,13 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.session")
 
+enum QuerySource: String {
+    case user
+    case heartbeat
+    case compact
+    case sessionMemory = "session_memory"
+}
+
 /// Coordinates the message state and turn execution for a conversation.
 @MainActor
 public final class ConversationSession: Identifiable, Sendable {
@@ -24,17 +31,20 @@ public final class ConversationSession: Identifiable, Sendable {
         public var client: any ChatClient
         public var capabilities: Set<ModelCapability>
         public var contextLength: Int
+        public var maxOutputTokens: Int
         public var autoCompactEnabled: Bool
 
         public init(
             client: any ChatClient,
             capabilities: Set<ModelCapability> = [],
             contextLength: Int = 0,
+            maxOutputTokens: Int = 20000,
             autoCompactEnabled: Bool = true
         ) {
             self.client = client
             self.capabilities = capabilities
             self.contextLength = contextLength
+            self.maxOutputTokens = maxOutputTokens
             self.autoCompactEnabled = autoCompactEnabled
         }
     }
@@ -75,9 +85,7 @@ public final class ConversationSession: Identifiable, Sendable {
 
     var messages: [ConversationMessage] = []
     var currentTask: Task<Void, Never>?
-    var currentTaskGeneration: Int?
     let queryGuard = QueryGuard()
-    lazy var queryEngine = QueryEngine(session: self)
 
     // MARK: - Providers
 
@@ -276,6 +284,7 @@ public final class ConversationSession: Identifiable, Sendable {
         currentInterruptReason = reason
         queryGuard.forceEnd()
         task.cancel()
+        currentTask = nil
     }
 
     public func consumeInterruptReason() -> InterruptReason {
@@ -295,7 +304,6 @@ public final class ConversationSession: Identifiable, Sendable {
             currentInterruptReason = reason
             queryGuard.forceEnd()
             task.cancel()
-            currentTaskGeneration = nil
             currentTask = nil
         }
         action()

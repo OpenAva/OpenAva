@@ -9,8 +9,8 @@ final class QueryGuardTests: XCTestCase {
     func testCancelReservationIsNoOpAfterQueryStarts() throws {
         let queryGuard = QueryGuard()
 
-        let reservationGeneration = try XCTUnwrap(queryGuard.reserve())
-        let generation = try XCTUnwrap(queryGuard.tryStart(expectedGeneration: reservationGeneration))
+        XCTAssertTrue(queryGuard.reserve())
+        let generation = try XCTUnwrap(queryGuard.tryStart())
 
         queryGuard.cancelReservation()
 
@@ -18,11 +18,11 @@ final class QueryGuardTests: XCTestCase {
         XCTAssertTrue(queryGuard.end(generation))
     }
 
-    func testReserveAndCancelReservationToggleActivity() throws {
+    func testReserveAndCancelReservationToggleActivity() {
         let queryGuard = QueryGuard()
 
         XCTAssertFalse(queryGuard.isActive)
-        XCTAssertEqual(try XCTUnwrap(queryGuard.reserve()), 0)
+        XCTAssertTrue(queryGuard.reserve())
         XCTAssertTrue(queryGuard.isActive)
 
         queryGuard.cancelReservation()
@@ -45,8 +45,8 @@ final class QueryGuardTests: XCTestCase {
         var values: [Bool] = []
         let cancellable = queryGuard.activityDidChange.sink { values.append($0) }
 
-        XCTAssertNotNil(queryGuard.reserve())
-        let generation = try XCTUnwrap(queryGuard.tryStart(expectedGeneration: 0))
+        XCTAssertTrue(queryGuard.reserve())
+        let generation = try XCTUnwrap(queryGuard.tryStart())
         XCTAssertTrue(queryGuard.end(generation))
 
         withExtendedLifetime(cancellable) {
@@ -67,17 +67,18 @@ final class QueryGuardTests: XCTestCase {
         XCTAssertNotEqual(firstGeneration, secondGeneration)
     }
 
-    func testTryStartFailsForStaleReservationAfterForceEnd() throws {
+    func testForceEndClearsReservationAndAllowsFreshStart() throws {
         let queryGuard = QueryGuard()
 
-        let reservationGeneration = try XCTUnwrap(queryGuard.reserve())
+        XCTAssertTrue(queryGuard.reserve())
         queryGuard.forceEnd()
 
-        XCTAssertNil(queryGuard.tryStart(expectedGeneration: reservationGeneration))
         XCTAssertFalse(queryGuard.isActive)
+        let generation = try XCTUnwrap(queryGuard.tryStart())
+        XCTAssertTrue(queryGuard.end(generation))
     }
 
-    func testInterruptCurrentTurnForceEndsReservedSubmissionWithoutTask() async throws {
+    func testInterruptCurrentTurnForceEndsReservedSubmissionWithoutTask() async {
         let session = ConversationSession(
             id: "main",
             configuration: .init(storage: InMemoryTestStorageProvider())
@@ -88,19 +89,36 @@ final class QueryGuardTests: XCTestCase {
             contextLength: 32000,
             autoCompactEnabled: true
         )
-        let reservationGeneration = try XCTUnwrap(session.queryGuard.reserve())
+        XCTAssertTrue(session.queryGuard.reserve())
 
         session.interruptCurrentTurn(reason: .userStop)
 
         XCTAssertFalse(session.isQueryActive)
-        let accepted = await session.submitPrompt(
+        let accepted = session.submitPromptWithoutWaiting(
             model: model,
-            prompt: .init(text: "should not start"),
-            reservationGeneration: reservationGeneration
+            prompt: .init(text: "should start")
         )
-        XCTAssertFalse(accepted)
+        XCTAssertTrue(accepted)
+
+        for _ in 0 ..< 200 {
+            if session.currentTask != nil {
+                break
+            }
+            await Task.yield()
+        }
+
+        XCTAssertNotNil(session.currentTask)
+        session.interruptCurrentTurn(reason: .userStop)
+
+        for _ in 0 ..< 200 {
+            if session.currentTask == nil {
+                break
+            }
+            await Task.yield()
+        }
+
         XCTAssertNil(session.currentTask)
-        XCTAssertNil(session.currentTaskGeneration)
+        XCTAssertFalse(session.isQueryActive)
     }
 
     func testInterruptCurrentTurnClearsCurrentTaskAfterCancellation() async {
@@ -116,9 +134,8 @@ final class QueryGuardTests: XCTestCase {
             autoCompactEnabled: true
         )
 
-        let submitTask = Task {
-            await session.submitPrompt(model: model, prompt: .init(text: "please interrupt"))
-        }
+        let accepted = session.submitPromptWithoutWaiting(model: model, prompt: .init(text: "please interrupt"))
+        XCTAssertTrue(accepted)
 
         for _ in 0 ..< 200 {
             if session.currentTask != nil {
@@ -128,14 +145,25 @@ final class QueryGuardTests: XCTestCase {
         }
 
         XCTAssertNotNil(session.currentTask)
-        XCTAssertEqual(session.currentTaskGeneration, 1)
         XCTAssertTrue(session.isQueryActive)
 
         session.interruptCurrentTurn(reason: .userStop)
-        await submitTask.value
+
+        for _ in 0 ..< 200 {
+            if session.currentTask == nil {
+                break
+            }
+            await Task.yield()
+        }
+
+        for _ in 0 ..< 200 {
+            if !session.isQueryActive, session.showsInterruptedRetryAction {
+                break
+            }
+            await Task.yield()
+        }
 
         XCTAssertNil(session.currentTask)
-        XCTAssertNil(session.currentTaskGeneration)
         XCTAssertFalse(session.isQueryActive)
         XCTAssertTrue(session.showsInterruptedRetryAction)
     }

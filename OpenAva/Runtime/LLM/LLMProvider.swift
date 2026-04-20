@@ -3,6 +3,7 @@ import Foundation
 /// LLM provider types with their configurations
 enum LLMProvider: String, CaseIterable, Identifiable {
     private static let fallbackMaxContextTokens = 200_000
+    private static let fallbackMaxOutputTokens = 20000
 
     case openai
     case anthropic
@@ -127,11 +128,29 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         recommendedModels.first?.maxContextTokens ?? Self.fallbackMaxContextTokens
     }
 
+    /// Default max output tokens for this provider
+    var defaultMaxOutputTokens: Int {
+        recommendedModels.first?.maxOutputTokens ?? Self.fallbackMaxOutputTokens
+    }
+
     /// Find recommended model option by ID
     func recommendedModelOption(id: String) -> LLMModelOption? {
         let normalizedModelID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedModelID.isEmpty else { return nil }
         return recommendedModels.first(where: { $0.id == normalizedModelID })
+    }
+
+    func resolvedMaxOutputTokens(for modelID: String?) -> Int {
+        let normalizedModelID = modelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !normalizedModelID.isEmpty else { return defaultMaxOutputTokens }
+
+        if let option = recommendedModelOption(id: normalizedModelID) {
+            return option.maxOutputTokens
+        }
+        if let option = Self.recommendedModelOption(for: normalizedModelID) {
+            return option.maxOutputTokens
+        }
+        return defaultMaxOutputTokens
     }
 
     /// Build full request URL from base URL
@@ -239,6 +258,19 @@ struct LLMModelOption: Identifiable, Hashable {
     let id: String
     let displayName: String
     let maxContextTokens: Int
+    let maxOutputTokens: Int
+
+    init(
+        id: String,
+        displayName: String,
+        maxContextTokens: Int,
+        maxOutputTokens: Int = 20000
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.maxContextTokens = maxContextTokens
+        self.maxOutputTokens = maxOutputTokens
+    }
 }
 
 // MARK: - Request Helpers

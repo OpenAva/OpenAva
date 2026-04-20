@@ -13,6 +13,43 @@ private enum QueryTurnOutput {
 private struct QueryState {
     var totalTurns = 0
     var totalToolCalls = 0
+    var hasAttemptedReactiveCompact = false
+}
+
+private struct QueryAutoCompactState {
+    var tracking: AutoCompactTrackingState?
+}
+
+@MainActor
+private func applyAutoCompactResult(
+    _ autoCompactResult: AutoCompactResult,
+    session: ConversationSession,
+    model: ConversationSession.Model,
+    requestMessages: inout [ChatRequestBody.Message],
+    autoCompactState: inout QueryAutoCompactState,
+    resetTrackingOnSuccess: Bool = false
+) async {
+    if let compactionResult = autoCompactResult.compactionResult {
+        session.applyCompactionResult(compactionResult)
+        if resetTrackingOnSuccess {
+            autoCompactState.tracking = nil
+            session.autoCompactTrackingState = AutoCompactTrackingState()
+        } else {
+            autoCompactState.tracking = AutoCompactTrackingState(
+                compacted: true,
+                turnCounter: 0,
+                turnId: UUID().uuidString,
+                consecutiveFailures: 0
+            )
+            session.autoCompactTrackingState = autoCompactState.tracking ?? AutoCompactTrackingState()
+        }
+        requestMessages = await session.buildMessages(capabilities: model.capabilities)
+    } else if let consecutiveFailures = autoCompactResult.consecutiveFailures {
+        var tracking = autoCompactState.tracking ?? AutoCompactTrackingState()
+        tracking.consecutiveFailures = consecutiveFailures
+        autoCompactState.tracking = tracking
+        session.autoCompactTrackingState = tracking
+    }
 }
 
 private struct QueryTurnSnapshot {
@@ -82,12 +119,14 @@ func query(
     requestMessages: inout [ChatRequestBody.Message],
     tools: [ChatRequestBody.Tool]?,
     toolUseContext: ToolExecutionContext,
-    maxTurns: Int
+    maxTurns: Int,
+    querySource: QuerySource
 ) async throws -> QueryResult {
     logger.notice(
         "query entered session=\(session.id, privacy: .public) maxTurns=\(maxTurns) toolsEnabled=\(String(tools != nil), privacy: .public)"
     )
     var state = QueryState()
+    var autoCompactState = QueryAutoCompactState()
     while state.totalTurns < maxTurns {
         let turnNumber = state.totalTurns + 1
         logger.debug(
@@ -99,19 +138,40 @@ func query(
             session: session,
             model: model,
             &requestMessages,
-            tools: tools
+            tools: tools,
+            autoCompactState: &autoCompactState,
+            querySource: querySource
         )
         state.totalTurns += 1
 
-        let turn = try await executeQueryTurn(
-            session: session,
-            model: model,
-            requestMessages: &requestMessages,
-            tools: tools
-        )
+        let turn: QueryTurnOutput
+        do {
+            turn = try await executeQueryTurn(
+                session: session,
+                model: model,
+                requestMessages: &requestMessages,
+                tools: tools
+            )
+        } catch {
+            let recovered = await recoverFromPromptTooLongIfPossible(
+                error: error,
+                session: session,
+                model: model,
+                requestMessages: &requestMessages,
+                tools: tools,
+                state: &state,
+                autoCompactState: &autoCompactState,
+                querySource: querySource
+            )
+            if recovered {
+                continue
+            }
+            throw error
+        }
 
         switch turn {
         case let .finished(finishReason):
+            markAutoCompactTurnCompletedIfNeeded(&autoCompactState, session: session)
             logger.notice(
                 "query loop completed without tools session=\(session.id, privacy: .public) finishReason=\(String(describing: finishReason), privacy: .public)"
             )
@@ -132,6 +192,7 @@ func query(
                 requestMessages: &requestMessages,
                 toolUseContext: toolUseContext
             )
+            markAutoCompactTurnCompletedIfNeeded(&autoCompactState, session: session)
         }
     }
 
@@ -143,25 +204,28 @@ private func advanceQueryState(
     session: ConversationSession,
     model: ConversationSession.Model,
     _ requestMessages: inout [ChatRequestBody.Message],
-    tools: [ChatRequestBody.Tool]?
+    tools: [ChatRequestBody.Tool]?,
+    autoCompactState: inout QueryAutoCompactState,
+    querySource: QuerySource
 ) async throws {
     let autoCompactResult = await session.autoCompactIfNeeded(
         &requestMessages,
         tools: tools,
         model: model,
-        capabilities: model.capabilities
+        tracking: autoCompactState.tracking,
+        querySource: querySource
     )
 
-    if !autoCompactResult.wasCompacted, session.autoCompactTrackingState.compacted {
-        session.autoCompactTrackingState.turnCounter += 1
-    }
-
-    if let consecutiveFailures = autoCompactResult.consecutiveFailures {
-        session.autoCompactTrackingState.consecutiveFailures = consecutiveFailures
-    }
+    await applyAutoCompactResult(
+        autoCompactResult,
+        session: session,
+        model: model,
+        requestMessages: &requestMessages,
+        autoCompactState: &autoCompactState
+    )
 
     session.setLoadingState(String.localized("Calculating context window..."))
-    try await session.ensureCanContinueWithoutCompaction(
+    try await session.ensureBelowBlockingLimit(
         requestMessages: requestMessages,
         tools: tools,
         model: model
@@ -202,6 +266,64 @@ private func finalizeQueryResult(
         "query exited session=\(session.id, privacy: .public) finishReason=\(String(describing: result.finishReason), privacy: .public) totalTurns=\(result.totalTurns) totalToolCalls=\(result.totalToolCalls)"
     )
     return result
+}
+
+@MainActor
+private func recoverFromPromptTooLongIfPossible(
+    error: Error,
+    session: ConversationSession,
+    model: ConversationSession.Model,
+    requestMessages: inout [ChatRequestBody.Message],
+    tools: [ChatRequestBody.Tool]?,
+    state: inout QueryState,
+    autoCompactState: inout QueryAutoCompactState,
+    querySource: QuerySource
+) async -> Bool {
+    guard isPromptTooLongError(error) else {
+        return false
+    }
+    guard !state.hasAttemptedReactiveCompact else {
+        return false
+    }
+
+    logger.warning(
+        "query turn hit prompt-too-long session=\(session.id, privacy: .public); attempting reactive compact"
+    )
+
+    let autoCompactResult = await session.reactiveCompactIfNeeded(
+        &requestMessages,
+        tools: tools,
+        model: model,
+        querySource: querySource
+    )
+
+    await applyAutoCompactResult(
+        autoCompactResult,
+        session: session,
+        model: model,
+        requestMessages: &requestMessages,
+        autoCompactState: &autoCompactState,
+        resetTrackingOnSuccess: true
+    )
+
+    guard autoCompactResult.wasCompacted else {
+        return false
+    }
+
+    state.hasAttemptedReactiveCompact = true
+    state.totalTurns = max(0, state.totalTurns - 1)
+    return true
+}
+
+@MainActor
+private func markAutoCompactTurnCompletedIfNeeded(
+    _ autoCompactState: inout QueryAutoCompactState,
+    session: ConversationSession
+) {
+    guard var tracking = autoCompactState.tracking, tracking.compacted else { return }
+    tracking.turnCounter += 1
+    autoCompactState.tracking = tracking
+    session.autoCompactTrackingState = tracking
 }
 
 @MainActor
@@ -380,6 +502,23 @@ private func makeNoResponseError(from client: any ChatClient) -> Error {
 }
 
 @MainActor
+private func discardTransientAssistantMessageIfNeeded(
+    _ message: ConversationMessage,
+    from session: ConversationSession
+) {
+    let hasReasoning = message.reasoningContent?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .isEmpty == false
+    let hasText = !message.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hasParts = !message.parts.isEmpty
+    guard !hasReasoning, !hasText, !hasParts else {
+        return
+    }
+    session.messages.removeAll { $0.id == message.id }
+    session.notifyMessagesDidChange(scrolling: true)
+}
+
+@MainActor
 private func discardEmptyFollowUpMessage(
     _ message: ConversationMessage,
     from session: ConversationSession
@@ -465,97 +604,104 @@ private func executeQueryTurn(
 
     let collapseAfterReasoningComplete = session.collapseReasoningWhenComplete
     let client = model.client
-    await client.setCollectedErrors(nil)
-    let stream = try await client.streamingChat(
-        body: .init(
-            messages: requestMessages,
-            stream: true,
-            tools: tools
-        )
-    )
-    defer { session.stopThinking(for: message.id) }
-
-    // Persistence strategy:
-    // - Keep the UI streaming in-memory.
-    // - Persist only structural changes (e.g. tool call parts) and the final message.
-    // This avoids appending many full-snapshot updates for the same message UUID.
-
-    let reasoningEmitter = BalancedEmitter(duration: 1.0, frequency: 30) { chunk in
-        let current = message.reasoningContent ?? ""
-        message.reasoningContent = current + chunk
-        updateStreamingVisibility(
-            for: message,
-            session: session,
-            collapseReasoningWhenComplete: collapseAfterReasoningComplete
-        )
-        session.notifyMessagesDidChange(scrolling: true)
-    }
-    let textEmitter = BalancedEmitter(duration: 0.5, frequency: 20) { chunk in
-        message.textContent += chunk
-        updateStreamingVisibility(
-            for: message,
-            session: session,
-            collapseReasoningWhenComplete: collapseAfterReasoningComplete
-        )
-        session.notifyMessagesDidChange(scrolling: true)
-    }
-    defer {
-        reasoningEmitter.cancel()
-        textEmitter.cancel()
-    }
-
-    var pendingToolCalls: [ToolRequest] = []
-    var streamedCharacterCount = 0
-
-    for try await response in stream {
-        try Task.checkCancellation()
-        switch response {
-        case let .reasoning(value):
-            await textEmitter.wait()
-            reasoningEmitter.add(value)
-
-        case let .text(value):
-            await reasoningEmitter.wait()
-            updateTextEmitterRate(textEmitter, streamedCharacterCount: streamedCharacterCount)
-            textEmitter.add(value)
-            streamedCharacterCount += value.count
-
-        case let .tool(call):
-            logger.notice(
-                "stream emitted tool call session=\(session.id, privacy: .public) tool=\(call.name, privacy: .public) id=\(call.id, privacy: .public)"
+    do {
+        await client.setCollectedErrors(nil)
+        let stream = try await client.streamingChat(
+            body: .init(
+                messages: requestMessages,
+                maxCompletionTokens: model.maxOutputTokens,
+                stream: true,
+                tools: tools
             )
-            await reasoningEmitter.wait()
-            await textEmitter.wait()
-            pendingToolCalls.append(call)
-            _ = ensureRunningToolCallPart(
-                for: call,
-                in: message,
-                session: session
+        )
+        defer { session.stopThinking(for: message.id) }
+
+        // Persistence strategy:
+        // - Keep the UI streaming in-memory.
+        // - Persist only structural changes (e.g. tool call parts) and the final message.
+        // This avoids appending many full-snapshot updates for the same message UUID.
+
+        let reasoningEmitter = BalancedEmitter(duration: 1.0, frequency: 30) { chunk in
+            let current = message.reasoningContent ?? ""
+            message.reasoningContent = current + chunk
+            updateStreamingVisibility(
+                for: message,
+                session: session,
+                collapseReasoningWhenComplete: collapseAfterReasoningComplete
             )
             session.notifyMessagesDidChange(scrolling: true)
-
-        case .image:
-            await reasoningEmitter.wait()
-            await textEmitter.wait()
-
-        case .thinkingBlock, .redactedThinking:
-            break
-
-        case let .usage(tokenUsage):
-            session.reportUsage(tokenUsage)
         }
-    }
+        let textEmitter = BalancedEmitter(duration: 0.5, frequency: 20) { chunk in
+            message.textContent += chunk
+            updateStreamingVisibility(
+                for: message,
+                session: session,
+                collapseReasoningWhenComplete: collapseAfterReasoningComplete
+            )
+            session.notifyMessagesDidChange(scrolling: true)
+        }
+        defer {
+            reasoningEmitter.cancel()
+            textEmitter.cancel()
+        }
 
-    await reasoningEmitter.wait()
-    await textEmitter.wait()
-    return try finalizeQueryTurn(
-        session: session,
-        client: client,
-        message: message,
-        requestMessages: &requestMessages,
-        pendingToolCalls: pendingToolCalls,
-        collapseReasoningWhenComplete: collapseAfterReasoningComplete
-    )
+        var pendingToolCalls: [ToolRequest] = []
+        var streamedCharacterCount = 0
+
+        for try await response in stream {
+            try Task.checkCancellation()
+            switch response {
+            case let .reasoning(value):
+                await textEmitter.wait()
+                reasoningEmitter.add(value)
+
+            case let .text(value):
+                await reasoningEmitter.wait()
+                updateTextEmitterRate(textEmitter, streamedCharacterCount: streamedCharacterCount)
+                textEmitter.add(value)
+                streamedCharacterCount += value.count
+
+            case let .tool(call):
+                logger.notice(
+                    "stream emitted tool call session=\(session.id, privacy: .public) tool=\(call.name, privacy: .public) id=\(call.id, privacy: .public)"
+                )
+                await reasoningEmitter.wait()
+                await textEmitter.wait()
+                pendingToolCalls.append(call)
+                _ = ensureRunningToolCallPart(
+                    for: call,
+                    in: message,
+                    session: session
+                )
+                session.notifyMessagesDidChange(scrolling: true)
+
+            case .image:
+                await reasoningEmitter.wait()
+                await textEmitter.wait()
+
+            case .thinkingBlock, .redactedThinking:
+                break
+
+            case let .usage(tokenUsage):
+                session.reportUsage(tokenUsage)
+            }
+        }
+
+        await reasoningEmitter.wait()
+        await textEmitter.wait()
+        return try finalizeQueryTurn(
+            session: session,
+            client: client,
+            message: message,
+            requestMessages: &requestMessages,
+            pendingToolCalls: pendingToolCalls,
+            collapseReasoningWhenComplete: collapseAfterReasoningComplete
+        )
+    } catch {
+        session.stopThinking(for: message.id)
+        discardTransientAssistantMessageIfNeeded(message, from: session)
+        throw error
+    }
 }
 
 @MainActor

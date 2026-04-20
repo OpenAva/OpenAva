@@ -27,10 +27,19 @@ struct AppConfig {
         var provider: String
         var systemPrompt: String?
         var contextTokens: Int
+        var maxOutputTokens: Int?
         var requestTimeoutMs: Int
 
         var isConfigured: Bool {
             Self.checkIsConfigured(endpoint: endpoint, model: model)
+        }
+
+        var resolvedMaxOutputTokens: Int {
+            if let maxOutputTokens {
+                return max(maxOutputTokens, 0)
+            }
+            let providerType = LLMProvider(rawValue: provider) ?? .custom
+            return providerType.resolvedMaxOutputTokens(for: model)
         }
 
         init(
@@ -43,8 +52,10 @@ struct AppConfig {
             provider: String,
             systemPrompt: String?,
             contextTokens: Int,
+            maxOutputTokens: Int? = nil,
             requestTimeoutMs: Int
         ) {
+            let providerType = LLMProvider(rawValue: provider) ?? .custom
             self.id = id
             self.name = name
             self.endpoint = endpoint
@@ -54,6 +65,7 @@ struct AppConfig {
             self.provider = provider
             self.systemPrompt = systemPrompt
             self.contextTokens = contextTokens
+            self.maxOutputTokens = maxOutputTokens ?? providerType.resolvedMaxOutputTokens(for: model)
             self.requestTimeoutMs = requestTimeoutMs
         }
 

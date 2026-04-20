@@ -254,23 +254,26 @@ final class ConversationCompactionTests: XCTestCase {
             client: client,
             capabilities: [.tool],
             contextLength: 32000,
+            maxOutputTokens: 8000,
             autoCompactEnabled: true
         )
 
         try await session.compactConversation(model: model)
 
         XCTAssertEqual(client.chatCallCount, 1)
+        XCTAssertEqual(client.lastChatBody?.maxCompletionTokens, 8000)
         XCTAssertEqual(session.messages.filter(\.isCompactBoundary).count, 1)
         XCTAssertEqual(session.messages.filter(\.isCompactSummary).count, 1)
 
         let summary = try XCTUnwrap(session.messages.first(where: { $0.isCompactSummary }))
         XCTAssertFalse(summary.textContent.contains("<analysis>"))
         XCTAssertTrue(summary.textContent.contains("align compact behavior"))
+        XCTAssertFalse(summary.textContent.contains("Recent messages are preserved verbatim."))
 
         let preservedIDs = session.messages
             .filter { !$0.isCompactBoundary && !$0.isCompactSummary }
             .map(\.id)
-        XCTAssertEqual(preservedIDs, Array(originalIDs.suffix(4)))
+        XCTAssertTrue(preservedIDs.isEmpty)
     }
 
     func testManualCompactFailsWhenSummaryGenerationFails() async throws {
@@ -287,14 +290,42 @@ final class ConversationCompactionTests: XCTestCase {
             try await session.compactConversation(model: model)
             XCTFail("Expected compaction to fail when summary generation fails")
         } catch {
-            XCTAssertEqual((error as? StubChatClientError)?.message, "PROMPT TOO LONG: reduce the length of the messages")
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Conversation too long to compact. Try compacting a smaller range."
+            )
         }
 
-        XCTAssertEqual(client.chatCallCount, 1)
+        XCTAssertEqual(client.chatCallCount, 4)
         XCTAssertFalse(session.messages.contains(where: { $0.isCompactSummary }))
     }
 
-    func testPartialCompactFromKeepsEarlierMessagesBeforeSummary() async throws {
+    func testCompactPTLRetryDropsWholeAssistantRounds() async throws {
+        let storage = DisposableStorageProvider()
+        let session = ConversationSession(id: "compact-ptl-rounds", configuration: .init(storage: storage))
+        _ = seedConversation(into: session, turnCount: 10)
+
+        let client = StubChatClient(scriptedResponses: [
+            .failure("PROMPT TOO LONG"),
+            .success("<summary>Recovered after dropping the oldest round.</summary>"),
+        ])
+        let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
+
+        try await session.compactConversation(model: model)
+
+        XCTAssertEqual(client.chatCallCount, 2)
+        XCTAssertEqual(client.chatBodies.count, 2)
+
+        let firstRequest = try XCTUnwrap(compactPromptBody(from: client.chatBodies[0]))
+        let retryRequest = try XCTUnwrap(compactPromptBody(from: client.chatBodies[1]))
+
+        XCTAssertTrue(firstRequest.contains("message-0"))
+        XCTAssertTrue(firstRequest.contains("message-1"))
+        XCTAssertFalse(retryRequest.contains("message-0"))
+        XCTAssertTrue(retryRequest.contains("message-1"))
+    }
+
+    func testPartialCompactFromPlacesSummaryBeforePreservedPrefix() async throws {
         let storage = DisposableStorageProvider()
         let session = ConversationSession(id: "partial-from", configuration: .init(storage: storage))
         let ids = seedConversation(into: session, turnCount: 6)
@@ -313,7 +344,9 @@ final class ConversationCompactionTests: XCTestCase {
 
         let summaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactSummary }))
         let boundaryIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.isCompactBoundary }))
+        let firstKeptIndex = try XCTUnwrap(session.messages.firstIndex(where: { $0.id == ids[0] }))
         XCTAssertGreaterThan(summaryIndex, boundaryIndex)
+        XCTAssertLessThan(summaryIndex, firstKeptIndex)
     }
 
     func testReloadKeepsCompactedContextAfterCompact() async throws {
@@ -419,6 +452,8 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
     private var streamingCalls = 0
+    private var lastBody: ChatRequestBody?
+    private var recordedBodies: [ChatRequestBody] = []
 
     init(responseText: String) {
         scriptedResponses = [.success(responseText)]
@@ -440,9 +475,23 @@ private final class StubChatClient: ChatClient, @unchecked Sendable {
         return streamingCalls
     }
 
-    func chat(body _: ChatRequestBody) async throws -> ChatResponse {
+    var lastChatBody: ChatRequestBody? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastBody
+    }
+
+    var chatBodies: [ChatRequestBody] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedBodies
+    }
+
+    func chat(body: ChatRequestBody) async throws -> ChatResponse {
         lock.lock()
         calls += 1
+        lastBody = body
+        recordedBodies.append(body)
         let response: StubChatClientResponse
         if scriptedResponses.count > 1 {
             response = scriptedResponses.removeFirst()
@@ -490,5 +539,16 @@ private final class StubToolProvider: ToolProvider, @unchecked Sendable {
         parameters _: String
     ) async throws -> ToolResult {
         ToolResult(text: "")
+    }
+}
+
+private func compactPromptBody(from body: ChatRequestBody) -> String? {
+    guard body.messages.count >= 2 else { return nil }
+    guard case let .user(content, _) = body.messages[1] else { return nil }
+    switch content {
+    case let .text(text):
+        return text
+    case .parts:
+        return nil
     }
 }

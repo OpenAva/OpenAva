@@ -39,3 +39,40 @@ public enum QueryExecutionError: LocalizedError, Sendable {
         }
     }
 }
+
+func isPromptTooLongError(_ error: Error) -> Bool {
+    let message = error.localizedDescription.lowercased()
+    return message.contains("prompt too long") ||
+        message.contains("maximum context length") ||
+        message.contains("context_length_exceeded") ||
+        message.contains("reduce the length of the messages") ||
+        message.contains("too many tokens")
+}
+
+func parsePromptTooLongTokenCounts(from rawMessage: String) -> (actualTokens: Int?, limitTokens: Int?) {
+    let pattern = #"prompt is too long[^0-9]*(\d+)\s*tokens?\s*>\s*(\d+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        return (nil, nil)
+    }
+
+    let rawRange = NSRange(rawMessage.startIndex ..< rawMessage.endIndex, in: rawMessage)
+    guard let match = regex.firstMatch(in: rawMessage, options: [], range: rawRange),
+          let actualRange = Range(match.range(at: 1), in: rawMessage),
+          let limitRange = Range(match.range(at: 2), in: rawMessage)
+    else {
+        return (nil, nil)
+    }
+
+    return (Int(rawMessage[actualRange]), Int(rawMessage[limitRange]))
+}
+
+func getPromptTooLongTokenGap(from error: Error) -> Int? {
+    let counts = parsePromptTooLongTokenCounts(from: error.localizedDescription)
+    guard let actualTokens = counts.actualTokens,
+          let limitTokens = counts.limitTokens
+    else {
+        return nil
+    }
+    let gap = actualTokens - limitTokens
+    return gap > 0 ? gap : nil
+}

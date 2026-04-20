@@ -29,14 +29,11 @@ final class QueryGuard {
 
     /// Reserves the guard for a submission that has been accepted but has not
     /// reached the async execution entrypoint yet.
-    ///
-    /// Returns the current generation snapshot so callers can later verify that
-    /// the reservation was not invalidated by an interrupt.
-    func reserve() -> Int? {
-        guard status == .idle else { return nil }
+    func reserve() -> Bool {
+        guard status == .idle else { return false }
         status = .dispatching
         publishActivity()
-        return generation
+        return true
     }
 
     func cancelReservation() {
@@ -45,11 +42,8 @@ final class QueryGuard {
         publishActivity()
     }
 
-    func tryStart(expectedGeneration: Int? = nil) -> Int? {
+    func tryStart() -> Int? {
         guard status != .running else { return nil }
-        if let expectedGeneration {
-            guard status == .dispatching, generation == expectedGeneration else { return nil }
-        }
         status = .running
         generation += 1
         publishActivity()

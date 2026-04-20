@@ -7,31 +7,287 @@ private let compactLogger = Logger(subsystem: "ChatUI", category: "Compact")
 
 // MARK: - Constants
 
-private let compactKeepRecentMessageCount = 4
 private let compactMinimumSummaryMessageCount = 4
 private let partialCompactMinimumSummaryMessageCount = 2
 private let compactTranscriptPartLimit = 4000
+private let compactPTLRetryLimit = 3
+private let compactPTLRetryMarker = "[earlier conversation truncated for compaction retry]"
+private let compactNoToolsPreamble = """
+CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+
+- Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.
+- You already have all the context you need in the conversation above.
+- Tool calls will be REJECTED and will waste your only turn — you will fail the task.
+- Your entire response must be plain text: an <analysis> block followed by a <summary> block.
+"""
+private let compactDetailedAnalysisInstructionBase = """
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+
+1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
+   - The user's explicit requests and intents
+   - Your approach to addressing the user's requests
+   - Key decisions, technical concepts and code patterns
+   - Specific details like:
+     - file names
+     - full code snippets
+     - function signatures
+     - file edits
+   - Errors that you ran into and how you fixed them
+   - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+"""
+private let compactDetailedAnalysisInstructionPartial = """
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+
+1. Analyze the recent messages chronologically. For each section thoroughly identify:
+   - The user's explicit requests and intents
+   - Your approach to addressing the user's requests
+   - Key decisions, technical concepts and code patterns
+   - Specific details like:
+     - file names
+     - full code snippets
+     - function signatures
+     - file edits
+   - Errors that you ran into and how you fixed them
+   - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+"""
+private let compactBasePrompt = """
+Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
+This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
+
+\(compactDetailedAnalysisInstructionBase)
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
+2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. Errors and fixes: List all errors that you ran into, and how you fixed them. Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the users' feedback and changing intent.
+7. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
+8. Current Work: Describe in detail precisely what was being worked on immediately before this summary request, paying special attention to the most recent messages from both user and assistant. Include file names and code snippets where applicable.
+9. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first.
+                       If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
+
+Here's an example of how your output should be structured:
+
+<example>
+<analysis>
+[Your thought process, ensuring all points are covered thoroughly and accurately]
+</analysis>
+
+<summary>
+1. Primary Request and Intent:
+   [Detailed description]
+
+2. Key Technical Concepts:
+   - [Concept 1]
+   - [Concept 2]
+   - [...]
+
+3. Files and Code Sections:
+   - [File Name 1]
+      - [Summary of why this file is important]
+      - [Summary of the changes made to this file, if any]
+      - [Important Code Snippet]
+   - [File Name 2]
+      - [Important Code Snippet]
+   - [...]
+
+4. Errors and fixes:
+    - [Detailed description of error 1]:
+      - [How you fixed the error]
+      - [User feedback on the error if any]
+    - [...]
+
+5. Problem Solving:
+   [Description of solved problems and ongoing troubleshooting]
+
+6. All user messages:
+    - [Detailed non tool use user message]
+    - [...]
+
+7. Pending Tasks:
+   - [Task 1]
+   - [Task 2]
+   - [...]
+
+8. Current Work:
+   [Precise description of current work]
+
+9. Optional Next Step:
+   [Optional Next step to take]
+
+</summary>
+</example>
+
+Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.
+
+There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary. Examples of instructions include:
+<example>
+## Compact Instructions
+When summarizing the conversation focus on typescript code changes and also remember the mistakes you made and how you fixed them.
+</example>
+
+<example>
+# Summary instructions
+When you are using compact - please focus on test output and code changes. Include file reads verbatim.
+</example>
+"""
+private let partialCompactPrompt = """
+Your task is to create a detailed summary of the RECENT portion of the conversation — the messages that follow earlier retained context. The earlier messages are being kept intact and do NOT need to be summarized. Focus your summary on what was discussed, learned, and accomplished in the recent messages only.
+
+\(compactDetailedAnalysisInstructionPartial)
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture the user's explicit requests and intents from the recent messages
+2. Key Technical Concepts: List important technical concepts, technologies, and frameworks discussed recently.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. Errors and fixes: List errors encountered and how they were fixed.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages from the recent portion that are not tool results.
+7. Pending Tasks: Outline any pending tasks from the recent messages.
+8. Current Work: Describe precisely what was being worked on immediately before this summary request.
+9. Optional Next Step: List the next step related to the most recent work. Include direct quotes from the most recent conversation.
+
+Here's an example of how your output should be structured:
+
+<example>
+<analysis>
+[Your thought process, ensuring all points are covered thoroughly and accurately]
+</analysis>
+
+<summary>
+1. Primary Request and Intent:
+   [Detailed description]
+
+2. Key Technical Concepts:
+   - [Concept 1]
+   - [Concept 2]
+
+3. Files and Code Sections:
+   - [File Name 1]
+      - [Summary of why this file is important]
+      - [Important Code Snippet]
+
+4. Errors and fixes:
+    - [Error description]:
+      - [How you fixed it]
+
+5. Problem Solving:
+   [Description]
+
+6. All user messages:
+    - [Detailed non tool use user message]
+
+7. Pending Tasks:
+   - [Task 1]
+
+8. Current Work:
+   [Precise description of current work]
+
+9. Optional Next Step:
+   [Optional Next step to take]
+
+</summary>
+</example>
+
+Please provide your summary based on the RECENT messages only (after the retained earlier context), following this structure and ensuring precision and thoroughness in your response.
+"""
+private let partialCompactUpToPrompt = """
+Your task is to create a detailed summary of this conversation. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after your summary (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work.
+
+\(compactDetailedAnalysisInstructionBase)
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture the user's explicit requests and intents in detail
+2. Key Technical Concepts: List important technical concepts, technologies, and frameworks discussed.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. Errors and fixes: List errors encountered and how they were fixed.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages that are not tool results.
+7. Pending Tasks: Outline any pending tasks.
+8. Work Completed: Describe what was accomplished by the end of this portion.
+9. Context for Continuing Work: Summarize any context, decisions, or state that would be needed to understand and continue the work in subsequent messages.
+
+Here's an example of how your output should be structured:
+
+<example>
+<analysis>
+[Your thought process, ensuring all points are covered thoroughly and accurately]
+</analysis>
+
+<summary>
+1. Primary Request and Intent:
+   [Detailed description]
+
+2. Key Technical Concepts:
+   - [Concept 1]
+   - [Concept 2]
+
+3. Files and Code Sections:
+   - [File Name 1]
+      - [Summary of why this file is important]
+      - [Important Code Snippet]
+
+4. Errors and fixes:
+    - [Error description]:
+      - [How you fixed it]
+
+5. Problem Solving:
+   [Description]
+
+6. All user messages:
+    - [Detailed non tool use user message]
+
+7. Pending Tasks:
+   - [Task 1]
+
+8. Work Completed:
+   [Description of what was accomplished]
+
+9. Context for Continuing Work:
+   [Key context, decisions, or state needed to continue the work]
+
+</summary>
+</example>
+
+Please provide your summary following this structure, ensuring precision and thoroughness in your response.
+"""
+private let compactNoToolsTrailer = """
+
+REMINDER: Do NOT call any tools. Respond with plain text only — an <analysis> block followed by a <summary> block. Tool calls will be rejected and you will fail the task.
+"""
 
 private enum CompactSummaryMode {
     case full
     case partial(direction: PartialCompactDirection)
 }
 
-enum CompactionKeptPlacement {
-    case beforeSummary
-    case afterSummary
+struct RecompactionInfo {
+    let isRecompactionInChain: Bool
+    let turnsSincePreviousCompact: Int
+    let previousCompactTurnId: String?
+    let autoCompactThreshold: Int
+    let querySource: QuerySource?
 }
 
 private struct CompactionPlan {
     let replacementRange: Range<Int>
     let messagesToSummarize: [ConversationMessage]
     let messagesToKeep: [ConversationMessage]
-    let keptPlacement: CompactionKeptPlacement
     let trigger: String
     let preTokens: Int
     let discoveredToolNames: [String]?
     let userContext: String?
     let summaryMode: CompactSummaryMode
+    let suppressFollowUpQuestions: Bool
+    let isAutoCompact: Bool
+    let recompactionInfo: RecompactionInfo?
 }
 
 struct CompactionResult {
@@ -39,7 +295,6 @@ struct CompactionResult {
     let boundaryMarker: ConversationMessage
     let summaryMessages: [ConversationMessage]
     let messagesToKeep: [ConversationMessage]
-    let keptPlacement: CompactionKeptPlacement
 }
 
 // MARK: - Extension
@@ -48,15 +303,15 @@ extension ConversationSession {
     /// Public API for manually triggering full-history compaction.
     public func compactConversation(model: ConversationSession.Model) async throws {
         let requestMessages = await buildMessages(capabilities: model.capabilities)
-        let tools = await compactEnabledTools(for: model)
+        let tools = await enabledRequestTools(for: model.capabilities)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
         let result = try await compactConversation(
             model: model,
             trigger: "manual",
-            preTokens: preTokens,
-            tools: tools
+            preTokens: preTokens
         )
         applyCompactionResult(result)
+        resetAutoCompactTracking()
     }
 
     /// Public API for compacting around a selected message, keeping either the
@@ -68,18 +323,18 @@ extension ConversationSession {
         model: ConversationSession.Model
     ) async throws {
         let requestMessages = await buildMessages(capabilities: model.capabilities)
-        let tools = await compactEnabledTools(for: model)
+        let tools = await enabledRequestTools(for: model.capabilities)
         let preTokens = await estimateTokenCount(messages: requestMessages, tools: tools)
         let plan = try partialCompactionPlan(
             around: messageID,
             direction: direction,
             userContext: feedback,
             trigger: "manual",
-            preTokens: preTokens,
-            tools: tools
+            preTokens: preTokens
         )
         let result = try await performCompaction(using: plan, model: model)
         applyCompactionResult(result)
+        resetAutoCompactTracking()
     }
 
     // MARK: - Core
@@ -88,9 +343,17 @@ extension ConversationSession {
         model: ConversationSession.Model,
         trigger: String,
         preTokens: Int,
-        tools: [ChatRequestBody.Tool]?
+        suppressFollowUpQuestions: Bool = false,
+        isAutoCompact: Bool = false,
+        recompactionInfo: RecompactionInfo? = nil
     ) async throws -> CompactionResult {
-        let plan = try fullCompactionPlan(trigger: trigger, preTokens: preTokens, tools: tools)
+        let plan = try fullCompactionPlan(
+            trigger: trigger,
+            preTokens: preTokens,
+            suppressFollowUpQuestions: suppressFollowUpQuestions,
+            isAutoCompact: isAutoCompact,
+            recompactionInfo: recompactionInfo
+        )
         return try await performCompaction(using: plan, model: model)
     }
 
@@ -111,27 +374,29 @@ extension ConversationSession {
     private func fullCompactionPlan(
         trigger: String,
         preTokens: Int,
-        tools: [ChatRequestBody.Tool]?
+        suppressFollowUpQuestions: Bool,
+        isAutoCompact: Bool,
+        recompactionInfo: RecompactionInfo?
     ) throws -> CompactionPlan {
         let state = currentCompactionState()
         let candidates = state.candidates
-        let keepCount = min(compactKeepRecentMessageCount, candidates.count)
-        let keepIndex = candidates.count - keepCount
-        guard keepIndex >= compactMinimumSummaryMessageCount else {
+        guard candidates.count >= compactMinimumSummaryMessageCount else {
             compactLogger.info("Too few compaction candidates (\(candidates.count)); skipping")
             throw CompactionError.tooFewMessages
         }
 
         return CompactionPlan(
             replacementRange: state.replacementStart ..< messages.count,
-            messagesToSummarize: Array(candidates[..<keepIndex]),
-            messagesToKeep: Array(candidates[keepIndex...]),
-            keptPlacement: .afterSummary,
+            messagesToSummarize: candidates,
+            messagesToKeep: [],
             trigger: trigger,
             preTokens: preTokens,
-            discoveredToolNames: compactDiscoveredToolNames(from: tools),
+            discoveredToolNames: extractDiscoveredToolNames(from: candidates),
             userContext: nil,
-            summaryMode: .full
+            summaryMode: .full,
+            suppressFollowUpQuestions: suppressFollowUpQuestions,
+            isAutoCompact: isAutoCompact,
+            recompactionInfo: recompactionInfo
         )
     }
 
@@ -141,7 +406,9 @@ extension ConversationSession {
         userContext: String?,
         trigger: String,
         preTokens: Int,
-        tools: [ChatRequestBody.Tool]?
+        suppressFollowUpQuestions: Bool = false,
+        isAutoCompact: Bool = false,
+        recompactionInfo: RecompactionInfo? = nil
     ) throws -> CompactionPlan {
         let state = currentCompactionState()
         let candidates = state.candidates
@@ -151,17 +418,14 @@ extension ConversationSession {
 
         let messagesToSummarize: [ConversationMessage]
         let messagesToKeep: [ConversationMessage]
-        let keptPlacement: CompactionKeptPlacement
 
         switch direction {
         case .from:
             messagesToSummarize = Array(candidates[pivotIndex...])
             messagesToKeep = Array(candidates[..<pivotIndex])
-            keptPlacement = .beforeSummary
         case .upTo:
             messagesToSummarize = Array(candidates[..<pivotIndex])
             messagesToKeep = Array(candidates[pivotIndex...]).filter { !$0.isCompactSummary }
-            keptPlacement = .afterSummary
         }
 
         guard messagesToSummarize.count >= partialCompactMinimumSummaryMessageCount else {
@@ -172,12 +436,14 @@ extension ConversationSession {
             replacementRange: state.replacementStart ..< messages.count,
             messagesToSummarize: messagesToSummarize,
             messagesToKeep: messagesToKeep,
-            keptPlacement: keptPlacement,
             trigger: trigger,
             preTokens: preTokens,
-            discoveredToolNames: compactDiscoveredToolNames(from: tools),
+            discoveredToolNames: extractDiscoveredToolNames(from: candidates),
             userContext: userContext,
-            summaryMode: .partial(direction: direction)
+            summaryMode: .partial(direction: direction),
+            suppressFollowUpQuestions: suppressFollowUpQuestions,
+            isAutoCompact: isAutoCompact,
+            recompactionInfo: recompactionInfo
         )
     }
 
@@ -186,39 +452,77 @@ extension ConversationSession {
         mode: CompactSummaryMode,
         model: ConversationSession.Model,
         customInstructions: String?,
-        recentMessagesPreserved: Bool
+        recentMessagesPreserved _: Bool
     ) async throws -> String {
-        let messagesToSummarize = sanitizeMessagesForCompaction(sourceMessages)
+        var messagesToSummarize = sanitizeMessagesForCompaction(sourceMessages)
         guard !messagesToSummarize.isEmpty else {
             throw CompactionError.tooFewMessages
         }
 
-        let systemPrompt = buildCompactPrompt(
-            mode: mode,
-            customInstructions: customInstructions,
-            recentMessagesPreserved: recentMessagesPreserved
-        )
-
-        let transcript = buildCompactionTranscript(from: messagesToSummarize)
-        guard !transcript.isEmpty else {
-            throw CompactionError.emptySummary
+        let systemPrompt: String
+        switch mode {
+        case .full:
+            systemPrompt = getCompactPrompt(
+                customInstructions: customInstructions
+            )
+        case let .partial(direction):
+            systemPrompt = getPartialCompactPrompt(
+                customInstructions: customInstructions,
+                direction: direction
+            )
         }
 
-        let summaryRequestBody = ChatRequestBody(
-            messages: [
-                .system(content: .text(systemPrompt)),
-                .user(content: .text(buildCompactPromptBody(from: transcript))),
-            ],
-            stream: false,
-            tools: nil
-        )
+        var ptlAttempts = 0
+        var prependPTLRetryMarker = false
 
-        let response = try await model.client.chat(body: summaryRequestBody)
-        let summaryText = formatCompactSummary(response.text)
-        guard !summaryText.isEmpty else {
-            throw CompactionError.emptySummary
+        while true {
+            let transcript = buildCompactionTranscript(
+                from: messagesToSummarize,
+                prependPTLRetryMarker: prependPTLRetryMarker
+            )
+            guard !transcript.isEmpty else {
+                throw CompactionError.emptySummary
+            }
+
+            let summaryRequestBody = ChatRequestBody(
+                messages: [
+                    .system(content: .text(systemPrompt)),
+                    .user(content: .text(buildCompactPromptBody(from: transcript))),
+                ],
+                maxCompletionTokens: getReservedTokensForSummary(for: model),
+                stream: false,
+                tools: nil
+            )
+
+            do {
+                let response = try await model.client.chat(body: summaryRequestBody)
+                let summaryText = formatCompactSummary(response.text)
+                guard !summaryText.isEmpty else {
+                    throw CompactionError.emptySummary
+                }
+                return summaryText
+            } catch {
+                guard isPromptTooLongError(error) else {
+                    throw error
+                }
+
+                ptlAttempts += 1
+                guard ptlAttempts <= compactPTLRetryLimit,
+                      let truncatedMessages = truncateHeadForPTLRetry(
+                          messagesToSummarize,
+                          error: error
+                      )
+                else {
+                    throw CompactionError.promptTooLong
+                }
+
+                compactLogger.warning(
+                    "Compact prompt-too-long retry \(ptlAttempts, privacy: .public); dropped \(messagesToSummarize.count - truncatedMessages.count, privacy: .public) messages."
+                )
+                messagesToSummarize = truncatedMessages
+                prependPTLRetryMarker = true
+            }
         }
-        return summaryText
     }
 
     private func buildCompactionResult(
@@ -230,18 +534,17 @@ extension ConversationSession {
         boundaryMessage.subtype = "compact_boundary"
 
         let summaryMessage = storageProvider.createMessage(in: id, role: .user)
-        summaryMessage.textContent = buildContextSummaryMessageText(
+        summaryMessage.textContent = getCompactUserSummaryMessage(
             summaryText,
-            mode: plan.summaryMode,
+            suppressFollowUpQuestions: plan.suppressFollowUpQuestions,
             recentMessagesPreserved: !plan.messagesToKeep.isEmpty
         )
         summaryMessage.metadata["isCompactSummary"] = "true"
 
-        applyPostCompactOrdering(
+        applyPostCompactTimestamps(
             boundary: boundaryMessage,
             summary: summaryMessage,
-            keptMessages: plan.messagesToKeep,
-            placement: plan.keptPlacement
+            keptMessages: plan.messagesToKeep
         )
 
         boundaryMessage.compactBoundaryMetadata = compactBoundaryMetadata(
@@ -254,8 +557,7 @@ extension ConversationSession {
             replacementRange: plan.replacementRange,
             boundaryMarker: boundaryMessage,
             summaryMessages: [summaryMessage],
-            messagesToKeep: plan.messagesToKeep,
-            keptPlacement: plan.keptPlacement
+            messagesToKeep: plan.messagesToKeep
         )
     }
 
@@ -264,47 +566,65 @@ extension ConversationSession {
         boundaryMessage: ConversationMessage,
         summaryMessage: ConversationMessage
     ) -> CompactBoundaryMetadata {
-        let preservedSegment: CompactBoundaryMetadata.PreservedSegment?
-        if let firstKept = plan.messagesToKeep.first,
-           let lastKept = plan.messagesToKeep.last
-        {
-            let anchorUUID: String
-            switch plan.keptPlacement {
-            case .afterSummary:
-                anchorUUID = summaryMessage.id
-            case .beforeSummary:
-                anchorUUID = boundaryMessage.id
-            }
-            preservedSegment = .init(
-                headUUID: firstKept.id,
-                anchorUUID: anchorUUID,
-                tailUUID: lastKept.id
-            )
-        } else {
-            preservedSegment = nil
-        }
-
-        return CompactBoundaryMetadata(
+        let baseMetadata = CompactBoundaryMetadata(
             trigger: plan.trigger,
             preTokens: plan.preTokens,
             userContext: plan.userContext,
             messagesSummarized: plan.messagesToSummarize.count,
             preCompactDiscoveredTools: plan.discoveredToolNames,
-            preservedSegment: preservedSegment
+            autoCompactThreshold: plan.recompactionInfo?.autoCompactThreshold,
+            querySource: plan.recompactionInfo?.querySource?.rawValue,
+            isRecompactionInChain: plan.recompactionInfo?.isRecompactionInChain,
+            turnsSincePreviousCompact: plan.recompactionInfo?.turnsSincePreviousCompact,
+            previousCompactTurnId: plan.recompactionInfo?.previousCompactTurnId
+        )
+
+        let anchorId: String = switch plan.summaryMode {
+        case .partial(.from):
+            boundaryMessage.id
+        case .full, .partial(.upTo):
+            summaryMessage.id
+        }
+
+        return annotateBoundaryWithPreservedSegment(
+            baseMetadata,
+            anchorId: anchorId,
+            messagesToKeep: plan.messagesToKeep
         )
     }
 
-    private func buildPostCompactMessages(_ result: CompactionResult) -> [ConversationMessage] {
-        var built: [ConversationMessage] = [result.boundaryMarker]
-        switch result.keptPlacement {
-        case .afterSummary:
-            built.append(contentsOf: result.summaryMessages)
-            built.append(contentsOf: result.messagesToKeep)
-        case .beforeSummary:
-            built.append(contentsOf: result.messagesToKeep)
-            built.append(contentsOf: result.summaryMessages)
+    private func annotateBoundaryWithPreservedSegment(
+        _ metadata: CompactBoundaryMetadata,
+        anchorId: String,
+        messagesToKeep: [ConversationMessage]
+    ) -> CompactBoundaryMetadata {
+        guard let firstKept = messagesToKeep.first,
+              let lastKept = messagesToKeep.last
+        else {
+            return metadata
         }
-        return built
+
+        return CompactBoundaryMetadata(
+            trigger: metadata.trigger,
+            preTokens: metadata.preTokens,
+            userContext: metadata.userContext,
+            messagesSummarized: metadata.messagesSummarized,
+            preCompactDiscoveredTools: metadata.preCompactDiscoveredTools,
+            autoCompactThreshold: metadata.autoCompactThreshold,
+            querySource: metadata.querySource,
+            isRecompactionInChain: metadata.isRecompactionInChain,
+            turnsSincePreviousCompact: metadata.turnsSincePreviousCompact,
+            previousCompactTurnId: metadata.previousCompactTurnId,
+            preservedSegment: .init(
+                headUuid: firstKept.id,
+                anchorUuid: anchorId,
+                tailUuid: lastKept.id
+            )
+        )
+    }
+
+    func buildPostCompactMessages(_ result: CompactionResult) -> [ConversationMessage] {
+        [result.boundaryMarker] + result.summaryMessages + result.messagesToKeep
     }
 
     func applyCompactionResult(_ result: CompactionResult) {
@@ -316,49 +636,54 @@ extension ConversationSession {
     }
 
     private func runPostCompactCleanup() {
-        autoCompactTrackingState.consecutiveFailures = 0
         setLoadingState(nil)
-    }
-
-    private func compactEnabledTools(for model: ConversationSession.Model) async -> [ChatRequestBody.Tool]? {
-        guard model.capabilities.contains(.tool), let toolProvider else { return nil }
-        let enabledTools = await toolProvider.enabledTools()
-        return enabledTools.isEmpty ? nil : enabledTools
     }
 
     private func currentCompactionState() -> (replacementStart: Int, candidates: [ConversationMessage]) {
         guard !messages.isEmpty else {
             return (0, [])
         }
-        let boundaryIndex = messages.lastIndex(where: { $0.isCompactBoundary })
+        let boundaryIndex = messages.findLastCompactBoundaryIndex()
         let replacementStart = boundaryIndex ?? 0
-        let sourceMessages = messages.getMessagesAfterCompactBoundary(includingBoundary: false)
-        let candidates = sourceMessages.filter { !$0.isCompactBoundary }
+        let candidates = messages.getMessagesAfterCompactBoundary(includingBoundary: false)
         return (replacementStart, candidates)
     }
 
-    private func compactDiscoveredToolNames(from tools: [ChatRequestBody.Tool]?) -> [String]? {
-        guard let tools else { return nil }
-        let names = tools.compactMap { tool -> String? in
-            switch tool {
-            case let .function(name, _, _, _):
+    private func extractDiscoveredToolNames(from messages: [ConversationMessage]) -> [String]? {
+        let names = Set(messages.flatMap { message in
+            message.parts.compactMap { part -> String? in
+                guard case let .toolCall(toolCall) = part else { return nil }
+                let name = toolCall.apiName.isEmpty ? toolCall.toolName : toolCall.apiName
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             }
+        })
+        guard !names.isEmpty else {
+            return nil
         }
-        return names.isEmpty ? nil : names.sorted()
+        return names.sorted()
     }
 
     private func sanitizeMessagesForCompaction(_ input: [ConversationMessage]) -> [ConversationMessage] {
         input.filter { !$0.isCompactBoundary }
     }
 
-    private func buildCompactionTranscript(from messages: [ConversationMessage]) -> String {
-        messages.compactMap { message -> String? in
+    private func buildCompactionTranscript(
+        from messages: [ConversationMessage],
+        prependPTLRetryMarker: Bool = false
+    ) -> String {
+        var transcriptSections: [String] = []
+        if prependPTLRetryMarker {
+            transcriptSections.append("[USER]\n\(compactPTLRetryMarker)")
+        }
+
+        transcriptSections.append(contentsOf: messages.compactMap { message -> String? in
             let body = compactTranscriptBody(for: message)
             guard !body.isEmpty else { return nil }
             return "[\(message.role.rawValue.uppercased())]\n\(body)"
-        }.joined(separator: "\n\n")
+        })
+
+        return transcriptSections.joined(separator: "\n\n")
     }
 
     private func compactTranscriptBody(for message: ConversationMessage) -> String {
@@ -408,68 +733,90 @@ extension ConversationSession {
         return String(trimmed[..<endIndex]) + "\n[truncated for compaction]"
     }
 
-    private func buildCompactPrompt(
-        mode: CompactSummaryMode,
-        customInstructions: String?,
-        recentMessagesPreserved: Bool
-    ) -> String {
-        let sharedPreamble = """
-        CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+    private func truncateHeadForPTLRetry(
+        _ messages: [ConversationMessage],
+        error: Error
+    ) -> [ConversationMessage]? {
+        let groups = groupMessagesByCompactionRound(messages)
+        guard groups.count >= 2 else { return nil }
 
-        - Do NOT use Read, Bash, Grep, Glob, Write, or any other tool.
-        - You already have all the context you need in the conversation below.
-        - Tool calls will be rejected and will waste your only turn.
-        - Your entire response must be plain text: an <analysis> block followed by a <summary> block.
-        - The <analysis> block is scratch space and will be discarded.
-        - The <summary> block must be precise, implementation-focused, and suitable for continuing the work.
-        """
+        let tokenGap = getPromptTooLongTokenGap(from: error)
+        let dropCount: Int
+        if let tokenGap {
+            var accumulatedTokens = 0
+            var countedGroups = 0
+            for group in groups {
+                accumulatedTokens += roughCompactionTokenCount(for: group)
+                countedGroups += 1
+                if accumulatedTokens >= tokenGap {
+                    break
+                }
+            }
+            dropCount = countedGroups
+        } else {
+            dropCount = max(1, Int((Double(groups.count) * 0.2).rounded(.down)))
+        }
 
-        let instructions: String
-        switch mode {
-        case .full:
-            instructions = """
-            Your task is to create a detailed summary of the earlier portion of a conversation so the session can continue after compaction.
+        let boundedDropCount = min(dropCount, groups.count - 1)
+        guard boundedDropCount > 0 else { return nil }
+        return Array(groups.dropFirst(boundedDropCount).flatMap { $0 })
+    }
 
-            Include:
-            1. Primary request and intent
-            2. Key technical concepts
-            3. Files, code paths, and implementation details
-            4. Errors and fixes
-            5. Decisions made and rationale
-            6. Current status and pending work
-            7. Important user feedback
-            8. Next logical steps
-            """
-        case let .partial(direction):
-            switch direction {
-            case .from:
-                instructions = """
-                Your task is to summarize the later portion of the conversation that is being compacted away. Earlier preserved messages will remain verbatim before your summary.
+    private func roughCompactionTokenCount(for message: ConversationMessage) -> Int {
+        let body = compactTranscriptBody(for: message)
+        guard !body.isEmpty else { return 1 }
+        return max(1, (body.count + 3) / 4)
+    }
 
-                Focus on what happened in the compacted suffix only, especially implementation work, results, and unresolved follow-ups.
-                """
-            case .upTo:
-                instructions = """
-                Your task is to summarize the earlier portion of the conversation that will be replaced by this summary. Newer preserved messages will remain verbatim after your summary.
+    private func roughCompactionTokenCount(for messages: [ConversationMessage]) -> Int {
+        max(messages.reduce(0) { $0 + roughCompactionTokenCount(for: $1) }, 1)
+    }
 
-                Focus on the earlier compacted prefix and provide enough context so later preserved turns still make sense.
-                """
+    private func groupMessagesByCompactionRound(_ messages: [ConversationMessage]) -> [[ConversationMessage]] {
+        var groups: [[ConversationMessage]] = []
+        var currentGroup: [ConversationMessage] = []
+
+        for message in messages {
+            if message.role == .assistant, !currentGroup.isEmpty {
+                groups.append(currentGroup)
+                currentGroup = [message]
+            } else {
+                currentGroup.append(message)
             }
         }
 
-        let preservedNote = recentMessagesPreserved
-            ? "Recent messages are preserved verbatim outside this summary. Prefer preserved turns when they are more specific than the summary."
-            : nil
+        if !currentGroup.isEmpty {
+            groups.append(currentGroup)
+        }
+        return groups
+    }
 
-        let customBlock = {
-            let trimmed = customInstructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else { return "" }
-            return "\n\nAdditional compaction instructions:\n\(trimmed)"
-        }()
+    private func getCompactPrompt(
+        customInstructions: String?
+    ) -> String {
+        var prompt = compactNoToolsPreamble + compactBasePrompt
+        if let customInstructions,
+           !customInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            prompt += "\n\nAdditional Instructions:\n\(customInstructions)"
+        }
+        prompt += compactNoToolsTrailer
+        return prompt
+    }
 
-        return [sharedPreamble, instructions, preservedNote, customBlock.isEmpty ? nil : customBlock]
-            .compactMap { $0 }
-            .joined(separator: "\n\n")
+    private func getPartialCompactPrompt(
+        customInstructions: String?,
+        direction: PartialCompactDirection
+    ) -> String {
+        let template = direction == .upTo ? partialCompactUpToPrompt : partialCompactPrompt
+        var prompt = compactNoToolsPreamble + template
+        if let customInstructions,
+           !customInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            prompt += "\n\nAdditional Instructions:\n\(customInstructions)"
+        }
+        prompt += compactNoToolsTrailer
+        return prompt
     }
 
     private func buildCompactPromptBody(from transcript: String) -> String {
@@ -483,18 +830,33 @@ extension ConversationSession {
     }
 
     private func formatCompactSummary(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
+        var formattedSummary = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !formattedSummary.isEmpty else { return "" }
 
-        if let extracted = extractTaggedBlock(named: "summary", from: trimmed) {
-            return extracted.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip analysis section — it's only drafting scratchpad.
+        formattedSummary = formattedSummary.replacingOccurrences(
+            of: #"<analysis>[\s\S]*?</analysis>"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        if let extracted = extractTaggedBlock(named: "summary", from: formattedSummary),
+           let summaryRange = formattedSummary.range(
+               of: #"<summary>[\s\S]*?</summary>"#,
+               options: [.regularExpression, .caseInsensitive]
+           )
+        {
+            let content = extracted.trimmingCharacters(in: .whitespacesAndNewlines)
+            formattedSummary.replaceSubrange(summaryRange, with: "Summary:\n\(content)")
         }
 
-        var cleaned = trimmed
-        if let analysisRange = cleaned.range(of: #"<analysis>[\s\S]*?</analysis>"#, options: .regularExpression) {
-            cleaned.removeSubrange(analysisRange)
-        }
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        formattedSummary = formattedSummary.replacingOccurrences(
+            of: #"\n\n+"#,
+            with: "\n\n",
+            options: .regularExpression
+        )
+
+        return formattedSummary.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func extractTaggedBlock(named tag: String, from text: String) -> String? {
@@ -506,43 +868,30 @@ extension ConversationSession {
         return String(text[start.upperBound ..< end.lowerBound])
     }
 
-    private func buildContextSummaryMessageText(
+    private func getCompactUserSummaryMessage(
         _ summary: String,
-        mode: CompactSummaryMode,
+        suppressFollowUpQuestions: Bool = false,
         recentMessagesPreserved: Bool
     ) -> String {
-        let intro: String
-        switch mode {
-        case .full, .partial(direction: .upTo):
-            intro = "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation."
-        case .partial(direction: .from):
-            intro = "This session is being continued from a previous conversation that ran out of context. The summary below covers a later compacted portion of the conversation."
-        }
-
-        var result = "\(intro)\n\n\(summary)"
+        let formattedSummary = formatCompactSummary(summary)
+        var result = "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n\(formattedSummary)"
         if recentMessagesPreserved {
             result += "\n\nRecent messages are preserved verbatim."
+        }
+        if suppressFollowUpQuestions {
+            result += "\n\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, and do not preface with \"I’ll continue\" or similar. Pick up the last task as if the break never happened."
         }
         return result
     }
 
-    private func applyPostCompactOrdering(
+    private func applyPostCompactTimestamps(
         boundary: ConversationMessage,
         summary: ConversationMessage,
-        keptMessages: [ConversationMessage],
-        placement: CompactionKeptPlacement
+        keptMessages: [ConversationMessage]
     ) {
-        switch placement {
-        case .afterSummary:
-            let firstKeptDate = keptMessages.first?.createdAt ?? Date()
-            boundary.createdAt = firstKeptDate.addingTimeInterval(-0.003)
-            summary.createdAt = firstKeptDate.addingTimeInterval(-0.002)
-        case .beforeSummary:
-            let referenceDate = keptMessages.first?.createdAt ?? Date()
-            boundary.createdAt = referenceDate.addingTimeInterval(-0.001)
-            let summaryReference = (keptMessages.last?.createdAt ?? referenceDate).addingTimeInterval(0.001)
-            summary.createdAt = summaryReference
-        }
+        let firstKeptDate = keptMessages.first?.createdAt ?? Date()
+        boundary.createdAt = firstKeptDate.addingTimeInterval(-0.003)
+        summary.createdAt = firstKeptDate.addingTimeInterval(-0.002)
     }
 }
 
@@ -552,6 +901,7 @@ private enum CompactionError: LocalizedError {
     case emptySummary
     case tooFewMessages
     case messageNotFound
+    case promptTooLong
 
     var errorDescription: String? {
         switch self {
@@ -561,6 +911,8 @@ private enum CompactionError: LocalizedError {
             "Not enough messages to compact."
         case .messageNotFound:
             "The selected message is no longer available for compaction."
+        case .promptTooLong:
+            "Conversation too long to compact. Try compacting a smaller range."
         }
     }
 }
