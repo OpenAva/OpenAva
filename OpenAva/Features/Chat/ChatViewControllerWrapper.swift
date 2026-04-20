@@ -305,6 +305,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                         client: chatClient,
                         capabilities: [.visual, .tool],
                         contextLength: modelConfig?.contextTokens ?? 128_000,
+                        maxOutputTokens: modelConfig?.resolvedMaxOutputTokens ?? 20000,
                         autoCompactEnabled: autoCompactEnabled
                     )
                 }
@@ -395,7 +396,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
         if let serializedExecutionContext {
-            chatViewController.promptSubmissionHandler = { _, _, prompt, reservationGeneration in
+            chatViewController.promptSubmissionHandler = { _, _, prompt in
                 do {
                     return try await AgentMainSessionRegistry.shared.submitToMainSession(
                         for: serializedExecutionContext.agent,
@@ -405,10 +406,10 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                         guard let model = resources.session.models.chat else {
                             return false
                         }
-                        return await resources.session.submitPrompt(
+                        return resources.session.submitPromptWithoutWaiting(
                             model: model,
                             prompt: prompt,
-                            reservationGeneration: reservationGeneration
+                            usingExistingReservation: true
                         )
                     }
                 } catch {

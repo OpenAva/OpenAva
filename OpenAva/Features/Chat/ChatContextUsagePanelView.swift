@@ -18,7 +18,19 @@ struct ChatContextUsagePanelView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     header
                     overviewCard
-                    breakdownCard
+                    categoriesCard
+
+                    if !snapshot.systemPromptSections.isEmpty {
+                        systemPromptSectionsCard
+                    }
+
+                    if !snapshot.systemTools.isEmpty {
+                        systemToolsCard
+                    }
+
+                    if let messageBreakdown = snapshot.messageBreakdown {
+                        messageBreakdownCard(messageBreakdown)
+                    }
 
                     if let lastUsage = snapshot.lastUsage {
                         lastUsageCard(lastUsage)
@@ -86,47 +98,104 @@ struct ChatContextUsagePanelView: View {
                 progressBar
                     .padding(.bottom, 10)
 
-                PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextLength)) (\(snapshot.usedPercentage)%)")
+                PanelRow(title: L10n.tr("chat.contextUsage.tokens"), value: "\(format(snapshot.estimatedInputTokens)) / \(format(snapshot.contextWindowTokens)) (\(snapshot.usedPercentage)%)")
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.remaining"), value: "\(format(snapshot.remainingTokens)) (\(snapshot.remainingPercentage)%)")
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.threshold"), value: format(snapshot.autoCompactThresholdTokens))
+                PanelRow(title: L10n.tr("chat.contextUsage.autoCompactTrigger"), value: format(snapshot.autoCompactTriggerTokens))
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.trimLimit"), value: format(snapshot.blockingLimitTokens))
+                PanelRow(title: L10n.tr("chat.contextUsage.blockingLimit"), value: format(snapshot.blockingLimitTokens))
                 PanelDivider()
-                PanelRow(title: L10n.tr("chat.contextUsage.responseHeadroom"), value: format(snapshot.effectiveContextWindowTokens))
+                PanelRow(title: L10n.tr("chat.contextUsage.compactReserve"), value: format(snapshot.compactOutputReserveTokens))
                 PanelDivider()
                 PanelRow(title: L10n.tr("chat.contextUsage.autoCompact"), value: snapshot.isAutoCompactEnabled ? L10n.tr("settings.skills.enabled") : L10n.tr("settings.skills.disabled"))
             }
         }
     }
 
-    private var breakdownCard: some View {
-        ContextCard(title: L10n.tr("chat.contextUsage.breakdown")) {
+    private var categoriesCard: some View {
+        ContextCard(title: L10n.tr("chat.contextUsage.categories")) {
             VStack(spacing: 10) {
-                BreakdownRow(
-                    title: L10n.tr("chat.contextUsage.instructions"),
-                    subtitle: L10n.tr("chat.contextUsage.requestMessagesCount", snapshot.instructionMessageCount),
-                    value: snapshot.instructionTokens,
-                    total: max(snapshot.contextLength, 1)
-                )
-                BreakdownRow(
-                    title: L10n.tr("chat.contextUsage.conversation"),
-                    subtitle: L10n.tr(
-                        "chat.contextUsage.conversationMessageMix",
-                        snapshot.userMessageCount,
-                        snapshot.assistantMessageCount,
-                        snapshot.toolMessageCount
-                    ),
-                    value: snapshot.conversationTokens,
-                    total: max(snapshot.contextLength, 1)
-                )
-                BreakdownRow(
-                    title: L10n.tr("chat.contextUsage.toolDefinitions"),
-                    subtitle: L10n.tr("chat.contextUsage.toolDefinitionsCount", snapshot.toolDefinitionCount),
-                    value: snapshot.toolDefinitionTokens,
-                    total: max(snapshot.contextLength, 1)
-                )
+                ForEach(snapshot.categories, id: \.kind) { category in
+                    BreakdownRow(
+                        title: categoryTitle(category),
+                        subtitle: categorySubtitle(category),
+                        value: category.tokens,
+                        total: max(snapshot.contextWindowTokens, 1),
+                        tintColor: categoryTintColor(category)
+                    )
+                }
+            }
+        }
+    }
+
+    private var systemPromptSectionsCard: some View {
+        ContextCard(title: L10n.tr("chat.contextUsage.systemPromptSections")) {
+            VStack(spacing: 0) {
+                ForEach(Array(snapshot.systemPromptSections.enumerated()), id: \.offset) { index, section in
+                    if index > 0 {
+                        PanelDivider()
+                    }
+                    PanelRow(title: section.name, value: format(section.tokens))
+                }
+            }
+        }
+    }
+
+    private var systemToolsCard: some View {
+        ContextCard(title: L10n.tr("chat.contextUsage.systemTools")) {
+            VStack(spacing: 0) {
+                ForEach(Array(snapshot.systemTools.enumerated()), id: \.offset) { index, tool in
+                    if index > 0 {
+                        PanelDivider()
+                    }
+                    PanelRow(title: tool.name, value: format(tool.tokens))
+                }
+            }
+        }
+    }
+
+    private func messageBreakdownCard(_ breakdown: ContextUsageSnapshot.MessageBreakdown) -> some View {
+        ContextCard(title: L10n.tr("chat.contextUsage.messageBreakdown")) {
+            VStack(spacing: 0) {
+                PanelRow(title: L10n.tr("chat.contextUsage.userMessages"), value: format(breakdown.userMessageTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.assistantMessages"), value: format(breakdown.assistantMessageTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.attachments"), value: format(breakdown.attachmentTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.toolCalls"), value: format(breakdown.toolCallTokens))
+                PanelDivider()
+                PanelRow(title: L10n.tr("chat.contextUsage.toolResults"), value: format(breakdown.toolResultTokens))
+
+                if !breakdown.attachmentsByType.isEmpty {
+                    PanelDivider()
+                    DetailSectionHeader(title: L10n.tr("chat.contextUsage.attachmentsByType"))
+                    ForEach(Array(breakdown.attachmentsByType.enumerated()), id: \.offset) { index, detail in
+                        if index > 0 {
+                            PanelDivider()
+                        }
+                        PanelRow(title: detail.name, value: format(detail.tokens))
+                    }
+                }
+
+                if !breakdown.toolCallsByType.isEmpty {
+                    PanelDivider()
+                    DetailSectionHeader(title: L10n.tr("chat.contextUsage.toolCallsByType"))
+                    ForEach(Array(breakdown.toolCallsByType.enumerated()), id: \.offset) { index, detail in
+                        if index > 0 {
+                            PanelDivider()
+                        }
+                        PanelRow(
+                            title: detail.name,
+                            value: String(
+                                format: L10n.tr("chat.contextUsage.callsAndResults"),
+                                format(detail.callTokens),
+                                format(detail.resultTokens)
+                            )
+                        )
+                    }
+                }
             }
         }
     }
@@ -181,15 +250,71 @@ struct ChatContextUsagePanelView: View {
     }
 
     private var progressValue: Double {
-        guard snapshot.contextLength > 0 else { return 0 }
-        return min(1, max(0, Double(snapshot.estimatedInputTokens) / Double(snapshot.contextLength)))
+        guard snapshot.contextWindowTokens > 0 else { return 0 }
+        return min(1, max(0, Double(snapshot.estimatedInputTokens) / Double(snapshot.contextWindowTokens)))
     }
 
     private var accentColor: Color {
-        if snapshot.usedPercentage >= 80 {
+        if snapshot.isAtBlockingLimit || snapshot.isAboveErrorThreshold {
+            return Color(uiColor: ChatUIDesign.Color.brandOrange)
+        }
+        if snapshot.isAboveWarningThreshold || snapshot.usedPercentage >= 80 {
             return Color(uiColor: ChatUIDesign.Color.brandOrange)
         }
         return Color(uiColor: ChatUIDesign.Color.offBlack)
+    }
+
+    private func categoryTitle(_ category: ContextUsageSnapshot.Category) -> String {
+        switch category.kind {
+        case .systemPrompt:
+            L10n.tr("chat.contextUsage.category.systemPrompt")
+        case .tools:
+            L10n.tr("chat.contextUsage.category.tools")
+        case .messages:
+            L10n.tr("chat.contextUsage.category.messages")
+        case .autoCompactBuffer:
+            L10n.tr("chat.contextUsage.category.autoCompactBuffer")
+        case .compactBuffer:
+            L10n.tr("chat.contextUsage.category.compactBuffer")
+        case .freeSpace:
+            L10n.tr("chat.contextUsage.category.freeSpace")
+        }
+    }
+
+    private func categorySubtitle(_ category: ContextUsageSnapshot.Category) -> String? {
+        switch category.kind {
+        case .systemPrompt:
+            guard let entryCount = category.entryCount else { return nil }
+            return L10n.tr("chat.contextUsage.systemPromptMessagesCount", entryCount)
+        case .tools:
+            guard let entryCount = category.entryCount else { return nil }
+            return L10n.tr("chat.contextUsage.toolsCount", entryCount)
+        case .messages:
+            guard let breakdown = category.messageBreakdown else { return nil }
+            return L10n.tr(
+                "chat.contextUsage.messagesMessageMix",
+                breakdown.userMessageCount,
+                breakdown.assistantMessageCount,
+                breakdown.toolMessageCount
+            )
+        case .autoCompactBuffer, .compactBuffer, .freeSpace:
+            return nil
+        }
+    }
+
+    private func categoryTintColor(_ category: ContextUsageSnapshot.Category) -> Color {
+        switch category.kind {
+        case .systemPrompt:
+            return Color(uiColor: ChatUIDesign.Color.offBlack).opacity(0.85)
+        case .tools:
+            return Color(uiColor: ChatUIDesign.Color.black80)
+        case .messages:
+            return Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .autoCompactBuffer, .compactBuffer:
+            return Color(uiColor: ChatUIDesign.Color.black60)
+        case .freeSpace:
+            return Color(uiColor: ChatUIDesign.Color.oatBorder)
+        }
     }
 
     private func format(_ value: Int) -> String {
@@ -263,9 +388,10 @@ private struct PanelRow: View {
 
 private struct BreakdownRow: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     let value: Int
     let total: Int
+    let tintColor: Color
 
     private var progressValue: Double {
         guard total > 0 else { return 0 }
@@ -279,9 +405,11 @@ private struct BreakdownRow: View {
                     Text(title)
                         .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    Text(subtitle)
-                        .font(.system(size: 9, weight: .regular))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    }
                 }
 
                 Spacer(minLength: 8)
@@ -303,7 +431,7 @@ private struct BreakdownRow: View {
                     .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
                     .overlay(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(Color(uiColor: ChatUIDesign.Color.offBlack).opacity(0.8))
+                            .fill(tintColor)
                             .frame(width: width * progressValue)
                     }
             }
@@ -328,5 +456,21 @@ private struct PanelDivider: View {
         Rectangle()
             .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
             .frame(height: 1)
+    }
+}
+
+private struct DetailSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.3)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                .textCase(.uppercase)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
     }
 }

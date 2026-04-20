@@ -7,20 +7,14 @@ public enum PartialCompactDirection: String, Sendable {
 
 public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
     public struct PreservedSegment: Codable, Sendable, Equatable {
-        public let headUUID: String
-        public let anchorUUID: String
-        public let tailUUID: String
+        public let headUuid: String
+        public let anchorUuid: String
+        public let tailUuid: String
 
-        public init(headUUID: String, anchorUUID: String, tailUUID: String) {
-            self.headUUID = headUUID
-            self.anchorUUID = anchorUUID
-            self.tailUUID = tailUUID
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case headUUID = "headUuid"
-            case anchorUUID = "anchorUuid"
-            case tailUUID = "tailUuid"
+        public init(headUuid: String, anchorUuid: String, tailUuid: String) {
+            self.headUuid = headUuid
+            self.anchorUuid = anchorUuid
+            self.tailUuid = tailUuid
         }
     }
 
@@ -29,6 +23,11 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
     public let userContext: String?
     public let messagesSummarized: Int?
     public let preCompactDiscoveredTools: [String]?
+    public let autoCompactThreshold: Int?
+    public let querySource: String?
+    public let isRecompactionInChain: Bool?
+    public let turnsSincePreviousCompact: Int?
+    public let previousCompactTurnId: String?
     public let preservedSegment: PreservedSegment?
 
     public init(
@@ -37,6 +36,11 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
         userContext: String? = nil,
         messagesSummarized: Int? = nil,
         preCompactDiscoveredTools: [String]? = nil,
+        autoCompactThreshold: Int? = nil,
+        querySource: String? = nil,
+        isRecompactionInChain: Bool? = nil,
+        turnsSincePreviousCompact: Int? = nil,
+        previousCompactTurnId: String? = nil,
         preservedSegment: PreservedSegment? = nil
     ) {
         self.trigger = trigger
@@ -44,6 +48,11 @@ public struct CompactBoundaryMetadata: Codable, Sendable, Equatable {
         self.userContext = userContext
         self.messagesSummarized = messagesSummarized
         self.preCompactDiscoveredTools = preCompactDiscoveredTools
+        self.autoCompactThreshold = autoCompactThreshold
+        self.querySource = querySource
+        self.isRecompactionInChain = isRecompactionInChain
+        self.turnsSincePreviousCompact = turnsSincePreviousCompact
+        self.previousCompactTurnId = previousCompactTurnId
         self.preservedSegment = preservedSegment
     }
 }
@@ -93,7 +102,7 @@ public extension Array where Element == ConversationMessage {
     }
 
     func getMessagesAfterCompactBoundary(includingBoundary: Bool = true) -> [ConversationMessage] {
-        guard let boundaryIndex = lastIndex(where: { $0.isCompactBoundary }) else {
+        guard let boundaryIndex = findLastCompactBoundaryIndex() else {
             return self
         }
 

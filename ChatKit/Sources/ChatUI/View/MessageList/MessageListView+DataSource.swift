@@ -178,11 +178,11 @@ extension MessageListView {
         func compactBoundaryTitle(for metadata: CompactBoundaryMetadata?) -> String {
             switch metadata?.trigger {
             case "auto":
-                return String.localized("Automatic compaction boundary")
+                return String.localized("Automatic compact boundary")
             case "manual":
-                return String.localized("Manual compaction boundary")
+                return String.localized("Manual compact boundary")
             default:
-                return String.localized("Conversation compaction boundary")
+                return String.localized("Conversation compact boundary")
             }
         }
 

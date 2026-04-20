@@ -31,7 +31,11 @@
         }
       }
     },
+    "Automatic compact boundary" : {
+
+    },
     "Automatic compaction boundary" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -161,7 +165,11 @@
         }
       }
     },
+    "Conversation compact boundary" : {
+
+    },
     "Conversation compaction boundary" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -349,7 +357,11 @@
         }
       }
     },
+    "Manual compact boundary" : {
+
+    },
     "Manual compaction boundary" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

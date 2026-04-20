@@ -8,21 +8,19 @@ private let submissionLogger = Logger(subsystem: "ChatUI", category: "Submission
 public typealias ConversationPromptSubmissionHandler = @MainActor (
     _ session: ConversationSession,
     _ model: ConversationSession.Model,
-    _ prompt: ConversationSession.PromptInput,
-    _ reservationGeneration: Int
+    _ prompt: ConversationSession.PromptInput
 ) async -> Bool
 
 @MainActor
 private func defaultPromptSubmissionHandler(
     session: ConversationSession,
     model: ConversationSession.Model,
-    prompt: ConversationSession.PromptInput,
-    reservationGeneration: Int
+    prompt: ConversationSession.PromptInput
 ) async -> Bool {
-    await session.submitPrompt(
+    session.submitPromptWithoutWaiting(
         model: model,
         prompt: prompt,
-        reservationGeneration: reservationGeneration
+        usingExistingReservation: true
     )
 }
 
@@ -77,7 +75,7 @@ func handlePromptSubmit(
     )
 
     let promptInput = makePromptInput(from: object)
-    guard let reservationGeneration = session.queryGuard.reserve() else {
+    guard session.queryGuard.reserve() else {
         submissionLogger.notice(
             "submit ignored session=\(session.id, privacy: .public) reason=query_already_active"
         )
@@ -89,7 +87,7 @@ func handlePromptSubmit(
 
     let handler = promptSubmissionHandler ?? defaultPromptSubmissionHandler
     Task { @MainActor in
-        let accepted = await handler(session, model, promptInput, reservationGeneration)
+        let accepted = await handler(session, model, promptInput)
         if !accepted {
             session.queryGuard.cancelReservation()
         }
