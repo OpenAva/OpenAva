@@ -209,6 +209,12 @@
 "settings.usage.reset.confirm" = "Reset";
 "settings.usage.reset.message" = "All cumulative token usage and cost data will be cleared. This cannot be undone.";
 "settings.background.enabled" = "Run in Background";
+"blogWatch.notification.title.single" = "New article from Blog Watch";
+"blogWatch.notification.title.multiple" = "%lld new articles from Blog Watch";
+"blogWatch.notification.titleSeparator" = ", ";
+"blogWatch.notification.body.fallback" = "Open OpenAva to review the latest updates.";
+"blogWatch.heartbeat.template" = "---\nevery: 30m\nnotify: silent\n---\n\nYou are running a scheduled heartbeat. If blog monitoring is needed, read the Blog Watch block below and call the `blog_watch` tool. Do not track seen articles from memory; always rely on the tool's persisted state. If nothing needs attention, reply with HEARTBEAT_OK.\n\n## Blog Watch\n\n```yaml\nsources:\n  - name: OpenAI Blog\n    site_url: https://openai.com/blog\n    feed_url: https://openai.com/blog/rss.xml\n  - name: Swift Blog\n    site_url: https://www.swift.org/blog/\n    feed_url: https://www.swift.org/atom.xml\n```\n\nExecution rules:\n- Pass the `sources` shown above when calling `blog_watch`\n- Default to `skip_initial_baseline: true`\n- Only summarize or escalate when the tool reports new articles";
+"blogWatch.recommendedHeartbeat.template" = "---\nevery: 30m\nnotify: silent\n---\n\nYou are running a scheduled heartbeat inside OpenAva. Follow the instructions below. If nothing needs attention, reply with %1$@.\n\nWhen blog monitoring is needed:\n- Read the blog sources from the `## Blog Watch` code block below\n- Call the `blog_watch` tool with action `scan`\n- Pass `sources` and `skip_initial_baseline: true`\n- If the tool reports no new articles, reply with %1$@\n- If there are new articles, provide a brief summary or reminder\n\n## Blog Watch\n\n```yaml\nsources:\n  - name: OpenAI Blog\n    site_url: https://openai.com/blog\n    feed_url: https://openai.com/blog/rss.xml\n  - name: Swift Blog\n    site_url: https://www.swift.org/blog/\n    feed_url: https://www.swift.org/atom.xml\n```";
 "notification.taskCompleted" = "completed your task";
 "notification.taskFailed" = "stopped";
 "device.tools.notification.guidance.authorization.mac" = "Please enable notification access for OpenAva in macOS System Settings > Notifications.";

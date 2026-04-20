@@ -55,19 +55,8 @@ enum TeamStore {
 
     static func deleteTeam(_ teamID: UUID, fileManager: FileManager = .default) {
         var state = load(fileManager: fileManager)
-        let removedTeamName = state.teams.first { $0.id == teamID }?.name
         state.teams.removeAll { $0.id == teamID }
         persist(state: state, fileManager: fileManager)
-
-        guard let removedTeamName,
-              let runtimeDirectoryURL = teamRuntimeDirectoryURL(for: removedTeamName, fileManager: fileManager)
-        else {
-            return
-        }
-
-        if fileManager.fileExists(atPath: runtimeDirectoryURL.path) {
-            try? fileManager.removeItem(at: runtimeDirectoryURL)
-        }
     }
 
     static func teams(containing agentID: UUID, fileManager: FileManager = .default) -> [TeamProfile] {
@@ -207,11 +196,6 @@ enum TeamStore {
             try? fileManager.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
         }
         return runtimeURL
-    }
-
-    private static func teamRuntimeDirectoryURL(for teamName: String, fileManager: FileManager) -> URL? {
-        return runtimeDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: false)?
-            .appendingPathComponent(teamName, isDirectory: true)
     }
 
     private static func nextUniqueName(baseName: String, existingNames: [String]) -> String {

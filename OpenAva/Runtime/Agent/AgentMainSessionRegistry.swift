@@ -19,6 +19,7 @@ final class AgentMainSessionRegistry {
         let modelID: UUID?
         let modelName: String
         let providerName: String
+        let agentCount: Int
         let workspacePath: String
         let runtimePath: String
         let mainSessionID: String
@@ -79,14 +80,17 @@ final class AgentMainSessionRegistry {
         modelConfig: AppConfig.LLMModel,
         invocationSessionID: String,
         shouldExtractDurableMemory: Bool = true,
+        agentCount: Int = 1,
         operation: @escaping @MainActor (SessionResources) async throws -> T
     ) async throws -> T {
         let mainSessionID = resolvedMainSessionID(from: invocationSessionID)
+        let normalizedAgentCount = max(agentCount, 1)
         let key = CacheKey(
             agentID: agent.id,
             modelID: modelConfig.id,
             modelName: modelConfig.model ?? "",
             providerName: modelConfig.provider,
+            agentCount: normalizedAgentCount,
             workspacePath: agent.workspaceURL.standardizedFileURL.path,
             runtimePath: agent.runtimeURL.standardizedFileURL.path,
             mainSessionID: mainSessionID
@@ -95,7 +99,8 @@ final class AgentMainSessionRegistry {
             for: agent,
             modelConfig: modelConfig,
             invocationSessionID: invocationSessionID,
-            shouldExtractDurableMemory: shouldExtractDurableMemory
+            shouldExtractDurableMemory: shouldExtractDurableMemory,
+            agentCount: normalizedAgentCount
         )
         let executor = executorsByKey[key] ?? {
             let created = MainSessionExecutor()
@@ -112,14 +117,17 @@ final class AgentMainSessionRegistry {
         for agent: AgentProfile,
         modelConfig: AppConfig.LLMModel,
         invocationSessionID: String,
-        shouldExtractDurableMemory: Bool = true
+        shouldExtractDurableMemory: Bool = true,
+        agentCount: Int = 1
     ) -> SessionResources {
         let mainSessionID = resolvedMainSessionID(from: invocationSessionID)
+        let normalizedAgentCount = max(agentCount, 1)
         let key = CacheKey(
             agentID: agent.id,
             modelID: modelConfig.id,
             modelName: modelConfig.model ?? "",
             providerName: modelConfig.provider,
+            agentCount: normalizedAgentCount,
             workspacePath: agent.workspaceURL.standardizedFileURL.path,
             runtimePath: agent.runtimeURL.standardizedFileURL.path,
             mainSessionID: mainSessionID
@@ -141,8 +149,9 @@ final class AgentMainSessionRegistry {
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: agent.workspaceURL,
             runtimeRootURL: agent.runtimeURL,
+            teamsRootURL: agent.workspaceURL.deletingLastPathComponent(),
             modelConfig: modelConfig,
-            configureTeamSwarm: false
+            agentCount: normalizedAgentCount
         )
         let toolProvider = ToolRegistryProvider(
             toolRuntime: toolRuntime,
@@ -155,7 +164,8 @@ final class AgentMainSessionRegistry {
             systemPromptProvider: {
                 AgentContextLoader.composeSystemPrompt(
                     baseSystemPrompt: modelConfig.systemPrompt,
-                    workspaceRootURL: agent.workspaceURL
+                    workspaceRootURL: agent.workspaceURL,
+                    agentCount: normalizedAgentCount
                 ) ?? "You are a helpful assistant."
             },
             collapseReasoningWhenComplete: true

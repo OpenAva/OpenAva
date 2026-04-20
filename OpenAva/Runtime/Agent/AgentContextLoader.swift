@@ -100,6 +100,7 @@ enum AgentContextLoader {
     static func composeSystemPrompt(
         baseSystemPrompt: String?,
         workspaceRootURL: URL? = nil,
+        agentCount: Int = 1,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> String? {
@@ -126,7 +127,8 @@ enum AgentContextLoader {
             baseSystemPrompt: basePrompt,
             context: context,
             skillCatalog: skillCatalog,
-            rootDirectory: rootDirectory
+            rootDirectory: rootDirectory,
+            agentCount: agentCount
         )
         return AppConfig.nonEmpty(prompt)
     }

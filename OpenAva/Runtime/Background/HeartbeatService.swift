@@ -318,11 +318,13 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
     ) async throws -> RunResult {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
         let toolInvocationSessionID = "\(configuration.agentID)::\(mainSessionID)"
+        let agentCount = max(AgentStore.load(workspaceRootURL: configuration.agent.workspaceURL.deletingLastPathComponent()).agents.count, 1)
         return try await AgentMainSessionRegistry.shared.submitToMainSession(
             for: configuration.agent,
             modelConfig: configuration.modelConfig,
             invocationSessionID: toolInvocationSessionID,
-            shouldExtractDurableMemory: false
+            shouldExtractDurableMemory: false,
+            agentCount: agentCount
         ) { resources in
             let session = resources.session
             let storageProvider = resources.storageProvider

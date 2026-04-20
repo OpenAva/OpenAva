@@ -28,16 +28,11 @@ struct ChatRootView: View {
     @State private var autoCompactEnabled: Bool = true
     @State private var showsLocalAgentCreation = false
     @State private var showsRemoteControl = false
-    @State private var agentCreationMode: AgentCreationViewModel.CreationMode = .singleAgent
     @State private var didEvaluateOnboarding = false
     /// Pending message from an App Intent, consumed once by ChatViewControllerWrapper.
     @State private var pendingAutoSendID: String? = nil
     @State private var pendingAutoSendMessage: String? = nil
-    @State private var targetTeamID: UUID?
-    @State private var teamToManageAgents: ManageAgentsSheetTarget?
-    @State private var showsDeleteTeamAlert = false
-    @State private var teamToDelete: UUID?
-    @State private var teamMenuRefreshToken: Int = 0
+    @State private var menuRefreshToken: Int = 0
 
     private enum MenuDestination: Hashable {
         case llm
@@ -45,10 +40,6 @@ struct ChatRootView: View {
         case cron
         case skills
         case remoteControl
-    }
-
-    private struct ManageAgentsSheetTarget: Identifiable {
-        let id: UUID
     }
 
     var body: some View {
@@ -65,9 +56,8 @@ struct ChatRootView: View {
         }
         .fullScreenCover(isPresented: $showsLocalAgentCreation) {
             NavigationStack {
-                AgentCreationView(initialMode: agentCreationMode, targetTeamID: targetTeamID, onComplete: {
+                AgentCreationView(onComplete: {
                     showsLocalAgentCreation = false
-                    targetTeamID = nil
                 })
             }
         }
@@ -81,24 +71,6 @@ struct ChatRootView: View {
             #if os(macOS) || targetEnvironment(macCatalyst)
                 .frame(minWidth: 540, minHeight: 600)
             #endif
-        }
-        .sheet(item: $teamToManageAgents) { target in
-            ManageTeamAgentsSheet(teamID: target.id)
-        }
-        .alert(isPresented: $showsDeleteTeamAlert) {
-            Alert(
-                title: Text(L10n.tr("team.management.delete.confirm.title")),
-                message: Text(L10n.tr("team.management.delete.confirm.message")),
-                primaryButton: .destructive(Text(L10n.tr("common.delete"))) {
-                    if let id = teamToDelete {
-                        containerStore.deleteTeam(id)
-                    }
-                    teamToDelete = nil
-                },
-                secondaryButton: .cancel(Text(L10n.tr("common.cancel"))) {
-                    teamToDelete = nil
-                }
-            )
         }
         .onAppear {
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
@@ -116,17 +88,8 @@ struct ChatRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .OpenAvaIntentAutoSend)) { _ in
             drainPendingAutoSend()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openAvaTeamSwarmDidChange)) { _ in
-            // Team creation/editing can happen in another Catalyst window.
-            // Reload persisted state first. Menu refresh is driven by the actual teams/agents
-            // state change handlers below so same-window and cross-window changes share one path.
-            containerStore.refreshPersistedState()
-        }
-        .onChange(of: containerStore.teams) { _, _ in
-            teamMenuRefreshToken &+= 1
-        }
         .onChange(of: containerStore.agents) { _, _ in
-            teamMenuRefreshToken &+= 1
+            menuRefreshToken &+= 1
             updateHeartbeatService()
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
@@ -155,7 +118,6 @@ struct ChatRootView: View {
         !showsAgentOnboarding &&
             !showsLocalAgentCreation &&
             !showsRemoteControl &&
-            teamToManageAgents == nil &&
             destinationPath.isEmpty
     }
 
@@ -167,7 +129,6 @@ struct ChatRootView: View {
                 for: sessionKey,
                 agentID: containerStore.activeAgent?.id
             ),
-            teams: containerStore.teams,
             agents: containerStore.agents,
             activeAgentID: containerStore.activeAgent?.id,
             activeAgentName: currentActiveAgentName,
@@ -176,17 +137,13 @@ struct ChatRootView: View {
             selectedProviderName: resolveSelectedProviderName(),
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
-            menuRefreshToken: teamMenuRefreshToken,
+            menuRefreshToken: menuRefreshToken,
             onConsumePendingAutoSend: consumePendingAutoSend,
             onMenuAction: handleMenuAction,
             onAgentSwitch: handleAgentSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
-            onCreateLocalTeam: openLocalTeamCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
             onRenameCurrentAgent: handleRenameCurrentAgent,
-            onAddAgentToTeam: handleAddAgentToTeam,
-            onCreateAgentForTeam: handleCreateAgentForTeam,
-            onDeleteTeam: handleDeleteTeamRequest,
             autoCompactEnabled: autoCompactEnabled,
             showsSystemTopBar: isMainChatActive,
             onToggleAutoCompact: toggleAutoCompact
@@ -292,26 +249,6 @@ struct ChatRootView: View {
         return true
     }
 
-    private func handleAddAgentToTeam(_ teamID: UUID) {
-        teamToManageAgents = ManageAgentsSheetTarget(id: teamID)
-    }
-
-    private func handleCreateAgentForTeam(_ teamID: UUID) {
-        #if targetEnvironment(macCatalyst)
-            windowCoordinator.openAgentCreation(targetTeamID: teamID)
-            activateOrOpenWindow(id: AppWindowID.agentCreation)
-        #else
-            targetTeamID = teamID
-            agentCreationMode = .singleAgent
-            showsLocalAgentCreation = true
-        #endif
-    }
-
-    private func handleDeleteTeamRequest(_ teamID: UUID) {
-        teamToDelete = teamID
-        showsDeleteTeamAlert = true
-    }
-
     private func scopedSessionID(for sessionKey: String, agentID _: UUID?) -> String {
         // Use sessionKey directly without agent prefix to allow easy agent directory migration.
         // Transcripts are already isolated by runtimeRootURL per agent.
@@ -350,17 +287,6 @@ struct ChatRootView: View {
             windowCoordinator.openAgentCreation()
             activateOrOpenWindow(id: AppWindowID.agentCreation)
         #else
-            agentCreationMode = .singleAgent
-            showsLocalAgentCreation = true
-        #endif
-    }
-
-    private func openLocalTeamCreation() {
-        #if targetEnvironment(macCatalyst)
-            windowCoordinator.openTeamCreation()
-            activateOrOpenWindow(id: AppWindowID.agentCreation)
-        #else
-            agentCreationMode = .defaultTeam
             showsLocalAgentCreation = true
         #endif
     }
@@ -503,7 +429,6 @@ struct ChatRootView: View {
 private struct ChatScreen: View {
     private let container: AppContainer
     private let scopedSessionID: String
-    private let teams: [TeamProfile]
     private let agents: [AgentProfile]
     private let activeAgentID: UUID?
     private let activeAgentName: String
@@ -517,12 +442,8 @@ private struct ChatScreen: View {
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     private let onAgentSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
-    private let onCreateLocalTeam: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
     private let onRenameCurrentAgent: ((String) -> Bool)?
-    private let onAddAgentToTeam: ((UUID) -> Void)?
-    private let onCreateAgentForTeam: ((UUID) -> Void)?
-    private let onDeleteTeam: ((UUID) -> Void)?
     private let autoCompactEnabled: Bool
     private let showsSystemTopBar: Bool
     private let onToggleAutoCompact: (() -> Void)?
@@ -533,7 +454,6 @@ private struct ChatScreen: View {
     init(
         container: AppContainer,
         scopedSessionID: String,
-        teams: [TeamProfile],
         agents: [AgentProfile],
         activeAgentID: UUID?,
         activeAgentName: String,
@@ -547,19 +467,14 @@ private struct ChatScreen: View {
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
         onAgentSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
-        onCreateLocalTeam: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
         onRenameCurrentAgent: ((String) -> Bool)? = nil,
-        onAddAgentToTeam: ((UUID) -> Void)? = nil,
-        onCreateAgentForTeam: ((UUID) -> Void)? = nil,
-        onDeleteTeam: ((UUID) -> Void)? = nil,
         autoCompactEnabled: Bool = true,
         showsSystemTopBar: Bool = true,
         onToggleAutoCompact: (() -> Void)? = nil
     ) {
         self.container = container
         self.scopedSessionID = scopedSessionID
-        self.teams = teams
         self.agents = agents
         self.activeAgentID = activeAgentID
         self.activeAgentName = activeAgentName
@@ -573,12 +488,8 @@ private struct ChatScreen: View {
         self.onMenuAction = onMenuAction
         self.onAgentSwitch = onAgentSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
-        self.onCreateLocalTeam = onCreateLocalTeam
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
         self.onRenameCurrentAgent = onRenameCurrentAgent
-        self.onAddAgentToTeam = onAddAgentToTeam
-        self.onCreateAgentForTeam = onCreateAgentForTeam
-        self.onDeleteTeam = onDeleteTeam
         self.autoCompactEnabled = autoCompactEnabled
         self.showsSystemTopBar = showsSystemTopBar
         self.onToggleAutoCompact = onToggleAutoCompact
@@ -614,7 +525,6 @@ private struct ChatScreen: View {
                         agentName: activeAgentName,
                         agentEmoji: activeAgentEmoji,
                         modelName: selectedModelName,
-                        teams: teams,
                         agents: agents,
                         activeAgentID: activeAgentID,
                         autoCompactEnabled: autoCompactEnabled,
@@ -622,11 +532,7 @@ private struct ChatScreen: View {
                         onMenuAction: onMenuAction,
                         onAgentSwitch: onAgentSwitch,
                         onCreateLocalAgent: onCreateLocalAgent,
-                        onCreateLocalTeam: onCreateLocalTeam,
                         onDeleteCurrentAgent: onDeleteCurrentAgent,
-                        onAddAgentToTeam: onAddAgentToTeam,
-                        onCreateAgentForTeam: onCreateAgentForTeam,
-                        onDeleteTeam: onDeleteTeam,
                         onToggleAutoCompact: onToggleAutoCompact
                     )
                 }
@@ -644,7 +550,6 @@ private struct ChatScreen: View {
                 invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
-            teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,
@@ -658,12 +563,8 @@ private struct ChatScreen: View {
             onMenuAction: onMenuAction,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
-            onCreateLocalTeam: onCreateLocalTeam,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
-            onAddAgentToTeam: onAddAgentToTeam,
-            onCreateAgentForTeam: onCreateAgentForTeam,
-            onDeleteTeam: onDeleteTeam,
             modelConfig: container.config.selectedLLMModel,
             autoCompactEnabled: autoCompactEnabled,
             showsSystemTopBar: showsSystemTopBar,

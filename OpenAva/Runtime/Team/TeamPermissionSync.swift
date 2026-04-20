@@ -11,7 +11,6 @@ struct TeamPermissionRequest: Codable, Equatable, Identifiable {
     let kind: String
     let workerID: String
     let workerName: String
-    let teamName: String
     let toolName: String
     let description: String
     let inputJSON: String?
@@ -26,7 +25,6 @@ struct TeamPermissionRequest: Codable, Equatable, Identifiable {
         case kind
         case workerID = "workerId"
         case workerName
-        case teamName
         case toolName
         case description
         case inputJSON = "inputJson"

@@ -18,11 +18,13 @@ final class AgentPresetCatalogTests: XCTestCase {
         XCTAssertTrue(ids.contains("operations"))
     }
 
-    func testDefaultTeamPresetsFollowDefaultTeamOrder() {
+    func testBuiltInPresetsPreserveExpectedOrder() {
         let presets = AgentPresetCatalog.builtInPresets()
-        let teamPresets = AgentPresetCatalog.defaultTeamPresets(in: presets)
 
-        XCTAssertEqual(teamPresets.map(\.id), AgentPresetCatalog.defaultTeamPresetIDs)
+        XCTAssertEqual(
+            presets.map(\.id),
+            ["marketing", "sales", "support", "hr", "finance", "legal", "design", "product", "engineering", "operations"]
+        )
     }
 
     func testLoadMergesExternalPresetsAndOverridesDuplicates() throws {

@@ -71,16 +71,6 @@ struct AgentOnboardingView: View {
                 ) {
                     navigationPath.append(.singleAgent)
                 }
-
-                onboardingCard(
-                    title: L10n.tr("agent.onboarding.createTeam.title"),
-                    subtitle: L10n.tr("agent.onboarding.createTeam.subtitle"),
-                    systemImage: "person.3.fill",
-                    tint: Color(uiColor: ChatUIDesign.Color.brandOrange),
-                    chevronTint: Color(uiColor: ChatUIDesign.Color.brandOrange)
-                ) {
-                    navigationPath.append(.defaultTeam)
-                }
             }
         }
     }

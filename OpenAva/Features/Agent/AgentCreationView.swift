@@ -63,33 +63,18 @@ struct AgentCreationView: View {
     @Environment(\.appContainerStore) private var containerStore
     @State private var viewModel: AgentCreationViewModel
     @State private var isEmojiPickerPresented = false
-
-    private enum EmojiPickerTarget {
-        case agent
-        case team
-    }
-
-    @State private var emojiPickerTarget: EmojiPickerTarget = .agent
-
-    let targetTeamID: UUID?
     let onComplete: () -> Void
 
     init(
         initialMode: AgentCreationViewModel.CreationMode = .singleAgent,
-        targetTeamID: UUID? = nil,
         onComplete: @escaping () -> Void
     ) {
-        self.targetTeamID = targetTeamID
         self.onComplete = onComplete
-        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode, targetTeamID: targetTeamID))
+        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode))
     }
 
     private var usedEmojis: Set<String> {
         Set(containerStore.agents.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
-    }
-
-    private var usedTeamEmojis: Set<String> {
-        Set(containerStore.teams.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
     }
 
     var body: some View {
@@ -107,12 +92,7 @@ struct AgentCreationView: View {
             }
         #endif
             .onAppear {
-                switch viewModel.creationMode {
-                case .singleAgent:
-                    viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
-                case .defaultTeam:
-                    viewModel.applyTeamDefaultsIfNeeded(avoiding: usedTeamEmojis)
-                }
+                viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
             }
     }
 
@@ -123,21 +103,11 @@ struct AgentCreationView: View {
             VStack(spacing: 36) {
                 aboutYouSection
 
-                modeSection
-
-                if viewModel.creationMode == .singleAgent {
-                    if !viewModel.presets.isEmpty {
-                        presetSection
-                    }
-
-                    singleAgentSections
+                if !viewModel.presets.isEmpty {
+                    presetSection
                 }
 
-                if viewModel.creationMode == .defaultTeam {
-                    teamIdentitySection
-
-                    teamSelectionSection
-                }
+                singleAgentSections
 
                 noticeSection
 
@@ -213,33 +183,6 @@ struct AgentCreationView: View {
         }
     }
 
-    // MARK: - Mode Selection
-
-    private var modeSection: some View {
-        CustomSection(title: L10n.tr("agent.creation.mode.header")) {
-            Picker(
-                L10n.tr("agent.creation.mode.header"),
-                selection: Binding(
-                    get: { viewModel.creationMode },
-                    set: {
-                        switch $0 {
-                        case .singleAgent:
-                            viewModel.setCreationMode($0, avoiding: usedEmojis)
-                        case .defaultTeam:
-                            viewModel.setCreationMode($0, avoiding: usedTeamEmojis)
-                        }
-                    }
-                )
-            ) {
-                ForEach(AgentCreationViewModel.CreationMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 20)
-        }
-    }
-
     // MARK: - Presets Section
 
     private var presetSection: some View {
@@ -261,7 +204,6 @@ struct AgentCreationView: View {
                 namePlaceholder: L10n.tr("agent.creation.agentName.placeholder"),
                 emoji: viewModel.data.agentEmoji,
                 onPick: {
-                    emojiPickerTarget = .agent
                     isEmojiPickerPresented = true
                 },
                 onShuffle: {
@@ -300,55 +242,6 @@ struct AgentCreationView: View {
                     viewModel.containsTruthOption(option)
                 }
             }
-        }
-    }
-
-    // MARK: - Team Identity
-
-    private var teamIdentitySection: some View {
-        CustomSection(footer: {
-            Text(L10n.tr("agent.creation.team.identity.footer"))
-                .padding(.horizontal, 20)
-        }) {
-            VStack(spacing: 16) {
-                labeledField(L10n.tr("agent.creation.team.name.header")) {
-                    nameEmojiRow(
-                        name: $viewModel.data.teamName,
-                        namePlaceholder: L10n.tr("agent.creation.team.name.placeholder"),
-                        emoji: viewModel.data.teamEmoji,
-                        onPick: {
-                            emojiPickerTarget = .team
-                            isEmojiPickerPresented = true
-                        },
-                        onShuffle: {
-                            viewModel.randomizeTeamEmoji(avoiding: usedTeamEmojis)
-                        }
-                    )
-                }
-
-                labeledField(L10n.tr("agent.creation.team.description.header")) {
-                    PlaceholderTextEditor(
-                        placeholder: L10n.tr("agent.creation.team.description.placeholder"),
-                        text: $viewModel.data.teamDescription,
-                        minHeight: 90
-                    )
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    // MARK: - Team Selection (summary + grid merged)
-
-    private var teamSelectionSection: some View {
-        CustomSection(title: L10n.tr("agent.creation.team.selection.header"), footer: {
-            Text(L10n.tr("agent.creation.team.selection.footer"))
-                .padding(.horizontal, 20)
-        }) {
-            VStack(spacing: 16) {
-                teamPresetGrid
-            }
-            .padding(.horizontal, 20)
         }
     }
 
@@ -534,12 +427,7 @@ struct AgentCreationView: View {
 
     private var emojiPickerGrid: some View {
         EmojiPickerGrid(emojis: viewModel.emojiCandidates) { emoji in
-            switch emojiPickerTarget {
-            case .agent:
-                viewModel.setAgentEmoji(emoji)
-            case .team:
-                viewModel.setTeamEmoji(emoji)
-            }
+            viewModel.setAgentEmoji(emoji)
             isEmojiPickerPresented = false
         }
     }
@@ -595,57 +483,6 @@ struct AgentCreationView: View {
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var teamPresetGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            ForEach(viewModel.defaultTeamPresets, id: \.id) { preset in
-                let isSelected = viewModel.containsDefaultTeamPreset(preset)
-
-                Button {
-                    viewModel.toggleDefaultTeamPreset(preset)
-                } label: {
-                    teamPresetCard(preset: preset, isSelected: isSelected)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func teamPresetCard(preset: AgentPreset, isSelected: Bool) -> some View {
-        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: ChatUIDesign.Color.warmCream)
-        let borderColor = isSelected ? Color.accentColor.opacity(0.72) : Color.secondary.opacity(0.18)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                Text(displayEmoji(for: preset))
-                    .font(.title3)
-
-                Spacer(minLength: 8)
-
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            }
-
-            Text(preset.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Text(preset.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
-        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
-        )
-    }
-
     private func displayEmoji(for preset: AgentPreset) -> String {
         let normalized = preset.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? "🤖" : normalized
@@ -691,46 +528,22 @@ struct AgentCreationView: View {
     // MARK: - Actions
 
     private var primaryActionTitle: String {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            L10n.tr("agent.creation.create")
-        case .defaultTeam:
-            L10n.tr(targetTeamID == nil ? "agent.creation.team.create" : "agent.creation.team.createAndAdd")
-        }
+        L10n.tr("agent.creation.create")
     }
 
     private var canPerformPrimaryAction: Bool {
-        switch viewModel.creationMode {
-        case .singleAgent:
-            viewModel.canComplete
-        case .defaultTeam:
-            viewModel.canCreateTeam
-        }
+        viewModel.canComplete
     }
 
     private func performPrimaryAction() {
         Task {
-            switch viewModel.creationMode {
-            case .singleAgent:
-                await createAgent()
-            case .defaultTeam:
-                await createDefaultTeam()
-            }
+            await createAgent()
         }
     }
 
     private func createAgent() async {
         do {
             try await viewModel.createAgent(containerStore: containerStore)
-            onComplete()
-        } catch {
-            viewModel.errorText = error.localizedDescription
-        }
-    }
-
-    private func createDefaultTeam() async {
-        do {
-            try await viewModel.createTeam(containerStore: containerStore)
             onComplete()
         } catch {
             viewModel.errorText = error.localizedDescription

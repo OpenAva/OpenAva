@@ -5,16 +5,23 @@ import XCTest
 final class TeamRuntimePersistenceTests: XCTestCase {
     private var originalStateData: Data?
     private var originalLLMCollection: AppConfig.LLMCollection?
+    private var swarmRuntimeBackupURL: URL?
 
+    @MainActor
     override func setUp() {
         super.setUp()
         originalStateData = try? Data(contentsOf: stateFileURL())
         originalLLMCollection = LLMConfigStore.loadCollection()
         LLMConfigStore.clearCollection()
         removeStateFile()
+        backupSwarmRuntimeDirectory()
     }
 
+    @MainActor
     override func tearDown() {
+        TeamSwarmCoordinator.shared.configure(agentStoreRootURL: nil)
+        TeamSwarmCoordinator.shared.reload()
+        restoreSwarmRuntimeDirectory()
         restoreStateFile()
         if let originalLLMCollection {
             LLMConfigStore.saveCollection(originalLLMCollection)
@@ -57,7 +64,6 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             kind: "plan_execution",
             workerID: "worker@alpha",
             workerName: "worker",
-            teamName: "alpha",
             toolName: "team.plan.approve",
             description: "Approve the proposed plan",
             inputJSON: nil,
@@ -127,7 +133,6 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         }
 
         let agentName = "Worker-\(UUID().uuidString)"
-        let teamName = "Team-\(UUID().uuidString)"
         let messageBody = "Please continue execution"
 
         let agent = try AgentStore.createAgent(
@@ -135,23 +140,22 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             emoji: "🧪",
             fileManager: .default
         )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
         defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
 
-        let team = try XCTUnwrap(TeamStore.createTeam(name: teamName, emoji: "👥", fileManager: .default))
-        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
-        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
-
-        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
-        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
         try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
 
         let persistedTeam = TeamManifest(
-            name: team.name,
-            description: nil,
-            createdAt: team.createdAt,
-            updatedAt: team.updatedAt,
-            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
-            coordinatorSessionId: team.name,
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
             hiddenPaneIds: [],
             teamAllowedPaths: [],
             nextTaskID: 1,
@@ -166,6 +170,16 @@ final class TeamRuntimePersistenceTests: XCTestCase {
                     mode: nil,
                     lastStatus: TeamSwarmCoordinator.MemberStatus.awaitingPlanApproval.rawValue,
                     pendingPlanRequestID: "pending-plan"
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
                 ),
             ]
         )
@@ -183,14 +197,13 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             to: agent.name,
             message: messageBody,
             messageType: "message",
-            teamName: team.name,
             context: .init(sessionID: nil, senderMemberID: nil)
         )
 
         let transcriptMessages = transcriptProvider.messages(in: TeamSwarmCoordinator.mainSessionID)
         XCTAssertTrue(transcriptMessages.isEmpty)
 
-        let snapshot = coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))
+        let snapshot = coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))
         let updatedMember = try XCTUnwrap(snapshot?.team.members.first)
         XCTAssertEqual(updatedMember.pendingPlanRequestID, "pending-plan")
         XCTAssertEqual(
@@ -210,7 +223,6 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         }
 
         let agentName = "Worker-\(UUID().uuidString)"
-        let teamName = "Team-\(UUID().uuidString)"
         let messageBody = "Please stop after this check"
 
         let agent = try AgentStore.createAgent(
@@ -218,23 +230,22 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             emoji: "🧪",
             fileManager: .default
         )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
         defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
 
-        let team = try XCTUnwrap(TeamStore.createTeam(name: teamName, emoji: "👥", fileManager: .default))
-        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
-        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
-
-        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
-        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
         try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
 
         let persistedTeam = TeamManifest(
-            name: team.name,
-            description: nil,
-            createdAt: team.createdAt,
-            updatedAt: team.updatedAt,
-            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
-            coordinatorSessionId: team.name,
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
             hiddenPaneIds: [],
             teamAllowedPaths: [],
             nextTaskID: 1,
@@ -246,6 +257,16 @@ final class TeamRuntimePersistenceTests: XCTestCase {
                     input: nil,
                     planModeRequired: false,
                     sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
                     mode: nil,
                     lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
                     pendingPlanRequestID: nil
@@ -263,12 +284,11 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             to: agent.name,
             message: messageBody,
             messageType: "shutdown_request",
-            teamName: team.name,
             context: .init(sessionID: nil, senderMemberID: nil)
         )
 
         for _ in 0 ..< 20 {
-            let status = coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?
+            let status = coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))?
                 .team.members.first?.status
             if status == .stopped {
                 break
@@ -277,7 +297,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         }
 
         let updatedMember = try XCTUnwrap(
-            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?
+            coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))?
                 .team.members.first
         )
         XCTAssertEqual(updatedMember.status, .stopped)
@@ -302,28 +322,28 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let agent = try AgentStore.createAgent(
             name: "Worker-\(UUID().uuidString)",
             emoji: "🧪",
-            fileManager: .default
+            fileManager: .default,
+            workspaceRootURL: transcriptRuntimeURL
         )
-        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default,
+            workspaceRootURL: transcriptRuntimeURL
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default, workspaceRootURL: transcriptRuntimeURL) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default, workspaceRootURL: transcriptRuntimeURL) }
 
-        let team = try XCTUnwrap(TeamStore.createTeam(name: "Team-\(UUID().uuidString)", emoji: "👥", fileManager: .default))
-        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
-        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
-
-        let agentStoreRootURL = try AgentStore.workspaceRootDirectory(fileManager: .default)
+        let agentStoreRootURL = transcriptRuntimeURL
         let coordinator = TeamSwarmCoordinator.shared
         coordinator.configure(
             agentStoreRootURL: agentStoreRootURL
         )
         coordinator.reload()
 
-        let snapshot = coordinator.snapshot(
-            teamName: nil,
-            context: .init(sessionID: "\(agent.id.uuidString)::main", senderMemberID: nil)
-        )
+        let snapshot = coordinator.snapshot(context: .init(sessionID: "\(agent.id.uuidString)::main", senderMemberID: nil))
 
-        XCTAssertEqual(snapshot?.team.name, team.name)
-        XCTAssertEqual(snapshot?.team.members.map(\.id), [agent.id.uuidString])
+        XCTAssertEqual(Set(snapshot?.team.members.map(\.id) ?? []), Set([agent.id.uuidString, peer.id.uuidString]))
     }
 
     @MainActor
@@ -346,28 +366,27 @@ final class TeamRuntimePersistenceTests: XCTestCase {
             emoji: "🧪",
             fileManager: .default
         )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
         defer {
             AgentMainSessionRegistry.shared.removeAll()
             ConversationSessionManager.shared.removeAllSessions()
             _ = AgentStore.deleteAgent(agent.id, fileManager: .default)
+            _ = AgentStore.deleteAgent(peer.id, fileManager: .default)
         }
-
-        let team = try XCTUnwrap(TeamStore.createTeam(name: "Team-\(UUID().uuidString)", emoji: "👥", fileManager: .default))
-        defer { TeamStore.deleteTeam(team.id, fileManager: .default) }
-        _ = try XCTUnwrap(TeamStore.addAgents([agent.id], to: team.id, fileManager: .default))
         let agentStoreRootURL = try AgentStore.workspaceRootDirectory(fileManager: .default)
 
-        let teamRuntimeRoot = try XCTUnwrap(TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true))
-        let teamDirectoryURL = teamRuntimeRoot.appendingPathComponent(team.name, isDirectory: true)
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
         try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
 
         let persistedTeam = TeamManifest(
-            name: team.name,
-            description: nil,
-            createdAt: team.createdAt,
-            updatedAt: team.updatedAt,
-            coordinatorId: "\(TeamSwarmCoordinator.coordinatorName)@\(team.name)",
-            coordinatorSessionId: team.name,
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
             hiddenPaneIds: [],
             teamAllowedPaths: [],
             nextTaskID: 1,
@@ -383,6 +402,16 @@ final class TeamRuntimePersistenceTests: XCTestCase {
                     lastStatus: TeamSwarmCoordinator.MemberStatus.awaitingPlanApproval.rawValue,
                     pendingPlanRequestID: "pending-plan"
                 ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
             ]
         )
         let persistedData = try JSONEncoder().encode(persistedTeam)
@@ -392,16 +421,15 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         coordinator.configure(agentStoreRootURL: agentStoreRootURL)
         coordinator.reload()
 
-        try coordinator.approvePlan(
+        _ = try coordinator.approvePlan(
             sessionID: nil,
             memberName: agent.name,
-            teamName: team.name,
             feedback: nil,
             context: .init(sessionID: nil, senderMemberID: nil)
         )
 
         let memberBeforeReconfigure = try XCTUnwrap(
-            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
+            coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
         )
         XCTAssertEqual(memberBeforeReconfigure.status, .busy)
         XCTAssertFalse(memberBeforeReconfigure.awaitingPlanApproval)
@@ -411,7 +439,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         coordinator.configure(agentStoreRootURL: agentStoreRootURL)
 
         let memberAfterReconfigure = try XCTUnwrap(
-            coordinator.snapshot(teamName: team.name, context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
+            coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
         )
         XCTAssertEqual(memberAfterReconfigure.status, .busy)
         XCTAssertFalse(memberAfterReconfigure.awaitingPlanApproval)
@@ -438,6 +466,39 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    @MainActor
+    private func backupSwarmRuntimeDirectory() {
+        guard let swarmDirectoryURL = swarmDirectoryURL() else { return }
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: swarmDirectoryURL.path) else {
+            swarmRuntimeBackupURL = nil
+            return
+        }
+
+        let backupURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? fileManager.copyItem(at: swarmDirectoryURL, to: backupURL)
+        try? fileManager.removeItem(at: swarmDirectoryURL)
+        swarmRuntimeBackupURL = backupURL
+    }
+
+    @MainActor
+    private func restoreSwarmRuntimeDirectory() {
+        guard let swarmDirectoryURL = swarmDirectoryURL() else { return }
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: swarmDirectoryURL)
+        if let swarmRuntimeBackupURL {
+            try? fileManager.copyItem(at: swarmRuntimeBackupURL, to: swarmDirectoryURL)
+            try? fileManager.removeItem(at: swarmRuntimeBackupURL)
+        }
+        self.swarmRuntimeBackupURL = nil
+    }
+
+    @MainActor
+    private func swarmDirectoryURL() -> URL? {
+        TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)?
+            .appendingPathComponent("swarm", isDirectory: true)
     }
 
     private func removeStateFile() {

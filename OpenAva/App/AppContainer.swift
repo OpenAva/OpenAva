@@ -27,11 +27,13 @@ struct AppContainer {
     }
 
     static func makeServices(config: AppConfig) -> Services {
+        let agentCount = max(AgentStore.load(workspaceRootURL: config.agent.workspaceRootURL).agents.count, 1)
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
             runtimeRootURL: config.agent.runtimeRootURL,
             teamsRootURL: try? AgentStore.workspaceRootDirectory(fileManager: .default),
-            modelConfig: config.selectedLLMModel
+            modelConfig: config.selectedLLMModel,
+            agentCount: agentCount
         )
         let localization = LocalizationService()
 

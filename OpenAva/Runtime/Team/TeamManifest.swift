@@ -19,8 +19,6 @@ struct TeamManifestMember: Codable, Equatable {
 }
 
 struct TeamManifest: Codable, Equatable {
-    let name: String
-    let description: String?
     let createdAt: Date
     let updatedAt: Date
     let coordinatorId: String

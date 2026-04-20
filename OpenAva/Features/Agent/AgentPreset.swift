@@ -33,18 +33,6 @@ struct AgentPreset: Identifiable, Codable, Equatable {
 
 enum AgentPresetCatalog {
     static let environmentPathKey = "OPENAVA_AGENT_PRESETS_PATH"
-    static let defaultTeamPresetIDs = [
-        "marketing",
-        "sales",
-        "support",
-        "hr",
-        "finance",
-        "legal",
-        "design",
-        "product",
-        "engineering",
-        "operations",
-    ]
 
     static func load(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -53,12 +41,6 @@ enum AgentPresetCatalog {
         let builtIn = builtInPresets()
         let external = loadExternalPresets(environment: environment, fileManager: fileManager)
         return merge(builtIn: builtIn, external: external)
-    }
-
-    static func defaultTeamPresets(in presets: [AgentPreset]) -> [AgentPreset] {
-        let builtInByID = Dictionary(uniqueKeysWithValues: builtInPresets().map { ($0.id, $0) })
-        let availableByID = Dictionary(uniqueKeysWithValues: presets.map { ($0.id, $0) })
-        return defaultTeamPresetIDs.compactMap { availableByID[$0] ?? builtInByID[$0] }
     }
 
     static func builtInPresets() -> [AgentPreset] {

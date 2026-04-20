@@ -27,7 +27,8 @@ enum AgentPromptBuilder {
         baseSystemPrompt: String?,
         context: AgentContextLoader.LoadedContext?,
         skillCatalog: [AgentSkillsLoader.SkillDefinition] = [],
-        rootDirectory: URL?
+        rootDirectory: URL?,
+        agentCount: Int = 1
     ) -> String {
         let hasSoulMD = context?.documents.contains(where: { $0.fileName.lowercased() == "soul.md" }) ?? false
 
@@ -47,7 +48,9 @@ enum AgentPromptBuilder {
         sections.append(buildInstructionPrioritySection())
         sections.append(buildToolingSection())
         sections.append(buildSubAgentSection())
-        sections.append(buildTeamSection())
+        if agentCount > 1 {
+            sections.append(buildTeamSection(agentCount: agentCount))
+        }
 
         // Omit Skills section entirely when no skills are available.
         if let skillsSection = buildSkillsSection(skillCatalog: skillCatalog) {
@@ -147,17 +150,18 @@ enum AgentPromptBuilder {
         )
     }
 
-    private static func buildTeamSection() -> PromptSection {
-        PromptSection(
+    private static func buildTeamSection(agentCount: Int) -> PromptSection {
+        let teammateCount = max(agentCount - 1, 1)
+        return PromptSection(
             title: "## Teams",
             content: """
-            Team collaboration uses preconfigured agent pools instead of dynamically creating fixed structures at runtime.
-            The active team may evolve into different execution topologies over time (for example flat or tree-shaped), so rely on current runtime state instead of assuming a fixed org chart.
-            Use the team tools to inspect and coordinate the active collaboration:
-            - `team_status` inspects the current team state, shared tasks, and pending approvals.
-            - `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` manage the shared task list.
-            - `team_message_send` coordinates between the coordinator and teammates through direct team messages.
-            - `team_plan_approve` approves a teammate plan request when plan mode is required.
+            OpenAva currently has \(agentCount) agents, so you are part of an implicit collaboration team with \(teammateCount) other agent(s).
+            This team is materialized automatically by the runtime when multiple agents exist; do not try to create a separate team entity.
+            Use `team_status` first to inspect teammates, shared tasks, and pending approvals before coordinating complex work.
+            Use `team_message_send` to delegate, unblock, or report progress to teammates.
+            Use `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` to manage shared execution state.
+            Use `team_plan_approve` when a teammate is waiting for approval to continue execution.
+            Keep collaboration lightweight: only involve teammates when parallel work or specialization will materially help the user's request.
             """
         )
     }

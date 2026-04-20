@@ -139,6 +139,10 @@ enum HeartbeatSupport {
         """
     }
 
+    static var recommendedBlogWatchTemplate: String {
+        L10n.tr("blogWatch.recommendedHeartbeat.template", ackToken)
+    }
+
     static func makePromptInput(
         heartbeatMarkdown: String,
         now: Date = Date()

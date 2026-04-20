@@ -23,6 +23,10 @@ final class AppContainerStore {
         agentState.agents
     }
 
+    var agentCount: Int {
+        agentState.agents.count
+    }
+
     var teams: [TeamProfile] {
         teamState.teams
     }

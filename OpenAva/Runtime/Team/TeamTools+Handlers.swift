@@ -23,24 +23,16 @@ extension TeamTools {
         _ request: BridgeInvokeRequest,
         toolContextProvider: @escaping @Sendable () -> TeamSwarmCoordinator.ToolContext
     ) async throws -> BridgeInvokeResponse {
-        struct TeamNameParams: Decodable {
-            let teamName: String?
-
-            enum CodingKeys: String, CodingKey {
-                case teamName = "team_name"
-            }
-        }
+        struct EmptyParams: Decodable {}
 
         struct MessageParams: Decodable {
             let to: String
             let message: String
-            let teamName: String?
             let messageType: String?
 
             enum CodingKeys: String, CodingKey {
                 case to
                 case message
-                case teamName = "team_name"
                 case messageType = "message_type"
             }
         }
@@ -48,13 +40,11 @@ extension TeamTools {
         struct ApproveParams: Decodable {
             let sessionID: String?
             let name: String?
-            let teamName: String?
             let feedback: String?
 
             enum CodingKeys: String, CodingKey {
                 case sessionID = "session_id"
                 case name
-                case teamName = "team_name"
                 case feedback
             }
         }
@@ -62,22 +52,13 @@ extension TeamTools {
         struct TaskCreateParams: Decodable {
             let title: String
             let detail: String?
-            let teamName: String?
-
-            enum CodingKeys: String, CodingKey {
-                case title
-                case detail
-                case teamName = "team_name"
-            }
         }
 
         struct TaskGetParams: Decodable {
             let taskID: Int
-            let teamName: String?
 
             enum CodingKeys: String, CodingKey {
                 case taskID = "task_id"
-                case teamName = "team_name"
             }
         }
 
@@ -87,7 +68,6 @@ extension TeamTools {
             let detail: String?
             let owner: String?
             let status: String?
-            let teamName: String?
 
             enum CodingKeys: String, CodingKey {
                 case taskID = "task_id"
@@ -95,7 +75,6 @@ extension TeamTools {
                 case detail
                 case owner
                 case status
-                case teamName = "team_name"
             }
         }
 
@@ -103,8 +82,8 @@ extension TeamTools {
 
         switch request.command {
         case "team.status":
-            let params = try ToolInvocationHelpers.decodeParams(TeamNameParams.self, from: request.paramsJSON)
-            guard let snapshot = TeamSwarmCoordinator.shared.snapshot(teamName: params.teamName, context: context) else {
+            _ = try ToolInvocationHelpers.decodeParams(EmptyParams.self, from: request.paramsJSON)
+            guard let snapshot = TeamSwarmCoordinator.shared.snapshot(context: context) else {
                 return BridgeInvokeResponse(
                     id: request.id,
                     ok: false,
@@ -120,7 +99,6 @@ extension TeamTools {
                 to: params.to,
                 message: params.message,
                 messageType: AppConfig.nonEmpty(params.messageType) ?? "message",
-                teamName: params.teamName,
                 context: context
             )
             return BridgeInvokeResponse(id: request.id, ok: true, payload: "Message sent to \(params.to).")
@@ -130,7 +108,6 @@ extension TeamTools {
             let member = try TeamSwarmCoordinator.shared.approvePlan(
                 sessionID: params.sessionID,
                 memberName: params.name,
-                teamName: params.teamName,
                 feedback: params.feedback,
                 context: context
             )
@@ -138,19 +115,19 @@ extension TeamTools {
 
         case "team.task.create":
             let params = try ToolInvocationHelpers.decodeParams(TaskCreateParams.self, from: request.paramsJSON)
-            let task = try TeamSwarmCoordinator.shared.createTask(title: params.title, detail: params.detail, teamName: params.teamName, context: context)
+            let task = try TeamSwarmCoordinator.shared.createTask(title: params.title, detail: params.detail, context: context)
             return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task Created"))
 
         case "team.task.list":
-            let params = try ToolInvocationHelpers.decodeParams(TeamNameParams.self, from: request.paramsJSON)
-            let tasks = try TeamSwarmCoordinator.shared.listTasks(teamName: params.teamName, context: context)
+            _ = try ToolInvocationHelpers.decodeParams(EmptyParams.self, from: request.paramsJSON)
+            let tasks = try TeamSwarmCoordinator.shared.listTasks(context: context)
             let lines = tasks.map { renderTaskLine($0) }
             let payload = (["## Team Tasks"] + (lines.isEmpty ? ["No tasks."] : lines)).joined(separator: "\n")
             return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
 
         case "team.task.get":
             let params = try ToolInvocationHelpers.decodeParams(TaskGetParams.self, from: request.paramsJSON)
-            let task = try TeamSwarmCoordinator.shared.getTask(id: params.taskID, teamName: params.teamName, context: context)
+            let task = try TeamSwarmCoordinator.shared.getTask(id: params.taskID, context: context)
             return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task"))
 
         case "team.task.update":
@@ -158,7 +135,6 @@ extension TeamTools {
             let status = params.status.flatMap { TeamSwarmCoordinator.TaskStatus(rawValue: $0) }
             let task = try TeamSwarmCoordinator.shared.updateTask(
                 id: params.taskID,
-                teamName: params.teamName,
                 title: params.title,
                 detail: params.detail,
                 status: status,
@@ -183,8 +159,6 @@ extension TeamTools {
         let pendingPermissions = snapshot.pendingPermissions
         var lines = [
             "## Team Status",
-            "- team_name: \(team.name)",
-            team.description.map { "- description: \($0)" },
             "- created_at: \(iso8601(team.createdAt))",
             "- updated_at: \(iso8601(team.updatedAt))",
             "- pending_permission_requests: \(pendingPermissions.count)",

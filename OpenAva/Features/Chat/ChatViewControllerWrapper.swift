@@ -220,7 +220,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let chatClient: (any ChatClient)?
     let toolProvider: ToolProvider?
     let systemPrompt: String?
-    let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeAgentID: UUID?
     let activeAgentName: String
@@ -231,18 +230,14 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     /// `pendingAutoSendID` is a unique token so the coordinator never submits the same request twice.
     let pendingAutoSendID: String?
     let pendingAutoSendMessage: String?
-    /// Forces `updateUIViewController` after team swarm notifications so menus pull fresh data.
+    /// Forces `updateUIViewController` after menu data changes so menus pull fresh data.
     let menuRefreshToken: Int
     let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
-    let onCreateLocalTeam: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
     let onRenameCurrentAgent: ((String) -> Bool)?
-    let onAddAgentToTeam: ((UUID) -> Void)?
-    let onCreateAgentForTeam: ((UUID) -> Void)?
-    let onDeleteTeam: ((UUID) -> Void)?
     let modelConfig: AppConfig.LLMModel?
     let autoCompactEnabled: Bool
     let showsSystemTopBar: Bool
@@ -251,7 +246,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onMenuAction: onMenuAction,
-            teams: teams,
             agents: agents,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,
@@ -261,17 +255,14 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             autoCompactEnabled: autoCompactEnabled,
             onAgentSwitch: onAgentSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
-            onCreateLocalTeam: onCreateLocalTeam,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
-            onAddAgentToTeam: onAddAgentToTeam,
-            onCreateAgentForTeam: onCreateAgentForTeam,
-            onDeleteTeam: onDeleteTeam,
             onToggleAutoCompact: onToggleAutoCompact
         )
     }
 
     func makeUIViewController(context: Context) -> UIViewController {
+        let agentCount = max(agents.count, 1)
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
         let providedSession: ConversationSession?
@@ -283,7 +274,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                 let resources = AgentMainSessionRegistry.shared.sessionResources(
                     for: agent,
                     modelConfig: modelConfig,
-                    invocationSessionID: invocationSessionID
+                    invocationSessionID: invocationSessionID,
+                    agentCount: agentCount
                 )
                 storageProvider = resources.storageProvider
                 sessionDelegate = resources.sessionDelegate
@@ -328,7 +320,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             systemPromptProvider: {
                 AgentContextLoader.composeSystemPrompt(
                     baseSystemPrompt: systemPrompt,
-                    workspaceRootURL: workspaceRootURL
+                    workspaceRootURL: workspaceRootURL,
+                    agentCount: agentCount
                 ) ?? systemPrompt ?? "You are a helpful assistant."
             },
             collapseReasoningWhenComplete: true
@@ -401,7 +394,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                     return try await AgentMainSessionRegistry.shared.submitToMainSession(
                         for: serializedExecutionContext.agent,
                         modelConfig: serializedExecutionContext.modelConfig,
-                        invocationSessionID: serializedExecutionContext.invocationSessionID
+                        invocationSessionID: serializedExecutionContext.invocationSessionID,
+                        agentCount: agentCount
                     ) { resources in
                         guard let model = resources.session.models.chat else {
                             return false
@@ -475,7 +469,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
-        context.coordinator.teams = teams
         context.coordinator.agents = agents
         context.coordinator.activeAgentID = activeAgentID
         context.coordinator.activeAgentName = activeAgentName
@@ -497,12 +490,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         context.coordinator.onAgentSwitch = onAgentSwitch
         context.coordinator.onCreateLocalAgent = onCreateLocalAgent
-        context.coordinator.onCreateLocalTeam = onCreateLocalTeam
         context.coordinator.onDeleteCurrentAgent = onDeleteCurrentAgent
         context.coordinator.onRenameCurrentAgent = onRenameCurrentAgent
-        context.coordinator.onAddAgentToTeam = onAddAgentToTeam
-        context.coordinator.onCreateAgentForTeam = onCreateAgentForTeam
-        context.coordinator.onDeleteTeam = onDeleteTeam
         context.coordinator.autoCompactEnabled = autoCompactEnabled
         context.coordinator.onToggleAutoCompact = onToggleAutoCompact
         context.coordinator.chatViewController = chatViewController
@@ -533,7 +522,6 @@ extension ChatViewControllerWrapper {
         /// Tracks the last auto-sent request ID to prevent re-submission on re-render.
         var processedAutoSendID: String?
         var onMenuAction: ((MenuAction) -> Void)?
-        var teams: [TeamProfile]
         var agents: [AgentProfile]
         var activeAgentID: UUID?
         var activeAgentName: String
@@ -542,19 +530,14 @@ extension ChatViewControllerWrapper {
         var selectedProviderName: String
         var onAgentSwitch: ((UUID) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
-        var onCreateLocalTeam: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
         var onRenameCurrentAgent: ((String) -> Bool)?
-        var onAddAgentToTeam: ((UUID) -> Void)?
-        var onCreateAgentForTeam: ((UUID) -> Void)?
-        var onDeleteTeam: ((UUID) -> Void)?
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
         weak var chatViewController: ChatViewController?
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
-            teams: [TeamProfile],
             agents: [AgentProfile],
             activeAgentID: UUID?,
             activeAgentName: String,
@@ -564,16 +547,11 @@ extension ChatViewControllerWrapper {
             autoCompactEnabled: Bool,
             onAgentSwitch: ((UUID) -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
-            onCreateLocalTeam: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
             onRenameCurrentAgent: ((String) -> Bool)?,
-            onAddAgentToTeam: ((UUID) -> Void)?,
-            onCreateAgentForTeam: ((UUID) -> Void)?,
-            onDeleteTeam: ((UUID) -> Void)?,
             onToggleAutoCompact: (() -> Void)?
         ) {
             self.onMenuAction = onMenuAction
-            self.teams = teams
             self.agents = agents
             self.activeAgentID = activeAgentID
             self.activeAgentName = activeAgentName
@@ -583,12 +561,8 @@ extension ChatViewControllerWrapper {
             self.autoCompactEnabled = autoCompactEnabled
             self.onAgentSwitch = onAgentSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
-            self.onCreateLocalTeam = onCreateLocalTeam
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
             self.onRenameCurrentAgent = onRenameCurrentAgent
-            self.onAddAgentToTeam = onAddAgentToTeam
-            self.onCreateAgentForTeam = onCreateAgentForTeam
-            self.onDeleteTeam = onDeleteTeam
             self.onToggleAutoCompact = onToggleAutoCompact
             super.init()
         }
@@ -861,16 +835,9 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
-            let groupedAgentIDs = Set(teams.flatMap(\.agentPoolIDs))
-            let teamMenus = teams
-                .sorted(by: compareTeams)
-                .map(buildTeamSubmenu)
+            let agentActions = agents.map(makeAgentAction)
 
-            let ungroupedActions = agents
-                .filter { !groupedAgentIDs.contains($0.id) }
-                .map(makeAgentAction)
-
-            let fallbackMenu: UIMenu? = if teamMenus.isEmpty, ungroupedActions.isEmpty {
+            let fallbackMenu: UIMenu? = if agentActions.isEmpty {
                 UIMenu(
                     title: "",
                     options: .displayInline,
@@ -886,140 +853,19 @@ extension ChatViewControllerWrapper {
             ) { [weak self] _ in
                 self?.onCreateLocalAgent?()
             }
-            let newTeamAction = UIAction(
-                title: L10n.tr("chat.menu.newTeam"),
-                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "users"))
-            ) { [weak self] _ in
-                self?.onCreateLocalTeam?()
-            }
 
-            let contentChildren = teamMenus + ungroupedActions + [fallbackMenu].compactMap { $0 }
+            let contentChildren = agentActions + [fallbackMenu].compactMap { $0 }
             let contentSection = UIMenu(title: "", options: .displayInline, children: contentChildren)
-            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction, newTeamAction])
+            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction])
             return UIMenu(title: "", children: [contentSection, entrySection])
         }
 
-        private func buildTeamSubmenu(for team: TeamProfile) -> UIMenu {
-            let snapshot = TeamSwarmCoordinator.shared.menuSnapshot(teamName: team.name)
-
-            let memberActions = team.agentPoolIDs.compactMap { agentID in
-                agents.first(where: { $0.id == agentID }).map { makeAgentAction(for: $0, team: team, snapshot: snapshot) }
-            }
-
-            let memberSection = UIMenu(
-                title: "",
-                options: .displayInline,
-                children: memberActions.isEmpty
-                    ? [UIAction(title: L10n.tr("chat.menu.team.noAgents"), attributes: [.disabled]) { _ in }]
-                    : memberActions
-            )
-
-            var bottomChildren: [UIMenuElement] = []
-            if let snapshot, snapshot.activeTaskCount > 0 {
-                let taskLabel = UIAction(
-                    title: String(format: L10n.tr("chat.menu.team.activeTasks"), snapshot.activeTaskCount),
-                    image: UIImage(systemName: "checklist"),
-                    attributes: [.disabled]
-                ) { _ in }
-                bottomChildren.append(UIMenu(title: "", options: .displayInline, children: [taskLabel]))
-            }
-
-            let addExistingAction = UIAction(
-                title: L10n.tr("team.management.action.manageAgents"),
-                image: UIImage(systemName: "person.2.badge.gearshape")
-            ) { [weak self] _ in
-                self?.onAddAgentToTeam?(team.id)
-            }
-
-            let createAndAddAction = UIAction(
-                title: L10n.tr("team.management.action.createAndAdd"),
-                image: UIImage(systemName: "plus.circle")
-            ) { [weak self] _ in
-                self?.onCreateAgentForTeam?(team.id)
-            }
-
-            let deleteTeamAction = UIAction(
-                title: L10n.tr("chat.menu.deleteTeamNamed", team.name),
-                image: UIImage(systemName: "trash"),
-                attributes: [.destructive]
-            ) { [weak self] _ in
-                self?.onDeleteTeam?(team.id)
-            }
-
-            let managementSection = UIMenu(title: "", options: .displayInline, children: [
-                addExistingAction,
-                createAndAddAction,
-                deleteTeamAction,
-            ])
-            bottomChildren.append(managementSection)
-
-            return UIMenu(
-                title: teamMenuTitle(for: team, snapshot: snapshot),
-                image: teamMenuImage(for: team, snapshot: snapshot),
-                children: [memberSection] + bottomChildren
-            )
-        }
-
         private func makeAgentAction(for agent: AgentProfile) -> UIAction {
-            makeAgentAction(for: agent, team: nil, snapshot: nil)
-        }
-
-        private func makeAgentAction(for agent: AgentProfile, team _: TeamProfile?, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIAction {
-            var title = agent.name
-            if let snapshot, let memberStatus = snapshot.memberStatuses[agent.id.uuidString] {
-                let badge = statusBadge(for: memberStatus)
-                if !badge.isEmpty {
-                    if let summary = snapshot.memberSummaries[agent.id.uuidString] {
-                        let truncated = summary.count > 40 ? String(summary.prefix(40)) + "…" : summary
-                        title = "\(title) · \(truncated) \(badge)"
-                    } else {
-                        title = "\(title) \(badge)"
-                    }
-                }
-            }
-            let showsSwarmIndicator = snapshot?.memberStatuses[agent.id.uuidString] == .busy
-            let image = makeAgentMenuImage(for: agent, showsSwarmBusy: showsSwarmIndicator)
+            let image = makeAgentMenuImage(for: agent)
             let state: UIMenuElement.State = (agent.id == activeAgentID) ? .on : .off
-            return UIAction(title: title, image: image, identifier: nil, discoverabilityTitle: nil, attributes: [], state: state) { [weak self] _ in
+            return UIAction(title: agent.name, image: image, identifier: nil, discoverabilityTitle: nil, attributes: [], state: state) { [weak self] _ in
                 self?.onAgentSwitch?(agent.id)
             }
-        }
-
-        private func statusBadge(for status: TeamSwarmCoordinator.MemberStatus) -> String {
-            switch status {
-            case .busy: return "🟢"
-            case .awaitingPlanApproval: return "🟡"
-            case .failed: return "🔴"
-            case .idle, .stopped: return ""
-            }
-        }
-
-        private func teamMenuTitle(for team: TeamProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> String {
-            guard let snapshot else { return team.name }
-            var parts: [String] = []
-            if snapshot.busyCount > 0 {
-                parts.append(String(format: L10n.tr("chat.menu.team.busyCount"), snapshot.busyCount))
-            }
-            if snapshot.pendingApprovalCount > 0 {
-                parts.append(String(format: L10n.tr("chat.menu.team.pendingCount"), snapshot.pendingApprovalCount))
-            }
-            if snapshot.failedCount > 0 {
-                parts.append(String(format: L10n.tr("chat.menu.team.failedCount"), snapshot.failedCount))
-            }
-            if parts.isEmpty { return team.name }
-            return "\(team.name) · \(parts.joined(separator: " · "))"
-        }
-
-        private func teamMenuImage(for team: TeamProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> UIImage? {
-            let hasBusy = (snapshot?.busyCount ?? 0) > 0
-            return makeEmojiMenuImage(from: team.emoji, showsRunningIndicator: hasBusy)
-        }
-
-        private func compareTeams(lhs: TeamProfile, rhs: TeamProfile) -> Bool {
-            if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt < rhs.createdAt
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
 
         private func standardizedMenuIcon(
@@ -1052,9 +898,9 @@ extension ChatViewControllerWrapper {
             )
         }
 
-        private func makeAgentMenuImage(for agent: AgentProfile, showsSwarmBusy: Bool = false) -> UIImage? {
+        private func makeAgentMenuImage(for agent: AgentProfile) -> UIImage? {
             let prefix = "agent:\(agent.id.uuidString)::"
-            let isRunning = showsSwarmBusy || ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
+            let isRunning = ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
             return makeEmojiMenuImage(from: agent.emoji, showsRunningIndicator: isRunning)
         }
 

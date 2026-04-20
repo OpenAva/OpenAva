@@ -4,6 +4,23 @@ import XCTest
 
 @MainActor
 final class AgentCreationViewModelPresetTests: XCTestCase {
+    private var testDirectoryURL: URL!
+
+    override func setUp() {
+        super.setUp()
+        testDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentCreationViewModelPresetTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: testDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        if let testDirectoryURL {
+            try? FileManager.default.removeItem(at: testDirectoryURL)
+        }
+        testDirectoryURL = nil
+        super.tearDown()
+    }
+
     func testApplyPresetFillsCreationFieldsAndSelection() {
         let preset = AgentPreset(
             id: "engineering",
@@ -15,7 +32,7 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
             soulCoreTruths: "Reason step by step\nOffer actionable suggestions"
         )
 
-        let viewModel = AgentCreationViewModel(presets: [preset])
+        let viewModel = AgentCreationViewModel(presets: [preset], userDirectoryURL: testDirectoryURL)
         viewModel.applyPreset(preset, avoiding: [])
 
         XCTAssertEqual(viewModel.selectedPresetID, "engineering")
@@ -36,56 +53,32 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
             soulCoreTruths: "Be genuinely helpful"
         )
 
-        let viewModel = AgentCreationViewModel(presets: [preset])
+        let viewModel = AgentCreationViewModel(presets: [preset], userDirectoryURL: testDirectoryURL)
         viewModel.applyPreset(preset, avoiding: [])
 
         XCTAssertFalse(viewModel.data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertTrue(viewModel.emojiCandidates.contains(viewModel.data.agentEmoji))
     }
 
-    func testDefaultTeamPresetsUseCatalogOrder() {
-        let viewModel = AgentCreationViewModel(presets: AgentPresetCatalog.builtInPresets())
+    func testCanCompleteDependsOnUserAndAgentIdentity() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
 
-        XCTAssertEqual(viewModel.defaultTeamPresets.map(\.id), AgentPresetCatalog.defaultTeamPresetIDs)
-        XCTAssertFalse(viewModel.canCreateTeam)
-    }
-
-    func testToggleDefaultTeamPresetUpdatesSelectedTeam() throws {
-        let presets = AgentPresetCatalog.builtInPresets()
-        let viewModel = AgentCreationViewModel(presets: presets)
-        let marketing = try XCTUnwrap(presets.first(where: { $0.id == "marketing" }))
-
-        XCTAssertFalse(viewModel.containsDefaultTeamPreset(marketing))
-
-        viewModel.toggleDefaultTeamPreset(marketing)
-        XCTAssertTrue(viewModel.containsDefaultTeamPreset(marketing))
-
-        viewModel.toggleDefaultTeamPreset(marketing)
-        XCTAssertFalse(viewModel.containsDefaultTeamPreset(marketing))
-    }
-
-    func testCanCreateTeamDependsOnTeamNameAndUserInfo() throws {
-        let presets = AgentPresetCatalog.builtInPresets()
-        let viewModel = AgentCreationViewModel(presets: presets)
-
-        XCTAssertFalse(viewModel.canCreateTeam)
+        XCTAssertFalse(viewModel.canComplete)
 
         viewModel.data.userCallName = "Yuan"
-        XCTAssertFalse(viewModel.canCreateTeam)
+        XCTAssertTrue(viewModel.canComplete)
 
-        viewModel.data.teamName = "OpenAva Team"
-        XCTAssertTrue(viewModel.canCreateTeam)
+        viewModel.data.agentName = "   "
+        XCTAssertFalse(viewModel.canComplete)
 
-        let firstPreset = try XCTUnwrap(presets.first)
-        viewModel.toggleDefaultTeamPreset(firstPreset)
-        XCTAssertEqual(viewModel.selectedDefaultTeamPresets.map(\.id), [firstPreset.id])
-
-        viewModel.data.teamName = "   "
-        XCTAssertFalse(viewModel.canCreateTeam)
+        viewModel.data.agentName = "Operator"
+        viewModel.data.agentEmoji = "   "
+        XCTAssertFalse(viewModel.canComplete)
     }
 
-    func testTeamModeInitializesDefaultTeamName() {
-        let viewModel = AgentCreationViewModel(initialMode: .defaultTeam, presets: [])
-        XCTAssertFalse(viewModel.data.teamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    func testInitialModeRemainsSingleAgent() {
+        let viewModel = AgentCreationViewModel(initialMode: .singleAgent, presets: [], userDirectoryURL: testDirectoryURL)
+
+        XCTAssertEqual(viewModel.creationMode, .singleAgent)
     }
 }

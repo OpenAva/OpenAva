@@ -11,12 +11,7 @@ final class TeamTools: ToolDefinitionProvider {
                 description: "Inspect the current team, teammate status, pending approvals, and shared tasks.",
                 parametersSchema: AnyCodable([
                     "type": "object",
-                    "properties": [
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
-                    ],
+                    "properties": [:],
                     "additionalProperties": false,
                 ] as [String: Any])
             ),
@@ -34,10 +29,6 @@ final class TeamTools: ToolDefinitionProvider {
                         "message": [
                             "type": "string",
                             "description": "Message body",
-                        ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
                         ],
                         "message_type": [
                             "type": "string",
@@ -64,10 +55,6 @@ final class TeamTools: ToolDefinitionProvider {
                             "type": "string",
                             "description": "Teammate name when approving from the main chat",
                         ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
                         "feedback": [
                             "type": "string",
                             "description": "Optional feedback appended to the approval",
@@ -91,10 +78,6 @@ final class TeamTools: ToolDefinitionProvider {
                             "type": "string",
                             "description": "Optional task detail",
                         ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
                     ],
                     "required": ["title"],
                     "additionalProperties": false,
@@ -106,12 +89,7 @@ final class TeamTools: ToolDefinitionProvider {
                 description: "List tasks in the active team task list.",
                 parametersSchema: AnyCodable([
                     "type": "object",
-                    "properties": [
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
-                        ],
-                    ],
+                    "properties": [:],
                     "additionalProperties": false,
                 ] as [String: Any])
             ),
@@ -125,10 +103,6 @@ final class TeamTools: ToolDefinitionProvider {
                         "task_id": [
                             "type": "integer",
                             "description": "Numeric task id",
-                        ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
                         ],
                     ],
                     "required": ["task_id"],
@@ -162,10 +136,6 @@ final class TeamTools: ToolDefinitionProvider {
                             "type": "string",
                             "description": "Optional new status",
                             "enum": TeamSwarmCoordinator.TaskStatus.allCases.map(\.rawValue),
-                        ],
-                        "team_name": [
-                            "type": "string",
-                            "description": "Optional explicit team name. Defaults to the caller's active team.",
                         ],
                     ],
                     "required": ["task_id"],

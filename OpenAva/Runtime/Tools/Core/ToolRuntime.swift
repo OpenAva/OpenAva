@@ -14,7 +14,6 @@ final class ToolRuntime: @unchecked Sendable {
     }
 
     struct TeamInvocationContext {
-        let teamName: String
         let memberID: String
     }
 
@@ -81,17 +80,22 @@ final class ToolRuntime: @unchecked Sendable {
     )
 
     private lazy var memoryProvider = MemoryTools()
+    private lazy var blogWatchProvider = BlogWatchTools()
     private lazy var subAgentProvider = SubAgentTools()
     private lazy var teamProvider = TeamTools()
     private lazy var skillProvider = SkillTools()
+
+    private let configureTeamSwarm: Bool
 
     static func makeDefault(
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil,
         teamsRootURL: URL? = nil,
         modelConfig: AppConfig.LLMModel? = nil,
-        configureTeamSwarm: Bool = true
+        configureTeamSwarm: Bool = false,
+        agentCount: Int = 1
     ) -> ToolRuntime {
+        let effectiveConfigureTeamSwarm = configureTeamSwarm || agentCount > 1
         let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
         let notificationCenter = LiveNotificationCenter()
         let cameraService = CameraController()
@@ -145,7 +149,7 @@ final class ToolRuntime: @unchecked Sendable {
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL,
             teamsRootURL: teamsRootURL,
-            configureTeamSwarm: configureTeamSwarm
+            configureTeamSwarm: effectiveConfigureTeamSwarm
         )
     }
 
@@ -181,7 +185,7 @@ final class ToolRuntime: @unchecked Sendable {
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil,
         teamsRootURL: URL? = nil,
-        configureTeamSwarm: Bool = true
+        configureTeamSwarm: Bool = false
     ) {
         self.cameraService = cameraService
         self.screenRecordingService = screenRecordingService
@@ -213,6 +217,7 @@ final class ToolRuntime: @unchecked Sendable {
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
         self.arxivSearchService = arxivSearchService
+        self.configureTeamSwarm = configureTeamSwarm
         if configureTeamSwarm {
             TeamSwarmCoordinator.shared.configure(
                 agentStoreRootURL: teamsRootURL
@@ -286,7 +291,7 @@ final class ToolRuntime: @unchecked Sendable {
         let registry = ToolRegistry.shared
         let context = makeToolHandlerRegistrationContext()
 
-        let providers: [any ToolDefinitionProvider] = [
+        var providers: [any ToolDefinitionProvider] = [
             deviceProvider,
             webFetchService,
             webSearchService,
@@ -297,14 +302,19 @@ final class ToolRuntime: @unchecked Sendable {
             textImageRenderService,
             fileSystemService,
             memoryProvider,
+            blogWatchProvider,
             subAgentProvider,
-            teamProvider,
-            skillProvider,
-            weatherService,
-            yahooFinanceService,
-            aShareMarketService,
-            arxivSearchService,
         ]
+
+        if configureTeamSwarm {
+            providers.append(teamProvider)
+        }
+
+        providers.append(skillProvider)
+        providers.append(weatherService)
+        providers.append(yahooFinanceService)
+        providers.append(aShareMarketService)
+        providers.append(arxivSearchService)
 
         for provider in providers {
             await registry.register(provider: provider, context: context)

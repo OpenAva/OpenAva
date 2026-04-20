@@ -33,19 +33,10 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
 
 final class AppWindowCoordinator: ObservableObject {
     @Published private(set) var agentCreationRequestID: Int = 0
-    @Published private(set) var teamCreationRequestID: Int = 0
     @Published private(set) var agentCreationMode: AgentCreationViewModel.CreationMode = .singleAgent
-    @Published private(set) var agentCreationTargetTeamID: UUID?
 
-    func openAgentCreation(targetTeamID: UUID? = nil) {
+    func openAgentCreation() {
         agentCreationMode = .singleAgent
-        agentCreationTargetTeamID = targetTeamID
-        agentCreationRequestID &+= 1
-    }
-
-    func openTeamCreation() {
-        agentCreationMode = .defaultTeam
-        agentCreationTargetTeamID = nil
         agentCreationRequestID &+= 1
     }
 }
@@ -97,7 +88,6 @@ struct AgentCreationWindowRootView: View {
         NavigationStack {
             AgentCreationView(
                 initialMode: windowCoordinator.agentCreationMode,
-                targetTeamID: windowCoordinator.agentCreationTargetTeamID,
                 onComplete: {
                     dismiss()
                 }

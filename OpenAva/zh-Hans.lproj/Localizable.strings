@@ -209,6 +209,12 @@
 "settings.usage.reset.confirm" = "重置";
 "settings.usage.reset.message" = "所有累计的 Token 用量和费用数据将被清除，此操作不可撤销。";
 "settings.background.enabled" = "后台运行";
+"blogWatch.notification.title.single" = "Blog Watch 有新文章";
+"blogWatch.notification.title.multiple" = "Blog Watch 有 %lld 篇新文章";
+"blogWatch.notification.titleSeparator" = "、";
+"blogWatch.notification.body.fallback" = "请打开 OpenAva 查看最新动态。";
+"blogWatch.heartbeat.template" = "---\nevery: 30m\nnotify: silent\n---\n\n你正在执行一次定时 heartbeat。需要监控博客时，请读取下面的 Blog Watch 配置块并调用 `blog_watch` 工具。不要依赖记忆追踪已读文章；始终以工具持久化状态为准。如果没有需要处理的内容，请回复 HEARTBEAT_OK。\n\n## Blog Watch\n\n```yaml\nsources:\n  - name: OpenAI Blog\n    site_url: https://openai.com/blog\n    feed_url: https://openai.com/blog/rss.xml\n  - name: Swift Blog\n    site_url: https://www.swift.org/blog/\n    feed_url: https://www.swift.org/atom.xml\n```\n\n执行规则：\n- 调用 `blog_watch` 时传入上面的 `sources`\n- 默认传 `skip_initial_baseline: true`\n- 只有工具报告有新文章时才进行总结或提醒";
+"blogWatch.recommendedHeartbeat.template" = "---\nevery: 30m\nnotify: silent\n---\n\n你正在 OpenAva 中执行一次定时 heartbeat。请遵循下面的说明。如果没有需要处理的内容，请回复 %1$@。\n\n需要进行博客监控时：\n- 从下面 `## Blog Watch` 代码块中读取博客源\n- 调用 `blog_watch` 工具，并传入 action `scan`\n- 传入 `sources` 和 `skip_initial_baseline: true`\n- 如果工具报告没有新文章，回复 %1$@\n- 如果有新文章，给出简短总结或提醒\n\n## Blog Watch\n\n```yaml\nsources:\n  - name: OpenAI Blog\n    site_url: https://openai.com/blog\n    feed_url: https://openai.com/blog/rss.xml\n  - name: Swift Blog\n    site_url: https://www.swift.org/blog/\n    feed_url: https://www.swift.org/atom.xml\n```";
 "notification.taskCompleted" = "完成了你的任务";
 "notification.taskFailed" = "已停止";
 "device.tools.notification.guidance.authorization.mac" = "请在 macOS 系统设置 > 通知 > OpenAva 中开启通知权限。";

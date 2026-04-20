@@ -12,7 +12,6 @@ struct TopoBotNavigationBar: View {
     let agentName: String
     let agentEmoji: String
     let modelName: String
-    let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeAgentID: UUID?
     let autoCompactEnabled: Bool
@@ -20,11 +19,7 @@ struct TopoBotNavigationBar: View {
     let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
-    let onCreateLocalTeam: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
-    let onAddAgentToTeam: ((UUID) -> Void)?
-    let onCreateAgentForTeam: ((UUID) -> Void)?
-    let onDeleteTeam: ((UUID) -> Void)?
     let onToggleAutoCompact: (() -> Void)?
 
     var body: some View {
@@ -92,9 +87,6 @@ struct TopoBotNavigationBar: View {
             Button(action: { onCreateLocalAgent?() }) {
                 Label(L10n.tr("chat.menu.newLocalAgent"), systemImage: "plus.circle")
             }
-            Button(action: { onCreateLocalTeam?() }) {
-                Label(L10n.tr("chat.menu.newTeam"), systemImage: "person.2")
-            }
         }
     }
 
@@ -111,68 +103,24 @@ struct TopoBotNavigationBar: View {
 
     @ViewBuilder
     private var agentPickerContent: some View {
-        let groupedAgentIDs = Set(teams.flatMap(\.agentPoolIDs))
-
-        // Teams
-        ForEach(teams.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { team in
-            teamSubmenu(for: team)
-        }
-
-        // Ungrouped agents
-        ForEach(agents.filter { !groupedAgentIDs.contains($0.id) }, id: \.id) { agent in
+        ForEach(agents, id: \.id) { agent in
             agentButton(for: agent)
         }
 
-        if teams.isEmpty, agents.filter({ !groupedAgentIDs.contains($0.id) }).isEmpty {
+        if agents.isEmpty {
             Text(L10n.tr("chat.menu.noAgentsAvailable"))
         }
     }
 
-    private func teamSubmenu(for team: TeamProfile) -> some View {
-        let snapshot = TeamSwarmCoordinator.shared.menuSnapshot(teamName: team.name)
-        return Menu(teamMenuTitle(for: team, snapshot: snapshot)) {
-            // Member agents
-            let memberAgents = team.agentPoolIDs.compactMap { id in agents.first(where: { $0.id == id }) }
-            if memberAgents.isEmpty {
-                Text(L10n.tr("chat.menu.team.noAgents"))
-            } else {
-                ForEach(memberAgents, id: \.id) { agent in
-                    agentButton(for: agent, snapshot: snapshot)
-                }
-            }
-
-            if let snapshot, snapshot.activeTaskCount > 0 {
-                Section {
-                    Label(
-                        String(format: L10n.tr("chat.menu.team.activeTasks"), snapshot.activeTaskCount),
-                        systemImage: "checklist"
-                    )
-                }
-            }
-
-            Section {
-                Button(action: { onAddAgentToTeam?(team.id) }) {
-                    Label(L10n.tr("team.management.action.manageAgents"), systemImage: "person.2.badge.gearshape")
-                }
-                Button(action: { onCreateAgentForTeam?(team.id) }) {
-                    Label(L10n.tr("team.management.action.createAndAdd"), systemImage: "plus.circle")
-                }
-                Button(role: .destructive, action: { onDeleteTeam?(team.id) }) {
-                    Label(L10n.tr("chat.menu.deleteTeamNamed", team.name), systemImage: "trash")
-                }
-            }
-        }
-    }
-
     @ViewBuilder
-    private func agentButton(for agent: AgentProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot? = nil) -> some View {
+    private func agentButton(for agent: AgentProfile) -> some View {
         let isActive = agent.id == activeAgentID
         Toggle(isOn: Binding(
             get: { isActive },
             set: { newValue in if newValue { onAgentSwitch?(agent.id) } }
         )) {
-            let title = agentMenuTitle(for: agent, snapshot: snapshot)
-            if let image = makeEmojiImage(from: agent.emoji, snapshot: snapshot) {
+            let title = agentMenuTitle(for: agent)
+            if let image = makeEmojiImage(from: agent.emoji) {
                 Label {
                     Text(title)
                 } icon: {
@@ -271,48 +219,11 @@ struct TopoBotNavigationBar: View {
         return model.isEmpty ? "Not Selected" : model
     }
 
-    private func agentMenuTitle(for agent: AgentProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> String {
-        var title = agent.name
-        if let snapshot, let memberStatus = snapshot.memberStatuses[agent.id.uuidString] {
-            let badge = statusBadge(for: memberStatus)
-            if !badge.isEmpty {
-                if let summary = snapshot.memberSummaries[agent.id.uuidString] {
-                    let truncated = summary.count > 40 ? String(summary.prefix(40)) + "…" : summary
-                    title = "\(title) · \(truncated) \(badge)"
-                } else {
-                    title = "\(title) \(badge)"
-                }
-            }
-        }
-        return title
+    private func agentMenuTitle(for agent: AgentProfile) -> String {
+        agent.name
     }
 
-    private func statusBadge(for status: TeamSwarmCoordinator.MemberStatus) -> String {
-        switch status {
-        case .busy: return "🟢"
-        case .awaitingPlanApproval: return "🟡"
-        case .failed: return "🔴"
-        case .idle, .stopped: return ""
-        }
-    }
-
-    private func teamMenuTitle(for team: TeamProfile, snapshot: TeamSwarmCoordinator.TeamMenuSnapshot?) -> String {
-        guard let snapshot else { return team.name }
-        var parts: [String] = []
-        if snapshot.busyCount > 0 {
-            parts.append(String(format: L10n.tr("chat.menu.team.busyCount"), snapshot.busyCount))
-        }
-        if snapshot.pendingApprovalCount > 0 {
-            parts.append(String(format: L10n.tr("chat.menu.team.pendingCount"), snapshot.pendingApprovalCount))
-        }
-        if snapshot.failedCount > 0 {
-            parts.append(String(format: L10n.tr("chat.menu.team.failedCount"), snapshot.failedCount))
-        }
-        if parts.isEmpty { return team.name }
-        return "\(team.name) · \(parts.joined(separator: " · "))"
-    }
-
-    private func makeEmojiImage(from emoji: String, snapshot _: TeamSwarmCoordinator.TeamMenuSnapshot?) -> Image? {
+    private func makeEmojiImage(from emoji: String) -> Image? {
         let trimmed = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
 
