@@ -5,6 +5,7 @@ import XCTest
 
 final class AgentDurableMemoryExtractorTests: XCTestCase {
     func testSessionDelegateCanDisableAutomaticDurableMemoryExtraction() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -24,7 +25,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
             agentEmoji: "",
             shouldExtractDurableMemory: false
         )
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
 
         await delegate.sessionDidPersistMessages(makeConversation(sessionID: "session-1"), for: "session-1")
 
@@ -35,6 +36,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorWritesDurableMemoryAndAdvancesCursor() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -43,7 +45,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         let responseJSON = #"{"memories":[{"name":"User prefers terse answers","type":"feedback","description":"Response brevity preference","content":"Prefer concise answers with no trailing summaries.","slug":"response-style"}]}"#
         let chatClient = StubChatClient(responseText: responseJSON)
         let extractor = AgentDurableMemoryExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
 
         let messages = makeConversation(sessionID: "session-1")
         await extractor.extractIfNeeded(for: "session-1", messages: messages)
@@ -58,6 +60,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorSkipsExtractionWhenCursorWasCompactedAway() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -98,6 +101,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorIgnoresNonJSONWrappedResponse() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
@@ -111,7 +115,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         """#
         let chatClient = StubChatClient(responseText: responseText)
         let extractor = AgentDurableMemoryExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
 
         await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
 
@@ -122,12 +126,13 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorDoesNotReuseExistingTopicSlugWhenResponseOmitsSlug() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: runtimeRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let existing = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -149,7 +154,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         XCTAssertEqual(newEntry.version, 1)
         XCTAssertTrue(newEntry.content.contains("wrap-up summaries"))
 
-        let archivedVersionURL = runtimeRoot
+        let archivedVersionURL = AgentStore.sharedRuntimeRootURL()
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent(".versions", isDirectory: true)
             .appendingPathComponent(existing.slug, isDirectory: true)
@@ -158,12 +163,13 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorDoesNotInferConflictsWhenResponseOmitsConflicts() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: runtimeRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let existing = try await store.upsert(
             name: "Preferred response language English",
             type: .user,
@@ -180,7 +186,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         let entries = try await store.listEntries()
         XCTAssertEqual(Set(entries.map(\.slug)), ["language-english", "language-chinese"])
 
-        let previousFileURL = runtimeRoot
+        let previousFileURL = AgentStore.sharedRuntimeRootURL()
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent("\(existing.slug).md", isDirectory: false)
         let raw = try String(contentsOf: previousFileURL, encoding: .utf8)
@@ -189,12 +195,13 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
     }
 
     func testExtractorAppliesExplicitConflictsFromModelResponse() async throws {
+        try resetSharedMemoryRoot()
         let runtimeRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: runtimeRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let existing = try await store.upsert(
             name: "Preferred response language English",
             type: .user,
@@ -211,7 +218,7 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         let entries = try await store.listEntries()
         XCTAssertEqual(entries.map(\.slug), ["language-chinese"])
 
-        let previousFileURL = runtimeRoot
+        let previousFileURL = AgentStore.sharedRuntimeRootURL()
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent("\(existing.slug).md", isDirectory: false)
         let raw = try String(contentsOf: previousFileURL, encoding: .utf8)
@@ -227,6 +234,13 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         assistant.textContent = "收到，后续我会保持简洁。"
 
         return [user, assistant]
+    }
+
+    private func resetSharedMemoryRoot(fileManager: FileManager = .default) throws {
+        let sharedMemoryRoot = AgentStore.sharedRuntimeRootURL(fileManager: fileManager)
+        if fileManager.fileExists(atPath: sharedMemoryRoot.path) {
+            try fileManager.removeItem(at: sharedMemoryRoot)
+        }
     }
 }
 

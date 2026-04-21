@@ -34,7 +34,7 @@ actor AgentDurableMemoryExtractor {
         self.runtimeRootURL = runtimeRootURL.standardizedFileURL
         self.chatClient = chatClient
         self.fileManager = fileManager
-        memoryStore = AgentMemoryStore(runtimeRootURL: self.runtimeRootURL, fileManager: fileManager)
+        memoryStore = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL(fileManager: fileManager), fileManager: fileManager)
     }
 
     func extractIfNeeded(for sessionID: String, messages: [ConversationMessage]) async {
@@ -129,7 +129,7 @@ actor AgentDurableMemoryExtractor {
         conversationBlock: String
     ) async throws -> ExtractionResponse {
         let systemPrompt = """
-        You extract durable memories from an agent conversation.
+        You extract durable memories from an agent conversation into a shared memory pool used by all agents.
 
         Return JSON only using this schema:
         {
@@ -149,6 +149,7 @@ actor AgentDurableMemoryExtractor {
         Rules:
         - Extract at most 4 memories.
         - Only save durable facts that will matter in future conversations.
+        - These memories are shared across all agents — prioritize saving mistakes, corrections, user preferences, and project conventions that prevent the group from repeating errors.
         - Allowed types are exactly: user, feedback, project, reference.
         - Do not save code structure, file paths, implementation details derivable from the repo, temporary task progress, compact summaries, or transient search results.
         - Prefer updating an existing memory topic by reusing its slug when the topic already exists.

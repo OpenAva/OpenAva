@@ -495,6 +495,14 @@ enum AgentStore {
         return rootURL
     }
 
+    /// Returns the shared runtime root URL under the OpenAva workspace directory.
+    /// Memory files live at `<workspace>/.shared-runtime/memory/`.
+    static func sharedRuntimeRootURL(fileManager: FileManager = .default) -> URL {
+        let workspaceRoot = (try? workspaceRootDirectory(fileManager: fileManager))
+            ?? fileManager.temporaryDirectory.appendingPathComponent("OpenAva", isDirectory: true)
+        return workspaceRoot.appendingPathComponent(".shared-runtime", isDirectory: true)
+    }
+
     private static func resolvedWorkspaceRootDirectory(
         fileManager: FileManager,
         workspaceRootURL: URL?

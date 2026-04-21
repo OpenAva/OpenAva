@@ -9,7 +9,7 @@ final class MemoryTools: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "memory_recall",
                 command: "memory.recall",
-                description: "Recall relevant durable memories by searching indexed agent memory topics.",
+                description: "Recall relevant durable memories from the shared memory pool by searching indexed memory topics across all agents.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -32,7 +32,7 @@ final class MemoryTools: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "memory_upsert",
                 command: "memory.upsert",
-                description: "Create or update a durable typed memory topic in the agent runtime memory store.",
+                description: "Create or update a durable typed memory topic in the shared memory pool accessible to all agents.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -79,7 +79,7 @@ final class MemoryTools: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "memory_forget",
                 command: "memory.forget",
-                description: "Remove a stale durable memory topic by slug / filename stem.",
+                description: "Remove a stale durable memory topic from the shared memory pool by slug / filename stem.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [

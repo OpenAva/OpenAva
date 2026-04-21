@@ -41,7 +41,7 @@ extension MemoryTools {
 
     private static func handleMemoryRecallInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var query: String
@@ -49,15 +49,7 @@ extension MemoryTools {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        guard let runtimeRootURL = activeRuntimeRootURLProvider() else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
-            )
-        }
-
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let hits = try await store.recall(query: params.query, limit: min(max(params.limit ?? 5, 1), 20))
         let lines = hits.map { hit in
             """
@@ -75,7 +67,7 @@ extension MemoryTools {
 
     private static func handleMemoryUpsertInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var name: String
@@ -88,13 +80,6 @@ extension MemoryTools {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        guard let runtimeRootURL = activeRuntimeRootURLProvider() else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
-            )
-        }
         guard let type = AgentMemoryStore.MemoryType(rawValue: params.type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
             return BridgeInvokeResponse(
                 id: request.id,
@@ -103,7 +88,7 @@ extension MemoryTools {
             )
         }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let entry = try await store.upsert(
             name: params.name,
             type: type,
@@ -120,22 +105,14 @@ extension MemoryTools {
 
     private static func handleMemoryForgetInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var slug: String
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        guard let runtimeRootURL = activeRuntimeRootURLProvider() else {
-            return BridgeInvokeResponse(
-                id: request.id,
-                ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
-            )
-        }
-
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
         let removed = try await store.forget(slug: params.slug)
         let text = removed
             ? "## Memory Forget\n- status: removed\n- slug: \(params.slug)"
