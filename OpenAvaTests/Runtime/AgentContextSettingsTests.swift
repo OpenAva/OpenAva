@@ -120,6 +120,87 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertEqual(article.emoji, "🔎")
     }
 
+    func testListSkillsIncludesSharedRuntimeSkills() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillName = "shared-\(UUID().uuidString.lowercased())"
+        let sharedSkillURL = AgentStore.sharedRuntimeRootURL()
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+
+        try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sharedSkillURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot)
+            try? FileManager.default.removeItem(at: sharedSkillURL)
+        }
+
+        let content = """
+        ---
+        description: Shared runtime skill
+        ---
+        # Runtime Skill
+        """
+        try content.write(to: sharedSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skills = AgentSkillsLoader.listSkills(filterUnavailable: false, workspaceRootURL: workspaceRoot)
+        let sharedSkill = try XCTUnwrap(skills.first(where: { $0.name == skillName }))
+
+        XCTAssertEqual(sharedSkill.source, "shared")
+        XCTAssertEqual(sharedSkill.description, "Shared runtime skill")
+    }
+
+    func testWorkspaceSkillsOverrideSharedRuntimeSkillsWithSameIdentifier() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillName = "collision-\(UUID().uuidString.lowercased())"
+        let workspaceSkillURL = workspaceRoot
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+        let sharedSkillURL = AgentStore.sharedRuntimeRootURL()
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+
+        try FileManager.default.createDirectory(at: workspaceSkillURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sharedSkillURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot)
+            try? FileManager.default.removeItem(at: sharedSkillURL)
+        }
+
+        let workspaceContent = """
+        ---
+        description: Workspace wins
+        ---
+        # Workspace Skill
+        """
+        let sharedContent = """
+        ---
+        description: Shared fallback
+        ---
+        # Runtime Skill
+        """
+
+        try workspaceContent.write(to: workspaceSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try sharedContent.write(to: sharedSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = try XCTUnwrap(
+            AgentSkillsLoader.resolveSkill(
+                named: skillName,
+                filterUnavailable: false,
+                workspaceRootURL: workspaceRoot
+            )
+        )
+
+        XCTAssertEqual(skill.source, "workspace")
+        XCTAssertEqual(skill.description, "Workspace wins")
+
+        let resolvedSkillPath = URL(fileURLWithPath: skill.path).resolvingSymlinksInPath()
+        let expectedSkillPath = workspaceSkillURL
+            .appendingPathComponent("SKILL.md", isDirectory: false)
+            .resolvingSymlinksInPath()
+
+        XCTAssertEqual(resolvedSkillPath, expectedSkillPath)
+    }
+
     func testComposeSystemPromptDoesNotInlineSkillsByDefault() throws {
         let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let workspaceSkillURL = rootURL

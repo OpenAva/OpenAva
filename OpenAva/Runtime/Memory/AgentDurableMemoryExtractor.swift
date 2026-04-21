@@ -299,6 +299,316 @@ actor AgentDurableMemoryExtractor {
     }
 }
 
+actor AgentSkillExtractor {
+    private struct ExtractionResponse: Decodable {
+        struct SkillCandidate: Decodable {
+            let name: String
+            let description: String
+            let purpose: String
+            let whenToUse: String
+            let steps: [String]
+            let slug: String?
+        }
+
+        let skills: [SkillCandidate]
+    }
+
+    private struct CursorState: Codable {
+        let lastProcessedMessageID: String
+    }
+
+    private let chatClient: (any ChatClient)?
+    private let skillStore: AgentSkillStore
+    private let runtimeRootURL: URL
+    private let fileManager: FileManager
+
+    init(
+        runtimeRootURL: URL,
+        chatClient: (any ChatClient)?,
+        fileManager: FileManager = .default
+    ) {
+        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+        self.chatClient = chatClient
+        self.fileManager = fileManager
+        skillStore = AgentSkillStore(
+            runtimeRootURL: AgentStore.sharedRuntimeRootURL(fileManager: fileManager),
+            fileManager: fileManager
+        )
+    }
+
+    func extractIfNeeded(for sessionID: String, messages: [ConversationMessage]) async {
+        guard let chatClient else { return }
+
+        let relevantMessages = recentMessages(from: messages, since: loadLastProcessedMessageID(for: sessionID))
+        let visibleMessages = relevantMessages.filter(Self.isModelVisibleMessage)
+        guard shouldExtract(from: visibleMessages) else {
+            return
+        }
+        guard let lastProcessedMessageID = visibleMessages.last?.id else {
+            return
+        }
+
+        let conversationBlock = renderConversation(visibleMessages)
+        guard !conversationBlock.isEmpty else { return }
+        let existingEntries = (try? await skillStore.listEntries()) ?? []
+
+        do {
+            let response = try await requestExtraction(
+                using: chatClient,
+                existingEntries: existingEntries,
+                conversationBlock: conversationBlock
+            )
+            for candidate in response.skills {
+                let normalizedName = candidate.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedDescription = candidate.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedPurpose = candidate.purpose.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedWhenToUse = candidate.whenToUse.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedSteps = candidate.steps
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                guard !normalizedName.isEmpty,
+                      !normalizedDescription.isEmpty,
+                      !normalizedPurpose.isEmpty,
+                      !normalizedWhenToUse.isEmpty,
+                      !normalizedSteps.isEmpty
+                else {
+                    continue
+                }
+
+                let body = renderedSkillBody(
+                    purpose: normalizedPurpose,
+                    whenToUse: normalizedWhenToUse,
+                    steps: normalizedSteps
+                )
+                _ = try await skillStore.upsert(
+                    name: normalizedName,
+                    description: normalizedDescription,
+                    whenToUse: normalizedWhenToUse,
+                    content: body,
+                    slug: sanitizedSlug(candidate.slug),
+                    userInvocable: false,
+                    maturity: .draft,
+                    origin: .extractor
+                )
+            }
+            saveLastProcessedMessageID(lastProcessedMessageID, for: sessionID)
+        } catch {
+            return
+        }
+    }
+
+    private func loadLastProcessedMessageID(for sessionID: String) -> String? {
+        let fileURL = cursorFileURL(for: sessionID)
+        guard let data = try? Data(contentsOf: fileURL),
+              let state = try? JSONDecoder().decode(CursorState.self, from: data)
+        else {
+            return nil
+        }
+        return state.lastProcessedMessageID
+    }
+
+    private func saveLastProcessedMessageID(_ messageID: String, for sessionID: String) {
+        let directoryURL = sessionDirectoryURL(for: sessionID)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(CursorState(lastProcessedMessageID: messageID))
+            try data.write(to: cursorFileURL(for: sessionID), options: .atomic)
+        } catch {
+            return
+        }
+    }
+
+    private func sessionDirectoryURL(for sessionID: String) -> URL {
+        runtimeRootURL
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+    }
+
+    private func cursorFileURL(for sessionID: String) -> URL {
+        sessionDirectoryURL(for: sessionID).appendingPathComponent("skill-extraction-cursor.json", isDirectory: false)
+    }
+
+    private func requestExtraction(
+        using chatClient: any ChatClient,
+        existingEntries: [AgentSkillStore.Entry],
+        conversationBlock: String
+    ) async throws -> ExtractionResponse {
+        let systemPrompt = """
+        You extract reusable runtime skills from an agent conversation into a runtime skill pool used by all agents.
+
+        Return JSON only using this schema:
+        {
+          "skills": [
+            {
+              "name": "string",
+              "description": "string",
+              "purpose": "string",
+              "whenToUse": "string",
+              "steps": ["string"],
+              "slug": "string or omitted"
+            }
+          ]
+        }
+
+        Rules:
+        - Extract at most 2 skills.
+        - Only create a skill when the conversation demonstrates a reusable multi-step workflow, checklist, or decision pattern that would help on future tasks.
+        - Skills are procedural knowledge (how to do something), not user preferences, project facts, or transient summaries.
+        - Prefer workflows learned from complex tool-using tasks with multiple steps or corrections.
+        - Do not include repo-specific file paths, exact diffs, branch names, commit hashes, secrets, or one-off outputs.
+        - Keep the skill generic enough for similar future tasks, but specific enough to be actionable.
+        - `description`, `purpose`, and `whenToUse` must each be concise.
+        - `steps` must contain 3-8 imperative workflow steps.
+        - Reuse an existing skill slug when the workflow clearly refines the same runtime skill; otherwise omit slug.
+        - If there is nothing worth saving as a reusable skill, return {"skills":[]}.
+        """
+        let userPrompt = """
+        ## Existing Skills
+        \(skillManifest(from: existingEntries))
+
+        ## Recent Conversation
+        \(conversationBlock)
+        """
+
+        let response = try await chatClient.chat(
+            body: ChatRequestBody(
+                messages: [
+                    .system(content: .text(systemPrompt)),
+                    .user(content: .text(userPrompt)),
+                ],
+                stream: false
+            )
+        )
+        return parseResponse(response.text)
+    }
+
+    private func parseResponse(_ raw: String) -> ExtractionResponse {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(ExtractionResponse.self, from: data)
+        else {
+            return ExtractionResponse(skills: [])
+        }
+        return decoded
+    }
+
+    private func recentMessages(from messages: [ConversationMessage], since messageID: String?) -> [ConversationMessage] {
+        guard let messageID, !messageID.isEmpty else {
+            return messages
+        }
+        if let index = messages.firstIndex(where: { $0.id == messageID }) {
+            let nextIndex = messages.index(after: index)
+            guard nextIndex < messages.endIndex else { return [] }
+            return Array(messages[nextIndex...])
+        }
+
+        for message in messages.reversed() {
+            if message.isCompactBoundary {
+                return []
+            }
+        }
+
+        return messages
+    }
+
+    private func shouldExtract(from messages: [ConversationMessage]) -> Bool {
+        let userCount = messages.count { $0.role == .user && !$0.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let assistantCount = messages.count { $0.role == .assistant && !$0.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard userCount > 0, assistantCount > 0 else {
+            return false
+        }
+
+        let toolCallCount = messages.reduce(into: 0) { partialResult, message in
+            partialResult += message.parts.count { part in
+                guard case .toolCall = part else { return false }
+                return true
+            }
+        }
+        let nonEmptyMessageCount = messages.count { !$0.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let assistantTextLength = messages
+            .filter { $0.role == .assistant }
+            .map { $0.textContent.trimmingCharacters(in: .whitespacesAndNewlines).count }
+            .reduce(0, +)
+
+        return toolCallCount >= 2 || (toolCallCount >= 1 && assistantTextLength >= 400) || nonEmptyMessageCount >= 6
+    }
+
+    private func renderConversation(_ messages: [ConversationMessage]) -> String {
+        messages.compactMap { message in
+            let text = message.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            let toolsUsed = message.parts.compactMap { part -> String? in
+                guard case let .toolCall(toolCall) = part else { return nil }
+                let name = toolCall.apiName.isEmpty ? toolCall.toolName : toolCall.apiName
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            guard !text.isEmpty || !toolsUsed.isEmpty else { return nil }
+            let prefix: String
+            switch message.role {
+            case .user:
+                prefix = "USER"
+            case .assistant:
+                prefix = "ASSISTANT"
+            default:
+                prefix = message.role.rawValue.uppercased()
+            }
+            let toolsSuffix = toolsUsed.isEmpty ? "" : " [tools: \(toolsUsed.joined(separator: ", "))]"
+            return "[\(prefix)\(toolsSuffix)] \(text)"
+        }
+        .joined(separator: "\n\n")
+    }
+
+    private func skillManifest(from entries: [AgentSkillStore.Entry]) -> String {
+        guard !entries.isEmpty else { return "(empty)" }
+        return entries.map { entry in
+            let excerpt = entry.content
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let truncatedExcerpt: String
+            if excerpt.count > 160 {
+                let endIndex = excerpt.index(excerpt.startIndex, offsetBy: 160)
+                truncatedExcerpt = String(excerpt[..<endIndex]) + "…"
+            } else {
+                truncatedExcerpt = excerpt
+            }
+            return "- slug=\(entry.slug) | version=\(entry.version) | name=\(entry.name) | description=\(entry.description) | when_to_use=\(entry.whenToUse ?? "") | content=\(truncatedExcerpt)"
+        }.joined(separator: "\n")
+    }
+
+    private func renderedSkillBody(purpose: String, whenToUse: String, steps: [String]) -> String {
+        let stepLines = steps.enumerated().map { index, step in
+            "\(index + 1). \(step)"
+        }.joined(separator: "\n")
+
+        return [
+            "# Purpose",
+            "",
+            purpose,
+            "",
+            "# When to Use",
+            "",
+            whenToUse,
+            "",
+            "# Workflow",
+            "",
+            stepLines,
+        ].joined(separator: "\n")
+    }
+
+    private func sanitizedSlug(_ raw: String?) -> String? {
+        guard let slug = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !slug.isEmpty else {
+            return nil
+        }
+        return slug
+    }
+
+    private static func isModelVisibleMessage(_ message: ConversationMessage) -> Bool {
+        !message.isCompactSummary && (message.role == .user || message.role == .assistant || message.role == .tool)
+    }
+}
+
 private extension Collection {
     func count(where predicate: (Element) -> Bool) -> Int {
         reduce(into: 0) { result, element in

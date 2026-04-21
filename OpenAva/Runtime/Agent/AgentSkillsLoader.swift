@@ -1,6 +1,6 @@
 import Foundation
 
-/// Loads workspace and built-in skills using nanobot-style conventions.
+/// Loads workspace, shared-runtime, and built-in skills using nanobot-style conventions.
 enum AgentSkillsLoader {
     enum SkillVisibility {
         case all
@@ -30,6 +30,10 @@ enum AgentSkillsLoader {
         let effort: String?
         let allowedTools: [String]
         let paths: [String]
+        let maturity: String?
+        let origin: String?
+        let usageCount: Int
+        let supportingFiles: [String]
 
         init(
             name: String,
@@ -47,7 +51,11 @@ enum AgentSkillsLoader {
             agent: String? = nil,
             effort: String? = nil,
             allowedTools: [String] = [],
-            paths: [String] = []
+            paths: [String] = [],
+            maturity: String? = nil,
+            origin: String? = nil,
+            usageCount: Int = 0,
+            supportingFiles: [String] = []
         ) {
             self.name = name
             self.displayName = displayName
@@ -65,6 +73,10 @@ enum AgentSkillsLoader {
             self.effort = AppConfig.nonEmpty(effort)
             self.allowedTools = allowedTools
             self.paths = paths
+            self.maturity = AppConfig.nonEmpty(maturity)
+            self.origin = AppConfig.nonEmpty(origin)
+            self.usageCount = max(0, usageCount)
+            self.supportingFiles = supportingFiles
         }
 
         private static func normalizedEmoji(_ value: String?) -> String? {
@@ -105,6 +117,15 @@ enum AgentSkillsLoader {
             fileManager: fileManager
         ) {
             skills.append(contentsOf: collectSkills(from: workspaceDirectory, source: "workspace", fileManager: fileManager))
+        }
+
+        if let sharedDirectory = sharedSkillsDirectory(fileManager: fileManager) {
+            for skill in collectSkills(from: sharedDirectory, source: "shared", fileManager: fileManager) {
+                if skills.contains(where: { $0.name == skill.name }) {
+                    continue
+                }
+                skills.append(skill)
+            }
         }
 
         if let builtInDirectory = builtInSkillsDirectory(environment: environment, fileManager: fileManager, bundle: bundle) {
@@ -272,7 +293,11 @@ enum AgentSkillsLoader {
                 agent: skill.agent,
                 effort: skill.effort,
                 allowedTools: skill.allowedTools,
-                paths: skill.paths
+                paths: skill.paths,
+                maturity: skill.maturity,
+                origin: skill.origin,
+                usageCount: skill.usageCount,
+                supportingFiles: skill.supportingFiles
             )
         }
     }
@@ -756,6 +781,12 @@ enum AgentSkillsLoader {
         return nil
     }
 
+    private static func sharedSkillsDirectory(fileManager: FileManager) -> URL? {
+        let directory = AgentStore.sharedRuntimeRootURL(fileManager: fileManager)
+            .appendingPathComponent(workspaceSkillsFolderName, isDirectory: true)
+        return existingDirectory(at: directory, fileManager: fileManager)
+    }
+
     private static func collectSkills(from directory: URL, source: String, fileManager: FileManager) -> [SkillDefinition] {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
@@ -798,6 +829,10 @@ enum AgentSkillsLoader {
             let effort = skillEffort(metadata: frontmatter, skillMetadata: parsedMetadata)
             let allowedTools = skillAllowedTools(metadata: frontmatter, skillMetadata: parsedMetadata)
             let paths = skillPaths(metadata: frontmatter, skillMetadata: parsedMetadata)
+            let maturity = AppConfig.nonEmpty(frontmatter["maturity"])
+            let origin = AppConfig.nonEmpty(frontmatter["origin"])
+            let usageCount = Int(frontmatter["usage_count"] ?? "") ?? 0
+            let supportingFiles = collectSupportingFiles(in: entry, fileManager: fileManager)
 
             skills.append(SkillDefinition(
                 name: identifier,
@@ -813,7 +848,11 @@ enum AgentSkillsLoader {
                 agent: agent,
                 effort: effort,
                 allowedTools: allowedTools,
-                paths: paths
+                paths: paths,
+                maturity: maturity,
+                origin: origin,
+                usageCount: usageCount,
+                supportingFiles: supportingFiles
             ))
         }
 
@@ -883,6 +922,27 @@ enum AgentSkillsLoader {
             return nil
         }
         return url
+    }
+
+    private static func collectSupportingFiles(in directory: URL, fileManager: FileManager) -> [String] {
+        let allowedDirectories = ["references", "templates", "scripts"]
+        var collected: [String] = []
+        for directoryName in allowedDirectories {
+            let subdirectory = directory.appendingPathComponent(directoryName, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: subdirectory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                continue
+            }
+            guard let enumerator = fileManager.enumerator(at: subdirectory, includingPropertiesForKeys: [.isRegularFileKey]) else {
+                continue
+            }
+            for case let fileURL as URL in enumerator {
+                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                guard values?.isRegularFile == true else { continue }
+                collected.append(fileURL.path.replacingOccurrences(of: directory.path + "/", with: ""))
+            }
+        }
+        return collected.sorted()
     }
 
     private static func stringArray(from value: Any?) -> [String] {

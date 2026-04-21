@@ -5,7 +5,7 @@ import UIKit
 import UserNotifications
 
 /// SessionDelegate that owns host-side session behavior such as background
-/// execution, durable memory extraction, notifications, and usage tracking.
+/// execution, post-task knowledge extraction, notifications, and usage tracking.
 final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private static var isMacCatalyst: Bool {
         #if targetEnvironment(macCatalyst)
@@ -20,6 +20,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
     private let sessionLogStorage: any StorageProvider
     private let durableMemoryExtractor: AgentDurableMemoryExtractor
+    private let skillExtractor: AgentSkillExtractor
     private let shouldExtractDurableMemory: Bool
     private let hapticLock = NSLock()
     private var lastHapticAt: TimeInterval = 0
@@ -50,6 +51,10 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
             runtimeRootURL: resolvedRuntimeRootURL,
             chatClient: chatClient
         )
+        skillExtractor = AgentSkillExtractor(
+            runtimeRootURL: resolvedRuntimeRootURL,
+            chatClient: chatClient
+        )
     }
 
     func activeRuntimeRootURL() -> URL? {
@@ -59,6 +64,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async {
         guard shouldExtractDurableMemory else { return }
         await durableMemoryExtractor.extractIfNeeded(for: sessionID, messages: messages)
+        await skillExtractor.extractIfNeeded(for: sessionID, messages: messages)
     }
 
     func beginBackgroundTask(expiration: @escaping @Sendable () -> Void) -> Any? {

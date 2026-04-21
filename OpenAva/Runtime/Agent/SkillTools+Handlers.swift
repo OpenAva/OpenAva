@@ -12,7 +12,14 @@ extension SkillTools {
                 request,
                 workspaceRootURL: context.workspaceRootURL,
                 modelConfig: context.modelConfig,
+                activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider,
                 toolInvoker: context.toolInvoker
+            )
+        }
+        handlers["skill.upsert"] = { request in
+            try await Self.handleSkillUpsert(
+                request,
+                activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider
             )
         }
     }
@@ -21,6 +28,7 @@ extension SkillTools {
         _ request: BridgeInvokeRequest,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel?,
+        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
     ) async throws -> BridgeInvokeResponse {
         struct InvokeParams: Decodable {
@@ -60,6 +68,10 @@ extension SkillTools {
             }
 
             let task = AppConfig.nonEmpty(params.task)
+            if skill.source == "shared", activeRuntimeRootURLProvider() != nil {
+                let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+                _ = try? await store.recordInvocation(slug: skill.name)
+            }
 
             switch skill.executionContext {
             case .inline:
@@ -127,6 +139,61 @@ extension SkillTools {
 
     // MARK: - Skill Helpers
 
+    private static func handleSkillUpsert(
+        _ request: BridgeInvokeRequest,
+        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
+    ) async throws -> BridgeInvokeResponse {
+        struct SupportingFile: Decodable {
+            let path: String
+            let content: String
+        }
+
+        struct UpsertParams: Decodable {
+            let name: String
+            let description: String
+            let whenToUse: String
+            let content: String
+            let userInvocable: Bool?
+            let supportingFiles: [SupportingFile]?
+        }
+
+        let params = try ToolInvocationHelpers.decodeParams(UpsertParams.self, from: request.paramsJSON)
+        let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+        let entry = try await store.upsert(
+            name: params.name,
+            description: params.description,
+            whenToUse: params.whenToUse,
+            content: params.content,
+            slug: params.name,
+            userInvocable: params.userInvocable ?? false,
+            maturity: .validated,
+            origin: .agent
+        )
+        var fileLines: [String] = []
+        for supportingFile in params.supportingFiles ?? [] {
+            let targetURL = try await store.writeSupportingFile(
+                slug: entry.slug,
+                relativePath: supportingFile.path,
+                content: supportingFile.content
+            )
+            fileLines.append("- \(targetURL.path)")
+        }
+
+        var lines = [
+            "## Skill Upsert",
+            "- slug: \(entry.slug)",
+            "- version: \(entry.version)",
+            "- maturity: \(entry.maturity.rawValue)",
+            "- origin: \(entry.origin.rawValue)",
+            "- file: \(entry.fileURL.path)",
+        ]
+        if !fileLines.isEmpty {
+            lines.append("- supporting_files:")
+            lines.append(contentsOf: fileLines)
+        }
+        return ToolInvocationHelpers.successResponse(id: request.id, payload: lines.joined(separator: "\n"))
+    }
+
     private static func inlineSkillPayload(skill: AgentSkillsLoader.SkillDefinition, task: String?, body: String) -> String {
         var lines = [
             "## Skill Invocation",
@@ -142,6 +209,18 @@ extension SkillTools {
         }
         if let effort = skill.effort {
             lines.append("- effort: \(effort)")
+        }
+        if let maturity = skill.maturity {
+            lines.append("- maturity: \(maturity)")
+        }
+        if let origin = skill.origin {
+            lines.append("- origin: \(origin)")
+        }
+        if skill.usageCount > 0 {
+            lines.append("- usage_count: \(skill.usageCount)")
+        }
+        if !skill.supportingFiles.isEmpty {
+            lines.append("- supporting_files: \(skill.supportingFiles.joined(separator: ", "))")
         }
 
         lines.append("")
@@ -211,6 +290,14 @@ extension SkillTools {
         }
         if let effort = skill.effort {
             lines.append("- effort: \(effort)")
+        }
+        if let maturity = skill.maturity {
+            lines.append("- maturity: \(maturity)")
+        }
+        if !skill.supportingFiles.isEmpty {
+            lines.append("- supporting_files: \(skill.supportingFiles.joined(separator: ", "))")
+            lines.append("")
+            lines.append("Resolve skill-relative files against the skill directory that contains SKILL.md.")
         }
 
         lines.append("")

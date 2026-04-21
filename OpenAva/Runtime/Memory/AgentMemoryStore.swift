@@ -424,3 +424,471 @@ actor AgentMemoryStore {
         return fields.contains { !$0.isEmpty && $0.contains(normalizedQuery) }
     }
 }
+
+actor AgentSkillStore {
+    enum Maturity: String {
+        case draft
+        case validated
+        case stable
+    }
+
+    enum Origin: String {
+        case extractor
+        case agent
+    }
+
+    struct Entry: Equatable {
+        let slug: String
+        let name: String
+        let description: String
+        let whenToUse: String?
+        let content: String
+        let fileURL: URL
+        let modifiedAt: Date
+        let version: Int
+        let userInvocable: Bool
+        let maturity: Maturity
+        let origin: Origin
+        let usageCount: Int
+
+        var skillDirectoryURL: URL {
+            fileURL.deletingLastPathComponent()
+        }
+
+        var supportingFiles: [String] {
+            let root = skillDirectoryURL
+            let fileManager = FileManager.default
+            let allowedDirectories = ["references", "templates", "scripts"]
+            var collected: [String] = []
+            for directoryName in allowedDirectories {
+                let directoryURL = root.appendingPathComponent(directoryName, isDirectory: true)
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    continue
+                }
+                guard let enumerator = fileManager.enumerator(at: directoryURL, includingPropertiesForKeys: [.isRegularFileKey]) else {
+                    continue
+                }
+                for case let candidate as URL in enumerator {
+                    let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey])
+                    guard values?.isRegularFile == true else { continue }
+                    collected.append(candidate.path.replacingOccurrences(of: root.path + "/", with: ""))
+                }
+            }
+            return collected.sorted()
+        }
+    }
+
+    private let runtimeRootURL: URL
+    private let fileManager: FileManager
+
+    init(runtimeRootURL: URL, fileManager: FileManager = .default) {
+        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+        self.fileManager = fileManager
+    }
+
+    func listEntries() throws -> [Entry] {
+        try loadEntries()
+    }
+
+    @discardableResult
+    func upsert(
+        name: String,
+        description: String,
+        whenToUse: String,
+        content: String,
+        slug: String? = nil,
+        userInvocable: Bool = false,
+        maturity: Maturity = .draft,
+        origin: Origin = .extractor
+    ) throws -> Entry {
+        try ensureStorage()
+
+        let normalizedName = Self.normalizeSingleLine(name, fallback: "Untitled Skill")
+        let normalizedDescription = Self.normalizeSingleLine(description, fallback: normalizedName)
+        let normalizedWhenToUse = Self.normalizeSingleLine(whenToUse, fallback: normalizedDescription)
+        let normalizedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allEntries = try loadEntries()
+        let resolvedSlug: String
+        if let slug {
+            resolvedSlug = Self.normalizedSlug(slug, fallback: normalizedName)
+        } else {
+            resolvedSlug = Self.uniqueSlug(fallback: normalizedName, existingEntries: allEntries)
+        }
+
+        let fileURL = skillFileURL(for: resolvedSlug)
+        let existingEntry = allEntries.first(where: { $0.slug == resolvedSlug })
+        if let existingEntry,
+           existingEntry.name == normalizedName,
+           existingEntry.description == normalizedDescription,
+           existingEntry.whenToUse == normalizedWhenToUse,
+           existingEntry.content == normalizedContent,
+           existingEntry.userInvocable == userInvocable,
+           existingEntry.maturity == maturity,
+           existingEntry.origin == origin
+        {
+            return existingEntry
+        }
+
+        let nextVersion = max((existingEntry?.version ?? 0) + 1, 1)
+        if let existingEntry {
+            try archiveSnapshot(of: existingEntry)
+        }
+
+        try fileManager.createDirectory(at: skillDirectoryURL(for: resolvedSlug), withIntermediateDirectories: true)
+        try writeEntry(
+            to: fileURL,
+            slug: resolvedSlug,
+            name: normalizedName,
+            description: normalizedDescription,
+            whenToUse: normalizedWhenToUse,
+            content: normalizedContent,
+            version: nextVersion,
+            userInvocable: userInvocable,
+            maturity: maturity,
+            origin: origin,
+            usageCount: existingEntry?.usageCount ?? 0
+        )
+        return try loadEntry(from: fileURL)
+    }
+
+    @discardableResult
+    func recordInvocation(slug: String, succeeded: Bool = true) throws -> Entry? {
+        let resolvedSlug = Self.normalizedSlug(slug, fallback: slug)
+        let fileURL = skillFileURL(for: resolvedSlug)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        let existing = try loadEntry(from: fileURL)
+        let nextUsageCount = existing.usageCount + 1
+        let nextMaturity = evolvedMaturity(for: existing, nextUsageCount: nextUsageCount, succeeded: succeeded)
+        try writeEntry(
+            to: fileURL,
+            slug: existing.slug,
+            name: existing.name,
+            description: existing.description,
+            whenToUse: existing.whenToUse ?? existing.description,
+            content: existing.content,
+            version: existing.version,
+            userInvocable: existing.userInvocable,
+            maturity: nextMaturity,
+            origin: existing.origin,
+            usageCount: nextUsageCount
+        )
+        return try loadEntry(from: fileURL)
+    }
+
+    @discardableResult
+    func writeSupportingFile(slug: String, relativePath: String, content: String) throws -> URL {
+        let resolvedSlug = Self.normalizedSlug(slug, fallback: slug)
+        let skillDirectory = skillDirectoryURL(for: resolvedSlug)
+        let normalizedPath = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isAllowedSupportingPath(normalizedPath) else {
+            throw NSError(domain: "AgentSkillStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "INVALID_REQUEST: supporting files must be under references/, templates/, or scripts/"])
+        }
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        let targetURL = skillDirectory.appendingPathComponent(normalizedPath, isDirectory: false)
+        let standardizedTarget = targetURL.standardizedFileURL
+        guard standardizedTarget.path.hasPrefix(skillDirectory.standardizedFileURL.path + "/") else {
+            throw NSError(domain: "AgentSkillStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "INVALID_REQUEST: supporting file path escapes skill directory"])
+        }
+        try fileManager.createDirectory(at: standardizedTarget.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: standardizedTarget, atomically: true, encoding: .utf8)
+        return standardizedTarget
+    }
+
+    private var skillsDirectoryURL: URL {
+        runtimeRootURL.appendingPathComponent("skills", isDirectory: true)
+    }
+
+    private func skillDirectoryURL(for slug: String) -> URL {
+        skillsDirectoryURL.appendingPathComponent(slug, isDirectory: true)
+    }
+
+    private func skillFileURL(for slug: String) -> URL {
+        skillDirectoryURL(for: slug).appendingPathComponent("SKILL.md", isDirectory: false)
+    }
+
+    private func versionsRootDirectoryURL() -> URL {
+        skillsDirectoryURL.appendingPathComponent(".versions", isDirectory: true)
+    }
+
+    private func versionsDirectoryURL(for slug: String) -> URL {
+        versionsRootDirectoryURL().appendingPathComponent(slug, isDirectory: true)
+    }
+
+    private func ensureStorage() throws {
+        try fileManager.createDirectory(at: skillsDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    private func loadEntries() throws -> [Entry] {
+        guard fileManager.fileExists(atPath: skillsDirectoryURL.path) else {
+            return []
+        }
+        let directoryURLs = try fileManager.contentsOfDirectory(
+            at: skillsDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        let entries = try directoryURLs.compactMap { directoryURL -> Entry? in
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                return nil
+            }
+            let fileURL = directoryURL.appendingPathComponent("SKILL.md", isDirectory: false)
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                return nil
+            }
+            return try loadEntry(from: fileURL)
+        }
+        return entries.sorted { lhs, rhs in
+            if lhs.modifiedAt != rhs.modifiedAt {
+                return lhs.modifiedAt > rhs.modifiedAt
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func loadEntry(from fileURL: URL) throws -> Entry {
+        let raw = try String(contentsOf: fileURL, encoding: .utf8)
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        let parts = Self.splitFrontmatter(in: normalized)
+        let header = Self.parseFrontmatter(parts.header)
+        let values = try fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+        let modifiedAt = values.contentModificationDate ?? Date()
+        let slug = fileURL.deletingLastPathComponent().lastPathComponent
+        let name = Self.normalizeSingleLine(
+            header["metadata.display_name"] ?? header["display_name"] ?? header["name"],
+            fallback: slug
+        )
+        let description = Self.normalizeSingleLine(
+            header["description"],
+            fallback: parts.body.components(separatedBy: .newlines).first ?? name
+        )
+        let whenToUse = Self.nonEmpty(header["when_to_use"])
+        let version = Int(header["version"] ?? "") ?? 1
+        let userInvocable = Self.parseBool(header["user-invocable"]) ?? true
+        let maturity = Maturity(rawValue: (header["maturity"] ?? "draft").lowercased()) ?? .draft
+        let origin = Origin(rawValue: (header["origin"] ?? "extractor").lowercased()) ?? .extractor
+        let usageCount = Int(header["usage_count"] ?? "") ?? 0
+        return Entry(
+            slug: slug,
+            name: name,
+            description: description,
+            whenToUse: whenToUse,
+            content: parts.body.trimmingCharacters(in: .whitespacesAndNewlines),
+            fileURL: fileURL,
+            modifiedAt: modifiedAt,
+            version: version,
+            userInvocable: userInvocable,
+            maturity: maturity,
+            origin: origin,
+            usageCount: usageCount
+        )
+    }
+
+    private func writeEntry(
+        to fileURL: URL,
+        slug: String,
+        name: String,
+        description: String,
+        whenToUse: String,
+        content: String,
+        version: Int,
+        userInvocable: Bool,
+        maturity: Maturity,
+        origin: Origin,
+        usageCount: Int
+    ) throws {
+        let payload = """
+        ---
+        name: \(slug)
+        description: \(description)
+        when_to_use: \(whenToUse)
+        user-invocable: \(userInvocable ? "true" : "false")
+        maturity: \(maturity.rawValue)
+        origin: \(origin.rawValue)
+        usage_count: \(usageCount)
+        context: inline
+        version: \(version)
+        metadata:
+          display_name: \(name)
+          shared_runtime: true
+        ---
+
+        \(content)
+        """
+
+        try payload.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func archiveSnapshot(of entry: Entry) throws {
+        let sourceURL = skillFileURL(for: entry.slug)
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return }
+        let directoryURL = versionsDirectoryURL(for: entry.slug)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let snapshotURL = directoryURL.appendingPathComponent("v\(entry.version).md", isDirectory: false)
+        guard !fileManager.fileExists(atPath: snapshotURL.path) else { return }
+        let raw = try String(contentsOf: sourceURL, encoding: .utf8)
+        try raw.write(to: snapshotURL, atomically: true, encoding: .utf8)
+    }
+
+    private func evolvedMaturity(for entry: Entry, nextUsageCount: Int, succeeded: Bool) -> Maturity {
+        guard succeeded else { return entry.maturity }
+        switch entry.maturity {
+        case .draft where nextUsageCount >= 1:
+            return .validated
+        case .validated where nextUsageCount >= 3:
+            return .stable
+        default:
+            return entry.maturity
+        }
+    }
+
+    private static func isAllowedSupportingPath(_ relativePath: String) -> Bool {
+        let normalized = relativePath.replacingOccurrences(of: "\\", with: "/")
+        guard !normalized.isEmpty, !normalized.contains("..") else { return false }
+        return normalized.hasPrefix("references/") || normalized.hasPrefix("templates/") || normalized.hasPrefix("scripts/")
+    }
+
+    private static func splitFrontmatter(in raw: String) -> (header: String, body: String) {
+        guard raw.hasPrefix("---\n") else {
+            return (header: "", body: raw)
+        }
+        let remainder = raw.dropFirst(4)
+        guard let closingRange = remainder.range(of: "\n---\n") else {
+            return (header: "", body: raw)
+        }
+        let header = String(remainder[..<closingRange.lowerBound])
+        let bodyStart = closingRange.upperBound
+        return (header: header, body: String(remainder[bodyStart...]))
+    }
+
+    private static func parseFrontmatter(_ raw: String) -> [String: String] {
+        let lines = raw.components(separatedBy: .newlines)
+        var values: [String: String] = [:]
+        var index = 0
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, let separator = line.firstIndex(of: ":") else {
+                index += 1
+                continue
+            }
+
+            let key = String(line[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                values[key] = value
+                index += 1
+                continue
+            }
+
+            let parentIndent = leadingWhitespaceCount(in: line)
+            let (blockLines, nextIndex) = collectIndentedBlock(lines: lines, startIndex: index + 1, parentIndent: parentIndent)
+            if key == "metadata" {
+                for nestedLine in blockLines {
+                    let nestedTrimmed = nestedLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !nestedTrimmed.isEmpty, let nestedSeparator = nestedTrimmed.firstIndex(of: ":") else {
+                        continue
+                    }
+                    let nestedKey = String(nestedTrimmed[..<nestedSeparator]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let nestedValue = String(nestedTrimmed[nestedTrimmed.index(after: nestedSeparator)...])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    values["metadata.\(nestedKey)"] = nestedValue
+                }
+            }
+            index = nextIndex
+        }
+
+        return values
+    }
+
+    private static func collectIndentedBlock(lines: [String], startIndex: Int, parentIndent: Int) -> ([String], Int) {
+        var block: [String] = []
+        var index = startIndex
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                block.append(line)
+                index += 1
+                continue
+            }
+
+            let indent = leadingWhitespaceCount(in: line)
+            if indent <= parentIndent {
+                break
+            }
+
+            block.append(line)
+            index += 1
+        }
+
+        return (block, index)
+    }
+
+    private static func leadingWhitespaceCount(in line: String) -> Int {
+        line.prefix { $0 == " " || $0 == "\t" }.count
+    }
+
+    private static func normalizeSingleLine(_ raw: String?, fallback: String) -> String {
+        let candidate = raw?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate?.isEmpty == false ? candidate! : fallback
+    }
+
+    private static func nonEmpty(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func parseBool(_ raw: String?) -> Bool? {
+        guard let value = nonEmpty(raw)?.lowercased() else { return nil }
+        switch value {
+        case "true", "yes", "1":
+            return true
+        case "false", "no", "0":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedSlug(_ raw: String?, fallback: String) -> String {
+        let source = normalizeSingleLine(raw, fallback: fallback).lowercased()
+        let mapped = source.map { character -> Character in
+            if character.isLetter || character.isNumber {
+                return character
+            }
+            return "-"
+        }
+        let slug = String(mapped)
+            .replacingOccurrences(of: "--+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "skill" : slug
+    }
+
+    private static func uniqueSlug(fallback: String, existingEntries: [Entry]) -> String {
+        let base = normalizedSlug(nil, fallback: fallback)
+        let existingSlugs = Set(existingEntries.map(\.slug))
+        guard existingSlugs.contains(base) else {
+            return base
+        }
+
+        var suffix = 2
+        while true {
+            let candidate = "\(base)-\(suffix)"
+            if !existingSlugs.contains(candidate) {
+                return candidate
+            }
+            suffix += 1
+        }
+    }
+}

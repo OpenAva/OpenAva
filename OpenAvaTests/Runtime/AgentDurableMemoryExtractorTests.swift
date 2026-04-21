@@ -226,6 +226,71 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         XCTAssertTrue(raw.contains("resolved_by: language-chinese"))
     }
 
+    func testSkillExtractorWritesSkillAndAdvancesCursor() async throws {
+        try resetSharedMemoryRoot()
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer {
+            try? resetSharedMemoryRoot()
+            try? FileManager.default.removeItem(at: runtimeRoot)
+        }
+
+        let responseJSON = #"{"skills":[{"name":"Regression Fix Workflow","description":"Capture regression fixes as a reusable verification workflow.","purpose":"Turn a tool-heavy regression fix into a repeatable playbook future agents can follow.","whenToUse":"Use when a complex debugging task uncovers a repeatable fix-and-verify sequence.","steps":["Inspect the failing behavior and isolate the actual failure mode before patching.","Apply the smallest code change that fixes the issue without widening scope.","Add or update regression coverage that locks the intended behavior in place.","Run focused verification and only save the workflow once the checks pass."],"slug":"regression-fix-workflow"}]}"#
+        let chatClient = StubChatClient(responseText: responseJSON)
+        let extractor = AgentSkillExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
+        let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+
+        let messages = makeComplexWorkflowConversation(sessionID: "session-1")
+        await extractor.extractIfNeeded(for: "session-1", messages: messages)
+        await extractor.extractIfNeeded(for: "session-1", messages: messages)
+
+        let entries = try await store.listEntries()
+        XCTAssertEqual(entries.count, 1)
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.slug, "regression-fix-workflow")
+        XCTAssertEqual(entry.description, "Capture regression fixes as a reusable verification workflow.")
+        XCTAssertEqual(entry.whenToUse, "Use when a complex debugging task uncovers a repeatable fix-and-verify sequence.")
+        XCTAssertFalse(entry.userInvocable)
+        XCTAssertEqual(entry.maturity, .draft)
+        XCTAssertEqual(entry.origin, .extractor)
+        XCTAssertEqual(chatClient.chatCallCount, 1)
+        XCTAssertEqual(chatClient.streamingChatCallCount, 0)
+
+        let skill = try XCTUnwrap(
+            AgentSkillsLoader.listSkills(filterUnavailable: false).first(where: { $0.name == "regression-fix-workflow" })
+        )
+        XCTAssertEqual(skill.source, "shared")
+        XCTAssertEqual(skill.description, entry.description)
+        XCTAssertFalse(skill.userInvocable)
+        XCTAssertEqual(skill.maturity, "draft")
+        XCTAssertEqual(skill.origin, "extractor")
+    }
+
+    func testSkillExtractorSkipsSimpleConversationWithoutComplexitySignals() async throws {
+        try resetSharedMemoryRoot()
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer {
+            try? resetSharedMemoryRoot()
+            try? FileManager.default.removeItem(at: runtimeRoot)
+        }
+
+        let responseJSON = #"{"skills":[{"name":"Should Not Be Written","description":"unexpected","purpose":"unexpected","whenToUse":"unexpected","steps":["unexpected one","unexpected two","unexpected three"]}]}"#
+        let chatClient = StubChatClient(responseText: responseJSON)
+        let extractor = AgentSkillExtractor(runtimeRootURL: runtimeRoot, chatClient: chatClient)
+        let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+
+        await extractor.extractIfNeeded(for: "session-1", messages: makeConversation(sessionID: "session-1"))
+
+        let entries = try await store.listEntries()
+        XCTAssertTrue(entries.isEmpty)
+        XCTAssertEqual(chatClient.chatCallCount, 0)
+        XCTAssertEqual(chatClient.streamingChatCallCount, 0)
+    }
+
     private func makeConversation(sessionID: String) -> [ConversationMessage] {
         let user = ConversationMessage(sessionID: sessionID, role: .user)
         user.textContent = "以后回答尽量简洁，不要在最后重复总结。"
@@ -234,6 +299,26 @@ final class AgentDurableMemoryExtractorTests: XCTestCase {
         assistant.textContent = "收到，后续我会保持简洁。"
 
         return [user, assistant]
+    }
+
+    private func makeComplexWorkflowConversation(sessionID: String) -> [ConversationMessage] {
+        let user = ConversationMessage(sessionID: sessionID, role: .user)
+        user.textContent = "请修复 runtime skill 优先级回归，并把排查到的可复用 workflow 沉淀下来。"
+
+        let assistantPlan = ConversationMessage(sessionID: sessionID, role: .assistant)
+        assistantPlan.parts = [
+            .text(TextContentPart(text: "我会先定位 skill loader 的优先级实现，再检查失败断言是不是路径标准化问题，最后补上稳定的回归验证。")),
+            .toolCall(ToolCallContentPart(toolName: "Read", apiName: "Read")),
+        ]
+
+        let assistantFix = ConversationMessage(sessionID: sessionID, role: .assistant)
+        assistantFix.parts = [
+            .text(TextContentPart(text: "我确认 workspace > shared > builtin 的逻辑没问题，真正不稳定的是测试把 workspace 路径和临时目录字符串前缀强绑定了。修复方式是改成解析符号链接后的完整文件路径比较，然后重新跑聚焦测试，确认 runtime skill 仍能被 catalog 发现。")),
+            .toolCall(ToolCallContentPart(toolName: "ApplyPatch", apiName: "ApplyPatch")),
+            .toolCall(ToolCallContentPart(toolName: "Bash", apiName: "Bash")),
+        ]
+
+        return [user, assistantPlan, assistantFix]
     }
 
     private func resetSharedMemoryRoot(fileManager: FileManager = .default) throws {
