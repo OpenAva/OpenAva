@@ -6,10 +6,11 @@ import SwiftUI
 private struct StyledFieldModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
+            .frame(minHeight: 34)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                Color(uiColor: ChatUIDesign.Color.warmCream),
+                Color(uiColor: ChatUIDesign.Color.pureWhite),
                 in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
             )
             .overlay(
@@ -46,7 +47,7 @@ private struct PlaceholderTextEditor: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            Color(uiColor: ChatUIDesign.Color.warmCream),
+            Color(uiColor: ChatUIDesign.Color.pureWhite),
             in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
         )
         .overlay(
@@ -63,6 +64,7 @@ struct AgentCreationView: View {
     @Environment(\.appContainerStore) private var containerStore
     @State private var viewModel: AgentCreationViewModel
     @State private var isEmojiPickerPresented = false
+    @State private var isAdvancedExpanded = false
     let onComplete: () -> Void
 
     init(
@@ -100,7 +102,7 @@ struct AgentCreationView: View {
 
     private var formContent: some View {
         ScrollView {
-            VStack(spacing: 36) {
+            VStack(spacing: 24) {
                 aboutYouSection
 
                 if !viewModel.presets.isEmpty {
@@ -142,8 +144,43 @@ struct AgentCreationView: View {
     // MARK: - About You (Collapsible)
 
     private var aboutYouSection: some View {
-        CustomSection {
-            DisclosureGroup(isExpanded: $viewModel.isUserInfoExpanded) {
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: {
+                withAnimation {
+                    viewModel.isUserInfoExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Text(L10n.tr("agent.creation.about.title"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+
+                    if viewModel.isUserInfoExpanded {
+                        Text("·")
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        Text(L10n.tr("agent.creation.context.footer"))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .font(.system(size: 13))
+                    } else if !viewModel.data.userCallName.isEmpty {
+                        Text("·")
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        Text(viewModel.data.userCallName)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .font(.system(size: 14))
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        .rotationEffect(.degrees(viewModel.isUserInfoExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 20)
+            }
+            .buttonStyle(.plain)
+
+            if viewModel.isUserInfoExpanded {
                 VStack(alignment: .leading, spacing: 16) {
                     labeledField(L10n.tr("agent.creation.callName.header")) {
                         TextField(L10n.tr("agent.creation.callName.placeholder"), text: $viewModel.data.userCallName)
@@ -157,39 +194,17 @@ struct AgentCreationView: View {
                             text: $viewModel.data.userContext
                         )
                     }
-
-                    Text(L10n.tr("agent.creation.context.footer"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
                 }
-                .padding(.top, 12)
-            } label: {
-                HStack(spacing: 6) {
-                    Text(L10n.tr("agent.creation.about.title"))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    if !viewModel.isUserInfoExpanded, !viewModel.data.userCallName.isEmpty {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(viewModel.data.userCallName)
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    }
-                }
+                .padding(.horizontal, 20)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .tint(.secondary)
-            .padding(.horizontal, 20)
         }
     }
 
     // MARK: - Presets Section
 
     private var presetSection: some View {
-        CustomSection(title: L10n.tr("agent.creation.presets.header"), footer: {
-            Text(L10n.tr("agent.creation.presets.footer"))
-                .padding(.horizontal, 20)
-        }) {
+        CustomSection(title: L10n.tr("agent.creation.presets.header")) {
             presetPicker
         }
     }
@@ -243,6 +258,53 @@ struct AgentCreationView: View {
                 }
             }
         }
+
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: {
+                withAnimation {
+                    isAdvancedExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Text(L10n.tr("agent.creation.advanced.header"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        .rotationEffect(.degrees(isAdvancedExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 20)
+            }
+            .buttonStyle(.plain)
+
+            if isAdvancedExpanded {
+                VStack(alignment: .leading, spacing: 24) {
+                    labeledField(L10n.tr("agent.creation.advanced.agents.header")) {
+                        PlaceholderTextEditor(
+                            placeholder: L10n.tr("agent.creation.advanced.agents.placeholder"),
+                            text: $viewModel.data.agentsRules,
+                            minHeight: 100
+                        )
+                    }
+                    .padding(.horizontal, 20)
+
+                    labeledField(L10n.tr("agent.creation.advanced.tools.header")) {
+                        PlaceholderTextEditor(
+                            placeholder: L10n.tr("agent.creation.advanced.tools.placeholder"),
+                            text: $viewModel.data.toolsConfig,
+                            minHeight: 100
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 
     // MARK: - Notice & Error
@@ -279,11 +341,11 @@ struct AgentCreationView: View {
                     Text(primaryActionTitle)
                 }
             }
-            .font(.system(size: 16, weight: .regular))
+            .font(.system(size: 16, weight: .medium))
             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: .tertiarySystemFill))
+            .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: ChatUIDesign.Color.black50).opacity(0.3))
             .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -376,11 +438,11 @@ struct AgentCreationView: View {
         }
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 if let title {
                     Text(title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                         .padding(.horizontal, 20)
                 }
 
@@ -388,8 +450,8 @@ struct AgentCreationView: View {
 
                 if let footer {
                     footer
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 20)
                 }
@@ -398,10 +460,10 @@ struct AgentCreationView: View {
     }
 
     private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.headline)
-                .foregroundStyle(.primary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             content()
         }
     }
@@ -413,16 +475,23 @@ struct AgentCreationView: View {
         onPick: @escaping () -> Void,
         onShuffle: @escaping () -> Void
     ) -> some View {
-        HStack {
+        HStack(spacing: 12) {
+            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onShuffle)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(
+                    Color(uiColor: ChatUIDesign.Color.pureWhite),
+                    in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                )
+
             TextField(namePlaceholder, text: name)
                 .textInputAutocapitalization(.words)
-
-            Divider()
-                .padding(.vertical, 8)
-
-            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onShuffle)
+                .styledField()
         }
-        .styledField()
     }
 
     private var emojiPickerGrid: some View {
@@ -454,31 +523,32 @@ struct AgentCreationView: View {
     }
 
     private func presetCard(preset: AgentPreset, isSelected: Bool) -> some View {
-        let backgroundColor = isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: ChatUIDesign.Color.warmCream)
-        let borderColor = isSelected ? Color.accentColor.opacity(0.8) : Color.secondary.opacity(0.2)
+        let backgroundColor = isSelected ? Color(uiColor: ChatUIDesign.Color.offBlack).opacity(0.04) : Color(uiColor: ChatUIDesign.Color.pureWhite)
+        let borderColor = isSelected ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: ChatUIDesign.Color.oatBorder)
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(displayEmoji(for: preset))
                 Text(preset.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
             }
 
             Text(preset.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 .lineLimit(2)
-                .frame(height: 32, alignment: .topLeading)
+                .frame(height: 34, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineSpacing(2)
         }
-        .padding(10)
-        .frame(width: 196, height: 76, alignment: .leading)
+        .padding(12)
+        .frame(width: 196, height: 80, alignment: .leading)
         .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
+                .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -495,32 +565,33 @@ struct AgentCreationView: View {
         onTap: @escaping (String) -> Void,
         isActive: @escaping (String) -> Bool = { _ in false }
     ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(options, id: \.self) { option in
-                    optionChip(title: option, isActive: isActive(option)) {
-                        onTap(option)
-                    }
+        FlowLayout(spacing: 8, lineSpacing: 8) {
+            ForEach(options, id: \.self) { option in
+                optionChip(title: option, isActive: isActive(option)) {
+                    onTap(option)
                 }
             }
-            .padding(.vertical, 1)
-            .padding(.horizontal, 20)
         }
+        .padding(.horizontal, 20)
     }
 
     private func optionChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.caption)
+                .font(.system(size: 14, weight: .medium))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(
-                    isActive ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.12),
+                    isActive ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: ChatUIDesign.Color.pureWhite),
                     in: Capsule()
                 )
-                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: isActive ? 0 : 1)
+                )
+                .foregroundStyle(isActive ? Color(uiColor: ChatUIDesign.Color.pureWhite) : Color(uiColor: ChatUIDesign.Color.black80))
         }
         .buttonStyle(.plain)
     }
@@ -547,6 +618,51 @@ struct AgentCreationView: View {
             onComplete()
         } catch {
             viewModel.errorText = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Flow Layout
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing, lineSpacing: lineSpacing)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        let result = FlowResult(in: bounds.width, subviews: subviews, spacing: spacing, lineSpacing: lineSpacing)
+        for (index, subview) in subviews.enumerated() {
+            let point = result.frames[index].origin
+            subview.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
+        }
+    }
+
+    struct FlowResult {
+        var size: CGSize = .zero
+        var frames: [CGRect] = []
+
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat, lineSpacing: CGFloat) {
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var lineHeight: CGFloat = 0
+
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+                if currentX + size.width > maxWidth, currentX > 0 {
+                    currentX = 0
+                    currentY += lineHeight + lineSpacing
+                    lineHeight = 0
+                }
+                frames.append(CGRect(x: currentX, y: currentY, width: size.width, height: size.height))
+                currentX += size.width + spacing
+                lineHeight = max(lineHeight, size.height)
+            }
+            currentY += lineHeight
+            self.size = CGSize(width: maxWidth, height: currentY)
         }
     }
 }

@@ -6,16 +6,12 @@ final class AgentPresetCatalogTests: XCTestCase {
         let presets = AgentPresetCatalog.builtInPresets()
         let ids = Set(presets.map(\.id))
 
-        XCTAssertTrue(ids.contains("marketing"))
-        XCTAssertTrue(ids.contains("sales"))
-        XCTAssertTrue(ids.contains("support"))
-        XCTAssertTrue(ids.contains("hr"))
-        XCTAssertTrue(ids.contains("finance"))
-        XCTAssertTrue(ids.contains("legal"))
-        XCTAssertTrue(ids.contains("design"))
-        XCTAssertTrue(ids.contains("product"))
-        XCTAssertTrue(ids.contains("engineering"))
-        XCTAssertTrue(ids.contains("operations"))
+        XCTAssertTrue(ids.contains("explorer"))
+        XCTAssertTrue(ids.contains("planner"))
+        XCTAssertTrue(ids.contains("designer"))
+        XCTAssertTrue(ids.contains("executor"))
+        XCTAssertTrue(ids.contains("reviewer"))
+        XCTAssertTrue(ids.contains("summarizer"))
     }
 
     func testBuiltInPresetsPreserveExpectedOrder() {
@@ -23,7 +19,7 @@ final class AgentPresetCatalogTests: XCTestCase {
 
         XCTAssertEqual(
             presets.map(\.id),
-            ["marketing", "sales", "support", "hr", "finance", "legal", "design", "product", "engineering", "operations"]
+            ["explorer", "planner", "designer", "executor", "reviewer", "summarizer"]
         )
     }
 
@@ -34,13 +30,13 @@ final class AgentPresetCatalogTests: XCTestCase {
 
         let externalPresets = [
             AgentPreset(
-                id: "marketing",
-                title: "Custom Marketing",
-                subtitle: "Custom marketing subtitle",
-                agentName: "Custom Marketing Agent",
+                id: "explorer",
+                title: "Custom Explorer",
+                subtitle: "Custom explorer subtitle",
+                agentName: "Custom Explorer Agent",
                 agentEmoji: "🧪",
                 agentVibe: "Direct",
-                soulCoreTruths: "Test quickly"
+                soulCoreTruths: "Search carefully"
             ),
             AgentPreset(
                 id: "ops",
@@ -60,9 +56,9 @@ final class AgentPresetCatalogTests: XCTestCase {
             AgentPresetCatalog.environmentPathKey: tempURL.path,
         ])
 
-        let marketing = try XCTUnwrap(loaded.first(where: { $0.id == "marketing" }))
-        XCTAssertEqual(marketing.title, "Custom Marketing")
-        XCTAssertEqual(marketing.agentEmoji, "🧪")
+        let explorer = try XCTUnwrap(loaded.first(where: { $0.id == "explorer" }))
+        XCTAssertEqual(explorer.title, "Custom Explorer")
+        XCTAssertEqual(explorer.agentEmoji, "🧪")
 
         let ops = loaded.first(where: { $0.id == "ops" })
         XCTAssertNotNil(ops)

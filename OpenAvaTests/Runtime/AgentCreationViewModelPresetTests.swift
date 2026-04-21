@@ -23,11 +23,11 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
 
     func testApplyPresetFillsCreationFieldsAndSelection() {
         let preset = AgentPreset(
-            id: "engineering",
-            title: "Engineering Lead",
-            subtitle: "Build features faster",
-            agentName: "Engineering Lead",
-            agentEmoji: "💻",
+            id: "executor",
+            title: "Executor",
+            subtitle: "Execute tasks",
+            agentName: "Executor",
+            agentEmoji: "⚡️",
             agentVibe: "Direct",
             soulCoreTruths: "Reason step by step\nOffer actionable suggestions"
         )
@@ -35,9 +35,9 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         let viewModel = AgentCreationViewModel(presets: [preset], userDirectoryURL: testDirectoryURL)
         viewModel.applyPreset(preset, avoiding: [])
 
-        XCTAssertEqual(viewModel.selectedPresetID, "engineering")
-        XCTAssertEqual(viewModel.data.agentName, "Engineering Lead")
-        XCTAssertEqual(viewModel.data.agentEmoji, "💻")
+        XCTAssertEqual(viewModel.selectedPresetID, "executor")
+        XCTAssertEqual(viewModel.data.agentName, "Executor")
+        XCTAssertEqual(viewModel.data.agentEmoji, "⚡️")
         XCTAssertEqual(viewModel.data.agentVibe, "Direct")
         XCTAssertEqual(viewModel.data.soulCoreTruths, "Reason step by step\nOffer actionable suggestions")
     }

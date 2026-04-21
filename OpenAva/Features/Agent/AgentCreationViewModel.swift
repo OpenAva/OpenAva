@@ -182,6 +182,22 @@ final class AgentCreationViewModel {
             vibe: data.agentVibe
         )
 
+        let trimmedRules = data.agentsRules.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedRules.isEmpty {
+            try AgentTemplateWriter.writeAgentsFile(
+                at: profile.workspaceURL,
+                rules: trimmedRules
+            )
+        }
+
+        let trimmedTools = data.toolsConfig.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTools.isEmpty {
+            try AgentTemplateWriter.writeToolsFile(
+                at: profile.workspaceURL,
+                config: trimmedTools
+            )
+        }
+
         AgentUserDefaults.save(
             callName: data.userCallName,
             context: data.userContext,

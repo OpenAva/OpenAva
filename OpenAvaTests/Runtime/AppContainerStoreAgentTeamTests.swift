@@ -35,22 +35,22 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
 
         let presets = [
             AgentPreset(
-                id: "marketing",
-                title: "增长营销",
-                subtitle: "增长",
-                agentName: "增长营销",
-                agentEmoji: "📣",
-                agentVibe: "犀利",
-                soulCoreTruths: "聚焦增长"
+                id: "explorer",
+                title: "探索者",
+                subtitle: "信息检索",
+                agentName: "探索者",
+                agentEmoji: "🔭",
+                agentVibe: "专业",
+                soulCoreTruths: "聚焦探索"
             ),
             AgentPreset(
-                id: "sales",
-                title: "销售顾问",
-                subtitle: "销售",
-                agentName: "销售顾问",
-                agentEmoji: "🤝",
+                id: "executor",
+                title: "执行者",
+                subtitle: "任务执行",
+                agentName: "执行者",
+                agentEmoji: "⚡️",
                 agentVibe: "直接",
-                soulCoreTruths: "推动成交"
+                soulCoreTruths: "推动落实"
             ),
         ]
 
@@ -63,7 +63,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         )
 
         XCTAssertEqual(profiles.count, 2)
-        XCTAssertEqual(profiles.map(\.name), ["增长营销", "销售顾问"])
+        XCTAssertEqual(profiles.map(\.name), ["探索者", "执行者"])
 
         let snapshot = AgentStore.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         let newProfiles = snapshot.agents.filter { !beforeAgents.contains($0.id) }
@@ -85,7 +85,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
 
             XCTAssertTrue(identityContent.contains(profile.name))
             XCTAssertTrue(userContent.contains("Yuan"))
-            XCTAssertTrue(soulContent.contains("聚焦增长") || soulContent.contains("推动成交"))
+            XCTAssertTrue(soulContent.contains("聚焦探索") || soulContent.contains("推动落实"))
         }
 
         for profile in newProfiles {

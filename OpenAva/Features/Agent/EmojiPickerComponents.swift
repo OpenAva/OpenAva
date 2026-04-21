@@ -1,3 +1,4 @@
+import ChatUI
 import SwiftUI
 
 enum EmojiPickerCatalog {
@@ -26,18 +27,18 @@ struct EmojiSelectionControl: View {
         HStack(spacing: 8) {
             Button(action: onPick) {
                 Text(emoji)
-                    .font(.title3)
+                    .font(.system(size: 20))
                     .frame(width: 34, height: 34)
-                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color(uiColor: ChatUIDesign.Color.warmCream), in: RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
 
             Button(action: onShuffle) {
                 Image(systemName: "shuffle")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
                     .frame(width: 34, height: 34)
-                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color(uiColor: ChatUIDesign.Color.warmCream), in: RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
         }

@@ -121,6 +121,62 @@ enum AgentTemplateWriter {
         renderSoul(coreTruths: coreTruths)
     }
 
+    // MARK: - Advanced Files
+
+    static func writeAgentsFile(
+        at workspaceURL: URL,
+        rules: String,
+        fileManager: FileManager = .default
+    ) throws {
+        let content = Self.renderAgents(rules: rules)
+        try Self.writeDocument(at: workspaceURL, kind: .agents, content: content, fileManager: fileManager)
+    }
+
+    static func renderAgents(rules: String) -> String {
+        let contentBlock = rules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "_(Are there any hard constraints for files, systems, or collaboration?)_"
+            : rules
+
+        return """
+        # AGENTS.md - Workspace Rules
+
+        _Define your operating conventions and hard limits here._
+
+        ## Rules & Constraints
+
+        \(contentBlock)
+
+        ---
+        """
+    }
+
+    static func writeToolsFile(
+        at workspaceURL: URL,
+        config: String,
+        fileManager: FileManager = .default
+    ) throws {
+        let content = Self.renderTools(config: config)
+        try Self.writeDocument(at: workspaceURL, kind: .tools, content: content, fileManager: fileManager)
+    }
+
+    static func renderTools(config: String) -> String {
+        let contentBlock = config.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "_(What tool parameters, shortcuts, or environment configs do you need?)_"
+            : config
+
+        return """
+        # TOOLS.md - Environment Notes
+
+        _Store environment-specific settings, shortcuts, and tool preferences._
+
+        ## Preferences
+
+        \(contentBlock)
+
+        ---
+        """
+    }
+
     // MARK: - Shared Writing
 
     private static func writeDocument(

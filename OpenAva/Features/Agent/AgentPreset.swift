@@ -46,123 +46,75 @@ enum AgentPresetCatalog {
     static func builtInPresets() -> [AgentPreset] {
         [
             preset(
-                id: "marketing",
-                titleKey: "agent.creation.preset.marketing.title",
-                subtitleKey: "agent.creation.preset.marketing.subtitle",
-                emoji: "📣",
-                vibeKey: "agent.creation.vibe.sharp",
+                id: "explorer",
+                titleKey: "agent.creation.preset.explorer.title",
+                subtitleKey: "agent.creation.preset.explorer.subtitle",
+                emoji: "🔭",
+                vibeKey: "agent.creation.vibe.curious",
                 truthKeys: [
-                    "agent.creation.preset.marketing.truth.1",
-                    "agent.creation.preset.marketing.truth.2",
-                    "agent.creation.preset.marketing.truth.3",
+                    "agent.creation.preset.explorer.truth.1",
+                    "agent.creation.preset.explorer.truth.2",
+                    "agent.creation.preset.explorer.truth.3",
                 ]
             ),
             preset(
-                id: "sales",
-                titleKey: "agent.creation.preset.sales.title",
-                subtitleKey: "agent.creation.preset.sales.subtitle",
-                emoji: "🤝",
-                vibeKey: "agent.creation.vibe.direct",
-                truthKeys: [
-                    "agent.creation.preset.sales.truth.1",
-                    "agent.creation.preset.sales.truth.2",
-                    "agent.creation.preset.sales.truth.3",
-                ]
-            ),
-            preset(
-                id: "support",
-                titleKey: "agent.creation.preset.support.title",
-                subtitleKey: "agent.creation.preset.support.subtitle",
-                emoji: "🎧",
-                vibeKey: "agent.creation.vibe.warm",
-                truthKeys: [
-                    "agent.creation.preset.support.truth.1",
-                    "agent.creation.preset.support.truth.2",
-                    "agent.creation.preset.support.truth.3",
-                ]
-            ),
-            preset(
-                id: "hr",
-                titleKey: "agent.creation.preset.hr.title",
-                subtitleKey: "agent.creation.preset.hr.subtitle",
-                emoji: "🧑‍💼",
-                vibeKey: "agent.creation.vibe.calm",
-                truthKeys: [
-                    "agent.creation.preset.hr.truth.1",
-                    "agent.creation.preset.hr.truth.2",
-                    "agent.creation.preset.hr.truth.3",
-                ]
-            ),
-            preset(
-                id: "finance",
-                titleKey: "agent.creation.preset.finance.title",
-                subtitleKey: "agent.creation.preset.finance.subtitle",
-                emoji: "💰",
-                vibeKey: "agent.creation.vibe.professional",
-                truthKeys: [
-                    "agent.creation.preset.finance.truth.1",
-                    "agent.creation.preset.finance.truth.2",
-                    "agent.creation.preset.finance.truth.3",
-                ]
-            ),
-            preset(
-                id: "legal",
-                titleKey: "agent.creation.preset.legal.title",
-                subtitleKey: "agent.creation.preset.legal.subtitle",
-                emoji: "⚖️",
-                vibeKey: "agent.creation.vibe.professional",
-                truthKeys: [
-                    "agent.creation.preset.legal.truth.1",
-                    "agent.creation.preset.legal.truth.2",
-                    "agent.creation.preset.legal.truth.3",
-                ]
-            ),
-            preset(
-                id: "design",
-                titleKey: "agent.creation.preset.design.title",
-                subtitleKey: "agent.creation.preset.design.subtitle",
-                emoji: "🎨",
-                vibeKey: "agent.creation.vibe.playful",
-                truthKeys: [
-                    "agent.creation.preset.design.truth.1",
-                    "agent.creation.preset.design.truth.2",
-                    "agent.creation.preset.design.truth.3",
-                ]
-            ),
-            preset(
-                id: "product",
-                titleKey: "agent.creation.preset.product.title",
-                subtitleKey: "agent.creation.preset.product.subtitle",
+                id: "planner",
+                titleKey: "agent.creation.preset.planner.title",
+                subtitleKey: "agent.creation.preset.planner.subtitle",
                 emoji: "🧭",
                 vibeKey: "agent.creation.vibe.professional",
                 truthKeys: [
-                    "agent.creation.preset.product.truth.1",
-                    "agent.creation.preset.product.truth.2",
-                    "agent.creation.preset.product.truth.3",
+                    "agent.creation.preset.planner.truth.1",
+                    "agent.creation.preset.planner.truth.2",
+                    "agent.creation.preset.planner.truth.3",
                 ]
             ),
             preset(
-                id: "engineering",
-                titleKey: "agent.creation.preset.engineering.title",
-                subtitleKey: "agent.creation.preset.engineering.subtitle",
-                emoji: "💻",
+                id: "designer",
+                titleKey: "agent.creation.preset.designer.title",
+                subtitleKey: "agent.creation.preset.designer.subtitle",
+                emoji: "🎨",
+                vibeKey: "agent.creation.vibe.playful",
+                truthKeys: [
+                    "agent.creation.preset.designer.truth.1",
+                    "agent.creation.preset.designer.truth.2",
+                    "agent.creation.preset.designer.truth.3",
+                ]
+            ),
+            preset(
+                id: "executor",
+                titleKey: "agent.creation.preset.executor.title",
+                subtitleKey: "agent.creation.preset.executor.subtitle",
+                emoji: "⚡️",
                 vibeKey: "agent.creation.vibe.direct",
                 truthKeys: [
-                    "agent.creation.preset.engineering.truth.1",
-                    "agent.creation.preset.engineering.truth.2",
-                    "agent.creation.preset.engineering.truth.3",
+                    "agent.creation.preset.executor.truth.1",
+                    "agent.creation.preset.executor.truth.2",
+                    "agent.creation.preset.executor.truth.3",
                 ]
             ),
             preset(
-                id: "operations",
-                titleKey: "agent.creation.preset.operations.title",
-                subtitleKey: "agent.creation.preset.operations.subtitle",
-                emoji: "📋",
-                vibeKey: "agent.creation.vibe.minimal",
+                id: "reviewer",
+                titleKey: "agent.creation.preset.reviewer.title",
+                subtitleKey: "agent.creation.preset.reviewer.subtitle",
+                emoji: "🛡️",
+                vibeKey: "agent.creation.vibe.sharp",
                 truthKeys: [
-                    "agent.creation.preset.operations.truth.1",
-                    "agent.creation.preset.operations.truth.2",
-                    "agent.creation.preset.operations.truth.3",
+                    "agent.creation.preset.reviewer.truth.1",
+                    "agent.creation.preset.reviewer.truth.2",
+                    "agent.creation.preset.reviewer.truth.3",
+                ]
+            ),
+            preset(
+                id: "summarizer",
+                titleKey: "agent.creation.preset.summarizer.title",
+                subtitleKey: "agent.creation.preset.summarizer.subtitle",
+                emoji: "📢",
+                vibeKey: "agent.creation.vibe.calm",
+                truthKeys: [
+                    "agent.creation.preset.summarizer.truth.1",
+                    "agent.creation.preset.summarizer.truth.2",
+                    "agent.creation.preset.summarizer.truth.3",
                 ]
             ),
         ]
