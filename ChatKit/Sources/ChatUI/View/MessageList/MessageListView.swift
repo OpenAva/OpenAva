@@ -53,9 +53,21 @@ public final class MessageListView: UIView {
         didSet { listView.reloadData() }
     }
 
+    public var emptyStateTitle: String? {
+        get { emptyStateView.title }
+        set { emptyStateView.title = newValue }
+    }
+
+    public var emptyStateSubtitle: String? {
+        get { emptyStateView.subtitle }
+        set { emptyStateView.subtitle = newValue }
+    }
+
     private(set) lazy var labelForSizeCalculation: LTXLabel = .init()
     private(set) lazy var markdownViewForSizeCalculation: MarkdownTextView = .init()
     private(set) lazy var markdownPackageCache: MarkdownPackageCache = .init()
+
+    private lazy var emptyStateView = ChatEmptyStateView()
 
     public init() {
         super.init(frame: .zero)
@@ -71,6 +83,13 @@ public final class MessageListView: UIView {
         listView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
+
+        addSubview(emptyStateView)
+        emptyStateView.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+            make.leading.trailing.equalToSuperview()
+        }
+        emptyStateView.isHidden = true
 
         listView.gestureRecognizers?.forEach {
             guard $0 is UIPanGestureRecognizer else { return }
@@ -176,6 +195,10 @@ public final class MessageListView: UIView {
         let shouldScrolling = scrolling && isAutoScrollingToBottom
 
         entryCount = entries.count
+
+        let isListEmpty = entryCount == 0 && isLoading == nil
+        emptyStateView.isHidden = !isListEmpty
+
         if isFirstLoad || alpha == 0 {
             isFirstLoad = false
             dataSource.applySnapshot(using: entries, animatingDifferences: false)

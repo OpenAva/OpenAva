@@ -11,6 +11,17 @@
         }
       }
     },
+    "Ask a question, run a skill, or call an Agent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您可以提问、运行技能，或唤起 Agent。"
+          }
+        }
+      }
+    },
     "Attached %lld Documents" : {
       "localizations" : {
         "zh-Hans" : {
@@ -489,6 +500,17 @@
     },
     "Range" : {
 
+    },
+    "Ready for Tasks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随时准备就绪"
+          }
+        }
+      }
     },
     "Recent activity" : {
 
