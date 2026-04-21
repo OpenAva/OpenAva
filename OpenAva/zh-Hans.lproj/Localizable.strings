@@ -1,10 +1,10 @@
-"agent.onboarding.title" = "个人 AI Agent 工作台";
-"agent.onboarding.subtitle" = "在 Apple 设备上运行单个 Agent 或 Agent 团队。";
+"agent.onboarding.title" = "你的 Agent 团队";
+"agent.onboarding.subtitle" = "本地隐私 · 群体进化 · 自动运行";
 "agent.onboarding.sectionTitle" = "开始使用";
 "agent.onboarding.createLocal.title" = "创建本地 Agent";
 "agent.onboarding.createLocal.subtitle" = "在你的设备上安全运行 AI Agent";
-"agent.onboarding.createSingle.title" = "创建单个 Agent";
-"agent.onboarding.createSingle.subtitle" = "适合写作、研究、编程等个人任务。";
+"agent.onboarding.createSingle.title" = "创建 Agent";
+"agent.onboarding.createSingle.subtitle" = "设定名称、风格和行为，几步即可开始。";
 "agent.onboarding.createTeam.title" = "创建 Agent 团队";
 "agent.onboarding.createTeam.subtitle" = "适合需要分工协作的复杂任务。";
 

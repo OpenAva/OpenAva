@@ -1,10 +1,10 @@
-"agent.onboarding.title" = "Personal AI agent workspace";
-"agent.onboarding.subtitle" = "Run a single agent or an agent team on your Apple device.";
+"agent.onboarding.title" = "Your Agent Team";
+"agent.onboarding.subtitle" = "On-device privacy · Collective evolution · Background automation";
 "agent.onboarding.sectionTitle" = "Get started";
 "agent.onboarding.createLocal.title" = "Create Local Agent";
 "agent.onboarding.createLocal.subtitle" = "Run AI agent securely on your device";
-"agent.onboarding.createSingle.title" = "Create One Agent";
-"agent.onboarding.createSingle.subtitle" = "For writing, research, coding, and other focused tasks.";
+"agent.onboarding.createSingle.title" = "Create Agent";
+"agent.onboarding.createSingle.subtitle" = "Set a name, style and behavior — ready in seconds.";
 "agent.onboarding.createTeam.title" = "Create Agent Team";
 "agent.onboarding.createTeam.subtitle" = "For complex tasks that need role-based collaboration.";
 
