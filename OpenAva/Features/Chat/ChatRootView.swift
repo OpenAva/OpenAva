@@ -1,10 +1,3 @@
-//
-//  ChatRootView.swift
-//  OpenAva
-//
-//  Created by Codin on 2024.
-//
-
 import ChatClient
 import ChatUI
 import Foundation
