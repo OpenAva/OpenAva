@@ -13,11 +13,40 @@ struct AgentProfile: Equatable, Identifiable {
     var autoCompactEnabled: Bool
 
     var workspaceURL: URL {
-        URL(fileURLWithPath: workspacePath, isDirectory: true)
+        AgentProfile.resolveSandboxPath(workspacePath, isDirectory: true)
     }
 
     var runtimeURL: URL {
-        URL(fileURLWithPath: localRuntimePath, isDirectory: true)
+        AgentProfile.resolveSandboxPath(localRuntimePath, isDirectory: true)
+    }
+
+    /// Rebases a persisted sandbox-absolute path onto the current iOS app container.
+    ///
+    /// iOS may change the Data container UUID in `/var/mobile/Containers/Data/Application/<UUID>/`
+    /// across reinstalls or upgrades, which leaves previously-stored absolute paths pointing
+    /// outside the sandbox. In that case, the stored path is rewritten by replacing the tail
+    /// after `Documents/` onto the current Documents directory, so reads and writes succeed.
+    /// Paths that already exist (or are not recognizable sandbox paths) are returned unchanged.
+    static func resolveSandboxPath(_ rawPath: String, isDirectory: Bool) -> URL {
+        let originalURL = URL(fileURLWithPath: rawPath, isDirectory: isDirectory)
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+            let fileManager = FileManager.default
+            if fileManager.fileExists(atPath: originalURL.path) {
+                return originalURL
+            }
+            guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return originalURL
+            }
+            let marker = "/Documents/"
+            if let range = rawPath.range(of: marker) {
+                let tail = String(rawPath[range.upperBound...])
+                guard !tail.isEmpty else { return originalURL }
+                return documentsURL.appendingPathComponent(tail, isDirectory: isDirectory)
+            }
+            return originalURL
+        #else
+            return originalURL
+        #endif
     }
 
     init(

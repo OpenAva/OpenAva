@@ -98,7 +98,7 @@ final class WebViewService {
 
     /// Keep one floating web view state per tool invocation session.
     private final class SessionState {
-        var overlayWindow: PassthroughWindow?
+        weak var hostChatController: ChatViewController?
         weak var overlayController: FloatingWebViewController?
         var isExtracting = false
         var refMap: [String: WebViewRefEntry] = [:]
@@ -295,19 +295,13 @@ final class WebViewService {
 
     private func ensureOverlayController(for sessionID: String) throws -> FloatingWebViewController {
         let state = sessionState(for: sessionID)
-        if let overlayController = state.overlayController {
-            overlayController.bringPanelToFront()
+        if let overlayController = state.overlayController, state.hostChatController != nil {
             return overlayController
         }
 
-        guard let scene = Self.activeWindowScene() else {
+        guard let host = Self.activeChatViewController() else {
             throw WebViewError.noActiveWindowScene
         }
-
-        let window = PassthroughWindow(windowScene: scene)
-        window.frame = scene.coordinateSpace.bounds
-        window.backgroundColor = .clear
-        window.windowLevel = .alert + 1
 
         let controller = FloatingWebViewController()
         controller.onCloseRequested = { [weak self] in
@@ -316,10 +310,11 @@ final class WebViewService {
             }
         }
 
-        window.rootViewController = controller
-        window.isHidden = false
+        host.addChild(controller)
+        host.embedSidePaneView(controller.view)
+        controller.didMove(toParent: host)
 
-        state.overlayWindow = window
+        state.hostChatController = host
         state.overlayController = controller
         return controller
     }
@@ -329,8 +324,11 @@ final class WebViewService {
             return
         }
         state.overlayController?.cancelPendingExtractionIfNeeded()
-        state.overlayWindow?.isHidden = true
-        state.overlayWindow?.rootViewController = nil
+        if let controller = state.overlayController {
+            controller.willMove(toParent: nil)
+            state.hostChatController?.removeEmbeddedSidePaneView(controller.view)
+            controller.removeFromParent()
+        }
         sessionStates.removeValue(forKey: sessionID)
     }
 
@@ -383,6 +381,32 @@ final class WebViewService {
             ?? scenes.first(where: { $0.activationState == .foregroundInactive })
     }
 
+    /// Locate the front-most `ChatViewController` in the active window scene so
+    /// the web_view tool can embed its panel alongside the chat.
+    private static func activeChatViewController() -> ChatViewController? {
+        guard let scene = activeWindowScene() else { return nil }
+        let keyWindow = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+        guard let root = keyWindow?.rootViewController else { return nil }
+        return findChatViewController(in: root)
+    }
+
+    private static func findChatViewController(in controller: UIViewController) -> ChatViewController? {
+        if let chat = controller as? ChatViewController {
+            return chat
+        }
+        if let presented = controller.presentedViewController,
+           let chat = findChatViewController(in: presented)
+        {
+            return chat
+        }
+        for child in controller.children {
+            if let chat = findChatViewController(in: child) {
+                return chat
+            }
+        }
+        return nil
+    }
+
     private static func isSupportedNavigableURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else {
             return false
@@ -412,33 +436,14 @@ final class WebViewService {
     }
 }
 
-private final class PassthroughWindow: UIWindow {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let view = super.hitTest(point, with: event)
-        if view === rootViewController?.view {
-            return nil
-        }
-        return view
-    }
-}
-
 @MainActor
 private final class FloatingWebViewController: UIViewController, WKNavigationDelegate {
     private enum Layout {
-        static let panelInset: CGFloat = 12
-        static let frameInsets = UIEdgeInsets(top: 38, left: 0, bottom: 28, right: 0)
-        static let viewportCornerRadius: CGFloat = 16
+        static let topBarHeight: CGFloat = 32
+        static let topBarHorizontalPadding: CGFloat = 10
+        static let topBarInnerSpacing: CGFloat = 8
         static let closeButtonSize: CGFloat = 26
         static let statusBadgeHeight: CGFloat = 22
-        static let dragHandleHitWidth: CGFloat = 72
-        static let dragHandleHitHeight: CGFloat = 20
-        static let dragHandleWidth: CGFloat = 32
-        static let dragHandleHeight: CGFloat = 4
-        static let preferredMaxScale: CGFloat = 0.32
-        static let preferredMinScale: CGFloat = 0.18
-        // Upper bound when user manually resizes the panel
-        static let userMaxScale: CGFloat = 0.55
-        static let resizeHandleHitSize: CGFloat = 32
     }
 
     private struct ExtractionPayload: Decodable {
@@ -511,33 +516,15 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
     private var snapshotContinuation: CheckedContinuation<SnapshotOutput, Error>?
     private var timeoutTask: Task<Void, Never>?
     private var extractionTask: DispatchWorkItem?
-    private var panelOrigin = CGPoint.zero
-    private var panelSize = CGSize.zero
-    private var deviceViewportSize = CGSize.zero
-    private var currentScale: CGFloat = 1
     private var requestedURL: URL?
     private var statusFallbackText = "Idle"
-    /// Non-nil when the user has manually resized the panel; overrides auto scale
-    private var userScale: CGFloat?
-    // Scale captured at the start of a resize gesture, used for absolute-delta calculation
-    private var scaleAtGestureStart: CGFloat = Layout.preferredMaxScale
-    private var hasLaidOutPanel = false
     private var hasCommittedMainFrameNavigation = false
     private var hasFinishedMainFrameNavigation = false
 
-    private let panelView = UIView()
-    private let viewportClipView = UIView()
-    private let contentScaleView = UIView()
+    private let topBarView = UIView()
     private let statusEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-    private let dragHandleView = UIView()
-    private let dragHandleIndicatorView = UIView()
     private let statusLabel = UILabel()
     private let closeButton = UIButton(type: .system)
-    private let resizeHandleView = UIView()
-    private let resizeHandleImageView = UIImageView()
-    private lazy var dragGestureRecognizer: UIPanGestureRecognizer = .init(target: self, action: #selector(self.handlePanelPan(_:)))
-
-    private lazy var resizeGestureRecognizer: UIPanGestureRecognizer = .init(target: self, action: #selector(self.handleResizePan(_:)))
 
     private let webView: WKWebView = {
         let config = WKWebViewConfiguration()
@@ -545,10 +532,6 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         config.websiteDataStore = .default()
         return WKWebView(frame: .zero, configuration: config)
     }()
-
-    private var handleAccentColor: UIColor {
-        UIColor.tertiaryLabel.withAlphaComponent(0.55)
-    }
 
     /// The URL currently loaded in the web view (or nil).
     var currentURL: String? {
@@ -763,17 +746,13 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
+        view.backgroundColor = ChatUIDesign.Color.warmCream
         setupPanelUI()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutPanelIfNeeded()
-    }
-
-    func bringPanelToFront() {
-        view.bringSubviewToFront(panelView)
     }
 
     func cancelPendingExtractionIfNeeded() {
@@ -786,30 +765,10 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
     }
 
     private func setupPanelUI() {
-        panelView.backgroundColor = .clear
-
-        viewportClipView.backgroundColor = ChatUIDesign.Color.warmCream
-        viewportClipView.layer.cornerRadius = Layout.viewportCornerRadius
-        viewportClipView.layer.cornerCurve = .continuous
-        viewportClipView.layer.borderWidth = 0.5
-        viewportClipView.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
-        viewportClipView.clipsToBounds = true
-        viewportClipView.layer.shadowColor = UIColor.black.cgColor
-        viewportClipView.layer.shadowOpacity = 0.18
-        viewportClipView.layer.shadowRadius = 18
-        viewportClipView.layer.shadowOffset = CGSize(width: 0, height: 10)
-
-        contentScaleView.layer.anchorPoint = .zero
+        topBarView.backgroundColor = ChatUIDesign.Color.warmCream
 
         statusEffectView.clipsToBounds = true
         statusEffectView.layer.cornerRadius = Layout.statusBadgeHeight / 2
-
-        dragHandleView.backgroundColor = .clear
-        dragHandleView.addGestureRecognizer(dragGestureRecognizer)
-
-        dragHandleIndicatorView.backgroundColor = handleAccentColor
-        dragHandleIndicatorView.layer.cornerRadius = Layout.dragHandleHeight / 2
-        dragHandleView.addSubview(dragHandleIndicatorView)
 
         statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         statusLabel.textColor = .label
@@ -817,7 +776,6 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         statusLabel.textAlignment = .left
         statusLabel.lineBreakMode = .byTruncatingMiddle
 
-        // Keep the close affordance visually light so it does not dominate the page preview.
         let closeSymbolConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: closeSymbolConfig), for: .normal)
         closeButton.tintColor = .secondaryLabel
@@ -828,141 +786,54 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .onDrag
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInsetAdjustmentBehavior = .always
         webView.backgroundColor = ChatUIDesign.Color.warmCream
         webView.isOpaque = false
 
-        view.addSubview(panelView)
-        panelView.addSubview(viewportClipView)
-        viewportClipView.addSubview(contentScaleView)
-        contentScaleView.addSubview(webView)
+        view.addSubview(webView)
+        view.addSubview(topBarView)
         statusEffectView.contentView.addSubview(statusLabel)
-        panelView.addSubview(statusEffectView)
-        panelView.addSubview(closeButton)
-        panelView.addSubview(dragHandleView)
-
-        // Resize handle — sits at the bottom-right corner of the viewport
-        resizeHandleView.backgroundColor = .clear
-        resizeHandleView.addGestureRecognizer(resizeGestureRecognizer)
-        let resizeSymbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-        resizeHandleImageView.image = UIImage(systemName: "arrow.down.right", withConfiguration: resizeSymbolConfig)
-        resizeHandleImageView.tintColor = handleAccentColor
-        resizeHandleImageView.contentMode = .center
-        resizeHandleView.addSubview(resizeHandleImageView)
-        panelView.addSubview(resizeHandleView)
+        topBarView.addSubview(statusEffectView)
+        topBarView.addSubview(closeButton)
     }
 
     private func layoutPanelIfNeeded() {
-        guard !view.bounds.isEmpty else {
-            return
-        }
+        guard !view.bounds.isEmpty else { return }
 
-        let safeFrame = view.safeAreaLayoutGuide.layoutFrame.insetBy(dx: Layout.panelInset, dy: Layout.panelInset)
-        guard safeFrame.width > 0, safeFrame.height > 0 else {
-            return
-        }
-
-        let deviceSize = currentDeviceViewportSize()
-        deviceViewportSize = deviceSize
-        let scale = userScale ?? preferredViewportScale(for: safeFrame.size, deviceSize: deviceSize)
-        currentScale = scale
-
-        let scaledViewportSize = CGSize(width: deviceSize.width * scale, height: deviceSize.height * scale)
-        let panelSize = CGSize(
-            width: scaledViewportSize.width + Layout.frameInsets.left + Layout.frameInsets.right,
-            height: scaledViewportSize.height + Layout.frameInsets.top + Layout.frameInsets.bottom
+        let safeArea = view.safeAreaInsets
+        let topBarY = safeArea.top
+        topBarView.frame = CGRect(
+            x: 0,
+            y: topBarY,
+            width: view.bounds.width,
+            height: Layout.topBarHeight
         )
-        self.panelSize = panelSize
-
-        if !hasLaidOutPanel {
-            panelOrigin = CGPoint(x: safeFrame.minX, y: safeFrame.minY)
-            hasLaidOutPanel = true
-        }
-        panelOrigin = clampedPanelOrigin(panelOrigin, safeFrame: safeFrame, panelSize: panelSize)
-
-        panelView.frame = CGRect(origin: panelOrigin, size: panelSize)
-        viewportClipView.frame = CGRect(
-            x: Layout.frameInsets.left,
-            y: Layout.frameInsets.top,
-            width: scaledViewportSize.width,
-            height: scaledViewportSize.height
-        )
-        contentScaleView.bounds = CGRect(origin: .zero, size: deviceSize)
-        contentScaleView.layer.position = .zero
-        // Keep the rendered page at device size, then scale the container down visually.
-        contentScaleView.transform = CGAffineTransform(scaleX: scale, y: scale)
-        webView.frame = CGRect(origin: .zero, size: deviceSize)
-        viewportClipView.layer.shadowPath = UIBezierPath(
-            roundedRect: viewportClipView.bounds,
-            cornerRadius: viewportClipView.layer.cornerRadius
-        ).cgPath
-
-        // Keep top controls above the page preview on a dedicated control strip.
-        let topControlCenterY = Layout.frameInsets.top / 2
 
         closeButton.frame = CGRect(
-            x: viewportClipView.frame.maxX - Layout.closeButtonSize - 4,
-            y: (topControlCenterY - Layout.closeButtonSize / 2).rounded(),
+            x: view.bounds.width - Layout.topBarHorizontalPadding - Layout.closeButtonSize,
+            y: (Layout.topBarHeight - Layout.closeButtonSize) / 2,
             width: Layout.closeButtonSize,
             height: Layout.closeButtonSize
         )
 
-        let statusHorizontalPadding: CGFloat = 4
-        let maxStatusWidth = closeButton.frame.minX - statusHorizontalPadding * 2 - 4
-        let statusWidth = max(48, maxStatusWidth)
+        let statusX = Layout.topBarHorizontalPadding
+        let statusMaxX = closeButton.frame.minX - Layout.topBarInnerSpacing
+        let statusWidth = max(48, statusMaxX - statusX)
         statusEffectView.frame = CGRect(
-            x: statusHorizontalPadding,
-            y: (topControlCenterY - Layout.statusBadgeHeight / 2).rounded(),
+            x: statusX,
+            y: (Layout.topBarHeight - Layout.statusBadgeHeight) / 2,
             width: statusWidth,
             height: Layout.statusBadgeHeight
         )
         statusLabel.frame = statusEffectView.bounds.insetBy(dx: 8, dy: 4)
 
-        // Keep bottom controls on a shared baseline below the page preview.
-        let bottomControlCenterY = viewportClipView.frame.maxY + Layout.frameInsets.bottom / 2
-
-        dragHandleView.frame = CGRect(
-            x: (panelSize.width - Layout.dragHandleHitWidth) / 2,
-            y: bottomControlCenterY - Layout.dragHandleHitHeight / 2,
-            width: Layout.dragHandleHitWidth,
-            height: Layout.dragHandleHitHeight
+        let webViewTop = topBarView.frame.maxY
+        webView.frame = CGRect(
+            x: 0,
+            y: webViewTop,
+            width: view.bounds.width,
+            height: max(0, view.bounds.height - webViewTop)
         )
-        dragHandleIndicatorView.frame = CGRect(
-            x: (Layout.dragHandleHitWidth - Layout.dragHandleWidth) / 2,
-            y: (Layout.dragHandleHitHeight - Layout.dragHandleHeight) / 2,
-            width: Layout.dragHandleWidth,
-            height: Layout.dragHandleHeight
-        )
-
-        // Keep the resize affordance outside the page content so it does not cover the preview.
-        let resizeHS = Layout.resizeHandleHitSize
-        resizeHandleView.frame = CGRect(
-            x: viewportClipView.frame.maxX - resizeHS,
-            y: bottomControlCenterY - resizeHS / 2,
-            width: resizeHS,
-            height: resizeHS
-        )
-        resizeHandleImageView.frame = resizeHandleView.bounds
-    }
-
-    private func currentDeviceViewportSize() -> CGSize {
-        let size = view.window?.windowScene?.screen.bounds.size ?? view.bounds.size
-        return CGSize(width: max(size.width, 320), height: max(size.height, 568))
-    }
-
-    private func preferredViewportScale(for availableSize: CGSize, deviceSize: CGSize) -> CGFloat {
-        let maxVisibleWidth = min(availableSize.width * 0.34, 148)
-        let maxVisibleHeight = min(availableSize.height * 0.32, 240)
-        let scale = min(maxVisibleWidth / deviceSize.width, maxVisibleHeight / deviceSize.height)
-        return min(max(scale, Layout.preferredMinScale), Layout.preferredMaxScale)
-    }
-
-    private func clampedPanelOrigin(_ origin: CGPoint, safeFrame: CGRect, panelSize: CGSize) -> CGPoint {
-        let minX = safeFrame.minX
-        let minY = safeFrame.minY
-        let maxX = max(minX, safeFrame.maxX - panelSize.width)
-        let maxY = max(minY, safeFrame.maxY - panelSize.height)
-        return CGPoint(x: min(max(origin.x, minX), maxX), y: min(max(origin.y, minY), maxY))
     }
 
     @objc
@@ -971,56 +842,9 @@ private final class FloatingWebViewController: UIViewController, WKNavigationDel
         onCloseRequested?()
     }
 
-    @objc
-    private func handlePanelPan(_ recognizer: UIPanGestureRecognizer) {
-        let translation = recognizer.translation(in: view)
-        if recognizer.state == .changed || recognizer.state == .ended {
-            let candidateOrigin = CGPoint(
-                x: panelOrigin.x + translation.x,
-                y: panelOrigin.y + translation.y
-            )
-            let safeFrame = view.safeAreaLayoutGuide.layoutFrame.insetBy(dx: Layout.panelInset, dy: Layout.panelInset)
-            panelOrigin = clampedPanelOrigin(candidateOrigin, safeFrame: safeFrame, panelSize: panelSize)
-            panelView.frame.origin = panelOrigin
-            recognizer.setTranslation(.zero, in: view)
-        }
-    }
-
-    @objc
-    private func handleResizePan(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            // Snapshot scale at gesture start; subsequent .changed events use absolute translation
-            scaleAtGestureStart = currentScale
-        case .changed, .ended:
-            let translation = recognizer.translation(in: view)
-            // Project the finger movement onto the handle travel axis so the corner tracks the drag.
-            let scaleDelta = projectedScaleDelta(for: translation)
-            userScale = min(
-                max(scaleAtGestureStart + scaleDelta, Layout.preferredMinScale),
-                Layout.userMaxScale
-            )
-            layoutPanelIfNeeded()
-        default:
-            break
-        }
-    }
-
-    private func projectedScaleDelta(for translation: CGPoint) -> CGFloat {
-        let resizeAxis = CGPoint(x: deviceViewportSize.width, y: deviceViewportSize.height)
-        let axisLengthSquared = resizeAxis.x * resizeAxis.x + resizeAxis.y * resizeAxis.y
-        guard axisLengthSquared > 0 else {
-            return 0
-        }
-
-        let projectedDistance = translation.x * resizeAxis.x + translation.y * resizeAxis.y
-        return projectedDistance / axisLengthSquared
-    }
-
     private func updateStatus(_ text: String) {
         statusFallbackText = text
         statusLabel.text = currentStatusLabelText()
-        layoutPanelIfNeeded()
     }
 
     private func currentStatusLabelText() -> String {

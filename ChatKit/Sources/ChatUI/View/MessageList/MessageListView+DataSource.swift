@@ -570,7 +570,7 @@ extension MessageListView {
         }
 
         if showsInterruptedRetryAction {
-            entries.append(.interruptionRetry("任务已中断，请点重试"))
+            entries.append(.interruptionRetry("任务执行已中断，可重新发起上一条请求"))
         }
 
         return entries

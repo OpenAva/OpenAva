@@ -34,8 +34,18 @@ public final class MessageListView: UIView {
     public var onToggleReasoningCollapse: ((String) -> Void)?
     public var onToggleToolResultCollapse: ((String, String) -> Void)?
     public var onRetryInterruptedMessageSubmission: (() -> Void)?
+    public var isRetryingInterruptedSubmission = false {
+        didSet {
+            guard oldValue != isRetryingInterruptedSubmission else { return }
+            updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: loadingMessage)
+        }
+    }
+
     public var showsInterruptedRetryAction = false {
         didSet {
+            if !showsInterruptedRetryAction {
+                isRetryingInterruptedSubmission = false
+            }
             guard oldValue != showsInterruptedRetryAction else { return }
             updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: loadingMessage)
         }
@@ -136,6 +146,7 @@ public final class MessageListView: UIView {
         lastRenderScrolling = false
         expandedSubAgentMessageIDs.removeAll()
         isAutoScrollingToBottom = true
+        isRetryingInterruptedSubmission = false
         showsInterruptedRetryAction = false
         isFirstLoad = true
         alpha = 0

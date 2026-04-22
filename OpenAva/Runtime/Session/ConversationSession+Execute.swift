@@ -203,22 +203,27 @@ public extension ConversationSession {
     }
 
     /// Retry the last interrupted turn after user explicitly taps retry.
-    func retryInterruptedPromptSubmission() {
+    @discardableResult
+    func retryInterruptedPromptSubmission() -> Bool {
         guard showsInterruptedRetryAction,
               !isQueryActive,
               let model = models.chat,
               let lastSubmittedPromptInput
         else {
-            return
+            return false
         }
         showsInterruptedRetryAction = false
         Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = self.submitPromptWithoutWaiting(
+            let didStart = self.submitPromptWithoutWaiting(
                 model: model,
                 prompt: lastSubmittedPromptInput
             )
+            if !didStart {
+                self.showsInterruptedRetryAction = true
+            }
         }
+        return true
     }
 
     private func appendPromptMessage(_ prompt: PromptInput) -> ConversationMessage {

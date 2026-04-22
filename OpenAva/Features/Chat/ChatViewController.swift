@@ -193,6 +193,59 @@ open class ChatViewController: UIViewController {
         }
     }
 
+    /// When non-nil, a side (macCatalyst) or top (iOS) pane is reserved for this host
+    /// view and the chat list / input shrink to share the remaining space.
+    private weak var embeddedWebHostView: UIView?
+
+    /// Fraction of the split view occupied by the embedded web pane.
+    /// 0.5 means 50% / 50%. Clamped to `splitRatioRange` when applied.
+    private var splitRatio: CGFloat = 0.5
+    private let splitRatioRange: ClosedRange<CGFloat> = 0.25 ... 0.75
+    private static let splitterThickness: CGFloat = 6
+    private static let splitterHitSlop: CGFloat = 4
+
+    private lazy var splitterHandleView: SplitterHandleView = {
+        let handle = SplitterHandleView()
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSplitterPan(_:)))
+        handle.addGestureRecognizer(pan)
+        handle.isHidden = true
+        return handle
+    }()
+
+    /// Captured at gesture start so the drag is computed against a stable origin.
+    private var splitterDragStartRatio: CGFloat = 0.5
+
+    /// Embed an external view (e.g. the web_view tool panel) alongside the chat.
+    /// On macCatalyst / regular-width it takes the right half; otherwise the top half.
+    /// Calling again with a different view replaces the previous one.
+    public func embedSidePaneView(_ hostView: UIView) {
+        if embeddedWebHostView === hostView { return }
+        embeddedWebHostView?.removeFromSuperview()
+        hostView.translatesAutoresizingMaskIntoConstraints = true
+        view.addSubview(hostView)
+        embeddedWebHostView = hostView
+        // Ensure the splitter stays above both panes so it can always receive touches.
+        if splitterHandleView.superview !== view {
+            view.addSubview(splitterHandleView)
+        } else {
+            view.bringSubviewToFront(splitterHandleView)
+        }
+        splitterHandleView.isHidden = false
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
+    /// Remove a previously embedded side pane. If `hostView` does not match the
+    /// currently embedded one, does nothing.
+    public func removeEmbeddedSidePaneView(_ hostView: UIView) {
+        guard embeddedWebHostView === hostView else { return }
+        hostView.removeFromSuperview()
+        embeddedWebHostView = nil
+        splitterHandleView.isHidden = true
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
     private lazy var avatarButton: UIButton = .init(type: .system)
     private let navigationTitleView = ChatNavigationTitleView()
     private weak var currentSession: ConversationSession?
@@ -355,21 +408,98 @@ open class ChatViewController: UIViewController {
 
         chatInputView.bottomBackgroundExtension = inputExtension
 
-        let inputY = view.bounds.height - totalInputHeight - keyboardHeight
+        // Split the chat view between the chat column and an optional side/top pane
+        // reserved for the embedded web view tool.
+        let chatColumn: CGRect
+        if let host = embeddedWebHostView {
+            #if targetEnvironment(macCatalyst)
+                let usesHorizontalSplit = true
+            #else
+                let usesHorizontalSplit = traitCollection.horizontalSizeClass == .regular
+            #endif
+
+            let clampedRatio = min(max(splitRatio, splitRatioRange.lowerBound), splitRatioRange.upperBound)
+            let thickness = Self.splitterThickness
+            let hitSlop = Self.splitterHitSlop
+
+            if usesHorizontalSplit {
+                // Mac / regular width: chat on the left, web pane on the right.
+                let paneWidth = (view.bounds.width * clampedRatio).rounded()
+                let chatWidth = view.bounds.width - paneWidth
+                host.frame = CGRect(
+                    x: chatWidth,
+                    y: 0,
+                    width: paneWidth,
+                    height: view.bounds.height
+                )
+                chatColumn = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: chatWidth,
+                    height: view.bounds.height
+                )
+                splitterHandleView.axis = .vertical
+                splitterHandleView.frame = CGRect(
+                    x: chatWidth - thickness / 2 - hitSlop,
+                    y: 0,
+                    width: thickness + hitSlop * 2,
+                    height: view.bounds.height
+                )
+            } else {
+                // iOS compact: web pane on top, chat on the bottom.
+                let paneTopInset = safeArea.top
+                let splitArea = view.bounds.height - paneTopInset
+                let paneHeight = (paneTopInset + splitArea * clampedRatio).rounded()
+                host.frame = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: view.bounds.width,
+                    height: paneHeight
+                )
+                chatColumn = CGRect(
+                    x: 0,
+                    y: paneHeight,
+                    width: view.bounds.width,
+                    height: view.bounds.height - paneHeight
+                )
+                splitterHandleView.axis = .horizontal
+                splitterHandleView.frame = CGRect(
+                    x: 0,
+                    y: paneHeight - thickness / 2 - hitSlop,
+                    width: view.bounds.width,
+                    height: thickness + hitSlop * 2
+                )
+            }
+
+            view.bringSubviewToFront(splitterHandleView)
+        } else {
+            chatColumn = view.bounds
+        }
+
+        let inputY = chatColumn.maxY - totalInputHeight - keyboardHeight
         chatInputView.frame = CGRect(
-            x: 0,
-            y: max(inputY, safeArea.top),
-            width: view.bounds.width,
+            x: chatColumn.minX,
+            y: max(inputY, chatColumn.minY + safeArea.top),
+            width: chatColumn.width,
             height: totalInputHeight
         )
 
+        let listTop: CGFloat
+        if embeddedWebHostView != nil, chatColumn.minY > 0 {
+            // iOS top/bottom mode: chat list starts right below the web pane.
+            listTop = chatColumn.minY
+        } else {
+            listTop = 0
+        }
+
         messageListView.frame = CGRect(
-            x: 0,
-            y: 0,
-            width: view.bounds.width,
-            height: chatInputView.frame.minY
+            x: chatColumn.minX,
+            y: listTop,
+            width: chatColumn.width,
+            height: chatInputView.frame.minY - listTop
         )
-        messageListView.contentSafeAreaInsets = UIEdgeInsets(top: safeArea.top, left: 0, bottom: 0, right: 0)
+        let listSafeTop = chatColumn.minY == 0 ? safeArea.top : 0
+        messageListView.contentSafeAreaInsets = UIEdgeInsets(top: listSafeTop, left: 0, bottom: 0, right: 0)
     }
 
     private func setupKeyboardObservation() {
@@ -397,6 +527,45 @@ open class ChatViewController: UIViewController {
 
     @objc private func handleBackgroundTapToDismiss() {
         view.endEditing(true)
+    }
+
+    @objc private func handleSplitterPan(_ recognizer: UIPanGestureRecognizer) {
+        guard embeddedWebHostView != nil else { return }
+
+        #if targetEnvironment(macCatalyst)
+            let usesHorizontalSplit = true
+        #else
+            let usesHorizontalSplit = traitCollection.horizontalSizeClass == .regular
+        #endif
+
+        switch recognizer.state {
+        case .began:
+            splitterDragStartRatio = splitRatio
+        case .changed, .ended:
+            let translation = recognizer.translation(in: view)
+            let availableLength: CGFloat
+            let delta: CGFloat
+            if usesHorizontalSplit {
+                availableLength = view.bounds.width
+                // Drag left -> webview (right pane) grows, so negate x translation.
+                delta = -translation.x
+            } else {
+                let topInset = view.safeAreaInsets.top
+                availableLength = max(1, view.bounds.height - topInset)
+                // Drag down -> webview (top pane) grows.
+                delta = translation.y
+            }
+            guard availableLength > 0 else { return }
+            let proposed = splitterDragStartRatio + delta / availableLength
+            let clamped = min(max(proposed, splitRatioRange.lowerBound), splitRatioRange.upperBound)
+            if clamped != splitRatio {
+                splitRatio = clamped
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+            }
+        default:
+            break
+        }
     }
 
     private func setupInputHeightObservation() {
@@ -470,6 +639,9 @@ open class ChatViewController: UIViewController {
                 guard let self, let session else { return }
                 guard self.currentSession === session else { return }
                 self.setPromptInputExecuting(isActive)
+                if isActive {
+                    self.messageListView.isRetryingInterruptedSubmission = false
+                }
             }
             .store(in: &sessionCancellables)
         session.messagesDidChange
@@ -554,7 +726,10 @@ open class ChatViewController: UIViewController {
         }
         messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedPromptSubmission()
+            let accepted = session.retryInterruptedPromptSubmission()
+            if !accepted {
+                self.messageListView.isRetryingInterruptedSubmission = false
+            }
         }
         messageListView.onRollbackUserQuery = { [weak self] messageID, queryText in
             guard let self, let session = self.currentSession else { return }
@@ -790,3 +965,74 @@ extension ChatViewController: ChatInputDelegate {
         input.focus()
     }
 }
+
+/// Thin draggable handle drawn between the chat column and the embedded web pane.
+/// The hit area is padded with slop so the visible line stays narrow.
+private final class SplitterHandleView: UIView {
+    enum Axis { case vertical, horizontal }
+
+    var axis: Axis = .vertical {
+        didSet {
+            guard axis != oldValue else { return }
+            setNeedsLayout()
+            updatePointerInteraction()
+        }
+    }
+
+    private let lineView = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        lineView.backgroundColor = .clear
+        lineView.isUserInteractionEnabled = false
+        addSubview(lineView)
+        updatePointerInteraction()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let lineThickness: CGFloat = 1
+        switch axis {
+        case .vertical:
+            lineView.frame = CGRect(
+                x: (bounds.width - lineThickness) / 2,
+                y: 0,
+                width: lineThickness,
+                height: bounds.height
+            )
+        case .horizontal:
+            lineView.frame = CGRect(
+                x: 0,
+                y: (bounds.height - lineThickness) / 2,
+                width: bounds.width,
+                height: lineThickness
+            )
+        }
+    }
+
+    private func updatePointerInteraction() {
+        #if targetEnvironment(macCatalyst)
+            if interactions.contains(where: { $0 is UIPointerInteraction }) == false {
+                addInteraction(UIPointerInteraction(delegate: self))
+            }
+        #endif
+    }
+}
+
+#if targetEnvironment(macCatalyst)
+    extension SplitterHandleView: UIPointerInteractionDelegate {
+        func pointerInteraction(_: UIPointerInteraction, styleFor _: UIPointerRegion) -> UIPointerStyle? {
+            // Use a lift/highlight effect; iPadOS/Catalyst does not expose a native
+            // resize cursor through UIPointerStyle, so a subtle visual cue is the
+            // best we can do without private APIs.
+            let shape = UIPointerShape.roundedRect(bounds, radius: 2)
+            return UIPointerStyle(shape: shape, constrainedAxes: axis == .vertical ? .vertical : .horizontal)
+        }
+    }
+#endif

@@ -62,14 +62,18 @@ struct ChatRootView: View {
             }
         }
         .sheet(isPresented: $showsRemoteControl) {
-            NavigationStack {
+            #if targetEnvironment(macCatalyst)
                 RemoteControlSettingsView(onDone: {
                     showsRemoteControl = false
                 })
-            }
-            .presentationDetents([.large])
-            #if os(macOS) || targetEnvironment(macCatalyst)
-                .frame(minWidth: 540, minHeight: 600)
+                .frame(width: 640, height: 600)
+            #else
+                NavigationStack {
+                    RemoteControlSettingsView(onDone: {
+                        showsRemoteControl = false
+                    })
+                }
+                .presentationDetents([.medium, .large])
             #endif
         }
         .onAppear {
@@ -115,10 +119,19 @@ struct ChatRootView: View {
     }
 
     private var isMainChatActive: Bool {
-        !showsAgentOnboarding &&
-            !showsLocalAgentCreation &&
-            !showsRemoteControl &&
-            destinationPath.isEmpty
+        #if targetEnvironment(macCatalyst)
+            // On Catalyst, toggling showsSystemTopBar installs/uninstalls a titlebar toolbar, which
+            // moves the window traffic lights. The remote control is an in-window overlay, so keep
+            // the system top bar stable while it's shown.
+            !showsAgentOnboarding &&
+                !showsLocalAgentCreation &&
+                destinationPath.isEmpty
+        #else
+            !showsAgentOnboarding &&
+                !showsLocalAgentCreation &&
+                !showsRemoteControl &&
+                destinationPath.isEmpty
+        #endif
     }
 
     private var chatScreenView: some View {

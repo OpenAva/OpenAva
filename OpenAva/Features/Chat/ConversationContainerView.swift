@@ -85,7 +85,10 @@ open class ConversationContainerView: UIView {
         }
         messageListView.onRetryInterruptedMessageSubmission = { [weak self] in
             guard let self, let session = self.currentSession else { return }
-            session.retryInterruptedPromptSubmission()
+            let accepted = session.retryInterruptedPromptSubmission()
+            if !accepted {
+                self.messageListView.isRetryingInterruptedSubmission = false
+            }
         }
         session.messagesDidChange
             .receive(on: DispatchQueue.main)
@@ -100,6 +103,9 @@ open class ConversationContainerView: UIView {
                 guard let self, let session else { return }
                 guard self.currentSession === session else { return }
                 self.chatInputView.setExecuting(isActive)
+                if isActive {
+                    self.messageListView.isRetryingInterruptedSubmission = false
+                }
             }
             .store(in: &sessionCancellables)
         session.loadingStateDidChange

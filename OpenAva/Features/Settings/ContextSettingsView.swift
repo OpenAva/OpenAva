@@ -6,29 +6,19 @@ struct ContextSettingsView: View {
     @State private var viewModel = ContextSettingsViewModel()
 
     var body: some View {
-        List {
-            #if targetEnvironment(macCatalyst)
+        ScrollView {
+            VStack(spacing: 12) {
                 contextRows
-            #else
-                Section {
-                    contextRows
-                }
-            #endif
 
-            if let errorText = viewModel.errorText {
-                Section {
+                if let errorText = viewModel.errorText {
                     Text(errorText)
                         .font(.system(size: 14))
                         .foregroundStyle(.red)
+                        .padding(.top, 8)
                 }
-                .listRowBackground(Color.clear)
             }
+            .padding(.vertical, 24)
         }
-        #if targetEnvironment(macCatalyst)
-        .listStyle(.plain)
-        #else
-        .listStyle(.insetGrouped)
-        #endif
         .scrollContentBackground(.hidden)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
         .navigationTitle(L10n.tr("settings.context.navigationTitle"))
@@ -43,17 +33,11 @@ struct ContextSettingsView: View {
 
     private var contextRows: some View {
         ForEach(AgentContextDocumentKind.allCases) { kind in
-            ZStack {
-                NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
-                    EmptyView()
-                }
-                .opacity(0)
-
+            NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
                 ContextDocumentRow(kind: kind)
             }
-            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
         }
     }
 }
@@ -83,6 +67,7 @@ private struct ContextDocumentRow: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
             }
 
             Spacer(minLength: 8)
@@ -92,15 +77,16 @@ private struct ContextDocumentRow: View {
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
         )
         .overlay(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
                 .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
     }
 }
 

@@ -137,7 +137,11 @@ struct AgentCreationView: View {
                     }
                     #endif
                 }
+                #if targetEnvironment(macCatalyst)
+                .frame(width: 640, height: 600)
+                #else
                 .presentationDetents([.medium, .large])
+                #endif
             }
     }
 
@@ -356,28 +360,46 @@ struct AgentCreationView: View {
     private var emojiPickerSheetContent: some View {
         VStack(spacing: 0) {
             #if targetEnvironment(macCatalyst)
+                sheetTopBar(
+                    title: L10n.tr("agent.creation.emojiPicker.title"),
+                    onDone: { isEmojiPickerPresented = false }
+                )
+            #endif
+
+            emojiPickerGrid
+        }
+    }
+
+    #if targetEnvironment(macCatalyst)
+        private func sheetTopBar(
+            title: String,
+            onDone: @escaping () -> Void
+        ) -> some View {
+            VStack(spacing: 0) {
                 ZStack {
-                    Text(L10n.tr("agent.creation.emojiPicker.title"))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
                     HStack {
                         Spacer(minLength: 0)
                         actionButton(
                             title: L10n.tr("common.done"),
                             role: .primary,
-                            action: { isEmojiPickerPresented = false }
+                            action: onDone
                         )
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
                 .padding(.bottom, 12)
-            #endif
 
-            emojiPickerGrid
+                Rectangle()
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                    .frame(height: 1)
+            }
         }
-    }
+    #endif
 
     private enum InlineActionRole {
         case primary
