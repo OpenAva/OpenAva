@@ -3,10 +3,13 @@ import SwiftUI
 
 enum EmojiPickerCatalog {
     static let candidates: [String] = {
-        // Generate a wide emoji catalog from Unicode ranges using scalar properties.
-        // This keeps the source ASCII-only (avoids encoding corruption) while covering far more emoji than a small hand-picked list.
-        var result: [String] = []
+        // Put likely Agent avatars first, then append a broader Unicode-derived catalog.
+        var result: [String] = preferredCandidates
         var seen = Set<String>()
+
+        for emoji in result {
+            seen.insert(normalized(emoji))
+        }
 
         func appendEmojiScalars(in range: ClosedRange<UInt32>) {
             for value in range {
@@ -75,6 +78,54 @@ enum EmojiPickerCatalog {
 
         return result
     }()
+
+    static let preferredCandidates: [String] = [
+        "\u{1F916}", // robot
+        "\u{1F4BB}", // laptop
+        "\u{1F9E0}", // brain
+        "\u{2728}", // sparkles
+        "\u{1F6E0}\u{FE0F}", // hammer and wrench
+        "\u{1F4DA}", // books
+        "\u{1F50D}", // magnifying glass
+        "\u{1F9EA}", // test tube
+        "\u{1F4DD}", // memo
+        "\u{1F3AF}", // bullseye
+        "\u{2699}\u{FE0F}", // gear
+        "\u{1F4CE}", // paperclip
+        "\u{1F9ED}", // compass
+        "\u{1F52C}", // microscope
+        "\u{1F4E1}", // satellite antenna
+        "\u{1F680}", // rocket
+        "\u{1F4A1}", // light bulb
+        "\u{1F3A8}", // palette
+        "\u{1F3A7}", // headphones
+        "\u{1F3AC}", // clapper board
+        "\u{1F9E9}", // puzzle piece
+        "\u{1F4F1}", // mobile phone
+        "\u{1F5A5}\u{FE0F}", // desktop computer
+        "\u{1F4F0}", // newspaper
+        "\u{1F30D}", // globe
+        "\u{1F50C}", // electric plug
+        "\u{1F525}", // fire
+        "\u{26A1}\u{FE0F}", // high voltage
+        "\u{1F436}", // dog
+        "\u{1F98A}", // fox
+        "\u{1F43C}", // panda
+        "\u{1F989}", // owl
+        "\u{1F419}", // octopus
+        "\u{1F42C}", // dolphin
+        "\u{1F984}", // unicorn
+        "\u{1F41D}", // bee
+        "\u{1F427}", // penguin
+        "\u{1F981}", // lion
+        "\u{1F42F}", // tiger face
+        "\u{1F438}", // frog
+        "\u{1F435}", // monkey face
+        "\u{1F60E}", // smiling face with sunglasses
+        "\u{1F929}", // star-struck
+        "\u{1F973}", // partying face
+        "\u{1F31F}", // glowing star
+    ]
 
     static func normalized(_ raw: String) -> String {
         raw
