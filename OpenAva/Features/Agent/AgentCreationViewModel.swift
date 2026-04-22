@@ -134,7 +134,7 @@ final class AgentCreationViewModel {
     /// Randomly picks an emoji and avoids existing agents when possible.
     func randomizeAgentEmoji(avoiding usedEmojis: Set<String>) {
         let normalizedUsed = Set(usedEmojis.map(Self.normalizedEmoji).filter { !$0.isEmpty })
-        let available = emojiCandidates.filter { !normalizedUsed.contains($0) }
+        let available = emojiCandidates.filter { !normalizedUsed.contains(Self.normalizedEmoji($0)) }
 
         if let selected = available.randomElement() {
             data.agentEmoji = selected
