@@ -247,7 +247,6 @@ open class ChatViewController: UIViewController {
     }
 
     private lazy var avatarButton: UIButton = .init(type: .system)
-    private let navigationTitleView = ChatNavigationTitleView()
     private weak var currentSession: ConversationSession?
     private var headerState: HeaderState = .init(agentName: "Assistant", agentEmoji: nil, modelName: "Not Selected")
     private lazy var dismissKeyboardTapGesture: UITapGestureRecognizer = {
@@ -363,8 +362,6 @@ open class ChatViewController: UIViewController {
         chatInputView.translatesAutoresizingMaskIntoConstraints = true
         messageListView.translatesAutoresizingMaskIntoConstraints = true
 
-        configureSystemTopBarViews()
-
         view.addSubview(messageListView)
         view.addSubview(chatInputView)
         messageListView.addGestureRecognizer(dismissKeyboardTapGesture)
@@ -374,7 +371,7 @@ open class ChatViewController: UIViewController {
         chatInputView.delegate = self
         chatInputView.bind(sessionID: sessionID)
         configureNavigationItems()
-        applyHeaderStateToTitleView()
+        applyHeaderStateToNavigationTitle()
 
         setupKeyboardObservation()
         setupInputHeightObservation()
@@ -801,51 +798,25 @@ open class ChatViewController: UIViewController {
     public func updateHeader(_ state: HeaderState) {
         guard headerState != state else { return }
         headerState = state
-        applyHeaderStateToTitleView()
+        applyHeaderStateToNavigationTitle()
     }
 
     public func refreshNavigationMenus() {
         configureNavigationItems()
     }
 
-    public func presentLeadingMenu() {
-        avatarButton.sendActions(for: .touchUpInside)
-    }
-
-    private func applyHeaderStateToTitleView() {
-        let agent = headerState.agentName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let emoji = (headerState.agentEmoji ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = resolvedHeaderModelTitle(from: headerState)
-        let agentText = emoji.isEmpty ? (agent.isEmpty ? "Assistant" : agent) : "\(emoji) \(agent)"
-        let title = "\(agentText) · \(model)"
-
-        navigationTitleView.agentTitle = agent.isEmpty ? "Assistant" : agent
-        navigationTitleView.agentEmoji = emoji
-        navigationTitleView.modelTitle = model
+    private func applyHeaderStateToNavigationTitle() {
+        let title = ChatTopBar.title(
+            agentName: headerState.agentName,
+            agentEmoji: headerState.agentEmoji,
+            modelName: headerState.modelName
+        ).principalTitleText
 
         navigationItem.title = title
-        navigationItem.titleView = navigationTitleView
         titleBarButtonItem.title = title
         if isViewLoaded {
             view.setNeedsLayout()
         }
-    }
-
-    private func resolvedHeaderModelTitle(from state: HeaderState) -> String {
-        let model = state.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return model.isEmpty ? "Not Selected" : model
-    }
-
-    private func configureSystemTopBarViews() {
-        navigationTitleView.onAgentTap = { [weak self] in
-            guard let self else { return }
-            self.menuDelegate?.chatViewControllerDidTapAgentTitle(self)
-        }
-        navigationTitleView.onModelTap = { [weak self] in
-            guard let self else { return }
-            self.menuDelegate?.chatViewControllerDidTapModelTitle(self)
-        }
-        applyHeaderStateToTitleView()
     }
 
     @objc private func handleTitleTap() {

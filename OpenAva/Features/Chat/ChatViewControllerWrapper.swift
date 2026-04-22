@@ -568,97 +568,21 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
-            let renameTitle = L10n.tr("chat.menu.renameAgent")
-            let deleteTitle = L10n.tr("chat.menu.deleteAgent")
-
-            // Keep stable order: chat configuration first, then chat controls and agent management.
-            let modelAction = UIAction(
-                title: L10n.tr("settings.llm.navigationTitle"),
-                image: UIImage(systemName: "cpu")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.openLLM)
-            }
-            let contextAction = UIAction(
-                title: L10n.tr("settings.context.navigationTitle"),
-                image: UIImage(systemName: "doc.text")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.openContext)
-            }
-            let skillsAction = UIAction(
-                title: L10n.tr("settings.skills.navigationTitle"),
-                image: UIImage(systemName: "square.stack.3d.up")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.openSkills)
-            }
-            let cronAction = UIAction(
-                title: L10n.tr("settings.cron.navigationTitle"),
-                image: UIImage(systemName: "calendar.badge.clock")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.openCron)
-            }
-            let remoteControlAction = UIAction(
-                title: L10n.tr("settings.remoteControl.navigationTitle"),
-                image: UIImage(systemName: "dot.radiowaves.left.and.right")
-            ) { [weak self] _ in
-                self?.onMenuAction?(.openRemoteControl)
-            }
-            let isBackgroundEnabled = BackgroundExecutionPreferences.shared.isEnabled
-            let backgroundAction = UIAction(
-                title: L10n.tr("settings.background.enabled"),
-                image: UIImage(systemName: "arrow.down.app"),
-                state: isBackgroundEnabled ? .on : .off
-            ) { _ in
-                let preferences = BackgroundExecutionPreferences.shared
-                preferences.isEnabled.toggle()
-                if preferences.isEnabled {
-                    // Keep permission request aligned with settings page behavior.
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-                }
-            }
-            let autoCompactAction = UIAction(
-                title: L10n.tr("chat.menu.autoCompact"),
-                image: UIImage(systemName: "rectangle.compress.vertical"),
-                state: autoCompactEnabled ? .on : .off
-            ) { [weak self] _ in
-                self?.onToggleAutoCompact?()
-            }
-            let renameAction = UIAction(
-                title: renameTitle,
-                image: UIImage(systemName: "pencil")
-            ) { [weak self, weak controller] _ in
-                guard let self, let controller else { return }
-                self.presentRenameCurrentAgentAlert(from: controller)
-            }
-            let deleteAction = UIAction(
-                title: deleteTitle,
-                image: UIImage(systemName: "trash"),
-                attributes: [.destructive]
-            ) { [weak self, weak controller] _ in
-                guard let self, let controller else { return }
-                self.presentDeleteCurrentAgentAlert(from: controller)
-            }
-
-            let configurationMenu = UIMenu(
-                // Keep title empty to remove the section header label in the menu.
-                title: "",
-                options: .displayInline,
-                children: [
-                    modelAction,
-                    skillsAction,
-                    contextAction,
-                    cronAction,
-                ]
+            let sections = ChatTopBar.configurationSections(
+                autoCompactEnabled: autoCompactEnabled,
+                isBackgroundEnabled: BackgroundExecutionPreferences.shared.isEnabled,
+                includeBackgroundExecution: true
             )
-            let agentManagementMenu = UIMenu(
-                title: "",
-                options: .displayInline,
-                children: [backgroundAction, autoCompactAction, remoteControlAction, renameAction, deleteAction]
-            )
-
-            return UIMenu(children: [
-                configurationMenu,
-                agentManagementMenu,
-            ])
+            let menus = sections.map { section in
+                UIMenu(
+                    title: "",
+                    options: .displayInline,
+                    children: section.items.compactMap { item in
+                        self.makeConfigurationMenuElement(item, controller: controller)
+                    }
+                )
+            }
+            return UIMenu(children: menus)
         }
 
         private func presentDeleteCurrentAgentAlert(from controller: ChatViewController) {
@@ -743,10 +667,6 @@ extension ChatViewControllerWrapper {
             button.contentVerticalAlignment = .center
             button.showsMenuAsPrimaryAction = true
             button.menu = buildAgentMenu()
-        }
-
-        func chatViewControllerDidTapAgentTitle(_ controller: ChatViewController) {
-            controller.presentLeadingMenu()
         }
 
         func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
@@ -835,36 +755,121 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
-            let agentActions = agents.map(makeAgentAction)
+            let entries = ChatTopBar.agentMenuEntries(agents: agents, activeAgentID: activeAgentID)
+            var primaryChildren: [UIMenuElement] = []
+            var secondaryChildren: [UIMenuElement] = []
 
-            let fallbackMenu: UIMenu? = if agentActions.isEmpty {
-                UIMenu(
-                    title: "",
-                    options: .displayInline,
-                    children: [UIAction(title: L10n.tr("chat.menu.noAgentsAvailable"), attributes: [.disabled]) { _ in }]
-                )
-            } else {
-                nil
+            for entry in entries {
+                guard let element = makeAgentMenuElement(for: entry) else { continue }
+                switch entry.kind {
+                case .createLocalAgent:
+                    secondaryChildren.append(element)
+                case .agent, .empty:
+                    primaryChildren.append(element)
+                }
             }
 
-            let createLocalAction = UIAction(
-                title: L10n.tr("chat.menu.newLocalAgent"),
-                image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.plus"))
-            ) { [weak self] _ in
-                self?.onCreateLocalAgent?()
+            var sections: [UIMenu] = []
+            if !primaryChildren.isEmpty {
+                sections.append(UIMenu(title: "", options: .displayInline, children: primaryChildren))
             }
-
-            let contentChildren = agentActions + [fallbackMenu].compactMap { $0 }
-            let contentSection = UIMenu(title: "", options: .displayInline, children: contentChildren)
-            let entrySection = UIMenu(title: "", options: .displayInline, children: [createLocalAction])
-            return UIMenu(title: "", children: [contentSection, entrySection])
+            if !secondaryChildren.isEmpty {
+                sections.append(UIMenu(title: "", options: .displayInline, children: secondaryChildren))
+            }
+            return UIMenu(title: "", children: sections)
         }
 
-        private func makeAgentAction(for agent: AgentProfile) -> UIAction {
-            let image = makeAgentMenuImage(for: agent)
-            let state: UIMenuElement.State = (agent.id == activeAgentID) ? .on : .off
-            return UIAction(title: agent.name, image: image, identifier: nil, discoverabilityTitle: nil, attributes: [], state: state) { [weak self] _ in
-                self?.onAgentSwitch?(agent.id)
+        private func makeAgentMenuElement(for entry: ChatTopBar.AgentMenuEntry) -> UIMenuElement? {
+            switch entry.kind {
+            case let .agent(agentID):
+                let image = makeAgentMenuImage(for: agentID, fallbackEmoji: entry.emoji)
+                let state: UIMenuElement.State = entry.isSelected ? .on : .off
+                return UIAction(
+                    title: entry.title,
+                    image: image,
+                    identifier: nil,
+                    discoverabilityTitle: nil,
+                    attributes: [],
+                    state: state
+                ) { [weak self] _ in
+                    self?.onAgentSwitch?(agentID)
+                }
+            case .createLocalAgent:
+                return UIAction(
+                    title: entry.title,
+                    image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.plus"))
+                ) { [weak self] _ in
+                    self?.onCreateLocalAgent?()
+                }
+            case .empty:
+                return UIAction(title: entry.title, attributes: [.disabled]) { _ in }
+            }
+        }
+
+        private func makeConfigurationMenuElement(
+            _ item: ChatTopBar.ConfigurationItem,
+            controller: ChatViewController
+        ) -> UIMenuElement? {
+            switch item.kind {
+            case let .destination(destination):
+                return UIAction(
+                    title: item.title,
+                    image: UIImage(systemName: item.systemImage)
+                ) { [weak self] _ in
+                    self?.onMenuAction?(self?.menuAction(for: destination) ?? .openLLM)
+                }
+            case let .backgroundExecution(enabled):
+                return UIAction(
+                    title: item.title,
+                    image: UIImage(systemName: item.systemImage),
+                    state: enabled ? .on : .off
+                ) { _ in
+                    let preferences = BackgroundExecutionPreferences.shared
+                    preferences.isEnabled.toggle()
+                    if preferences.isEnabled {
+                        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+                    }
+                }
+            case let .autoCompact(enabled):
+                return UIAction(
+                    title: item.title,
+                    image: UIImage(systemName: item.systemImage),
+                    state: enabled ? .on : .off
+                ) { [weak self] _ in
+                    self?.onToggleAutoCompact?()
+                }
+            case .renameAgent:
+                return UIAction(
+                    title: item.title,
+                    image: UIImage(systemName: item.systemImage)
+                ) { [weak self, weak controller] _ in
+                    guard let self, let controller else { return }
+                    self.presentRenameCurrentAgentAlert(from: controller)
+                }
+            case .deleteAgent:
+                return UIAction(
+                    title: item.title,
+                    image: UIImage(systemName: item.systemImage),
+                    attributes: item.isDestructive ? [.destructive] : []
+                ) { [weak self, weak controller] _ in
+                    guard let self, let controller else { return }
+                    self.presentDeleteCurrentAgentAlert(from: controller)
+                }
+            }
+        }
+
+        private func menuAction(for destination: ChatTopBar.Destination) -> MenuAction {
+            switch destination {
+            case .llm:
+                .openLLM
+            case .skills:
+                .openSkills
+            case .context:
+                .openContext
+            case .cron:
+                .openCron
+            case .remoteControl:
+                .openRemoteControl
             }
         }
 
@@ -898,10 +903,10 @@ extension ChatViewControllerWrapper {
             )
         }
 
-        private func makeAgentMenuImage(for agent: AgentProfile) -> UIImage? {
-            let prefix = "agent:\(agent.id.uuidString)::"
+        private func makeAgentMenuImage(for agentID: UUID, fallbackEmoji: String) -> UIImage? {
+            let prefix = "agent:\(agentID.uuidString)::"
             let isRunning = ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
-            return makeEmojiMenuImage(from: agent.emoji, showsRunningIndicator: isRunning)
+            return makeEmojiMenuImage(from: fallbackEmoji, showsRunningIndicator: isRunning)
         }
 
         private func makeEmojiMenuImage(from emoji: String, showsRunningIndicator: Bool) -> UIImage? {

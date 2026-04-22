@@ -514,35 +514,172 @@ private struct ChatScreen: View {
             } message: {
                 Text(L10n.tr("chat.menu.renameAlert.message"))
             }
-            .onReceive(NotificationCenter.default.publisher(for: .chatToolbarRenameRequested)) { _ in
-                renameText = activeAgentName
-                showsRenameAlert = true
+        #if !targetEnvironment(macCatalyst)
+            .toolbar {
+                if showsSystemTopBar {
+                    iosToolbarContent
+                }
             }
+        #endif
     }
 
-    @ViewBuilder
-    private var contentView: some View {
-        #if targetEnvironment(macCatalyst)
-            chatControllerView
-        #else
-            chatControllerView
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    TopoBotNavigationBar(
-                        agentName: activeAgentName,
-                        agentEmoji: activeAgentEmoji,
-                        modelName: selectedModelName,
-                        agents: agents,
-                        activeAgentID: activeAgentID,
-                        autoCompactEnabled: autoCompactEnabled,
-                        onTapModel: { onMenuAction?(.openLLM) },
-                        onMenuAction: onMenuAction,
-                        onAgentSwitch: onAgentSwitch,
-                        onCreateLocalAgent: onCreateLocalAgent,
-                        onDeleteCurrentAgent: onDeleteCurrentAgent,
-                        onToggleAutoCompact: onToggleAutoCompact
-                    )
+    #if !targetEnvironment(macCatalyst)
+        @ToolbarContentBuilder
+        private var iosToolbarContent: some ToolbarContent {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    agentMenuContent
+                } label: {
+                    Image(systemName: "person.2")
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
-        #endif
+            }
+            ToolbarItem(placement: .principal) {
+                Button {
+                    onMenuAction?(.openLLM)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(topBarTitle.principalTitleText)
+                            .font(Font(ChatUIDesign.Typography.agentTitle))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    configurationMenuContent
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                }
+            }
+        }
+
+        private var topBarTitle: ChatTopBar.Title {
+            ChatTopBar.title(
+                agentName: activeAgentName,
+                agentEmoji: activeAgentEmoji,
+                modelName: selectedModelName
+            )
+        }
+
+        private var topBarAgentMenuEntries: [ChatTopBar.AgentMenuEntry] {
+            ChatTopBar.agentMenuEntries(agents: agents, activeAgentID: activeAgentID)
+        }
+
+        private var topBarConfigurationSections: [ChatTopBar.ConfigurationSection] {
+            ChatTopBar.configurationSections(
+                autoCompactEnabled: autoCompactEnabled,
+                isBackgroundEnabled: BackgroundExecutionPreferences.shared.isEnabled,
+                includeBackgroundExecution: false
+            )
+        }
+
+        private var agentMenuContent: some View {
+            ForEach(topBarAgentMenuEntries.indices, id: \.self) { index in
+                let entry = topBarAgentMenuEntries[index]
+                if case .createLocalAgent = entry.kind, index > 0 {
+                    Divider()
+                }
+                switch entry.kind {
+                case let .agent(agentID):
+                    Button {
+                        onAgentSwitch?(agentID)
+                    } label: {
+                        if entry.isSelected {
+                            Label(entry.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(entry.displayTitle)
+                        }
+                    }
+                case .createLocalAgent:
+                    Button {
+                        onCreateLocalAgent?()
+                    } label: {
+                        Label(entry.title, systemImage: "plus")
+                    }
+                case .empty:
+                    Text(entry.title)
+                }
+            }
+        }
+
+        private var configurationMenuContent: some View {
+            ForEach(topBarConfigurationSections) { section in
+                Section {
+                    ForEach(section.items) { item in
+                        configurationMenuItemView(item)
+                    }
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func configurationMenuItemView(_ item: ChatTopBar.ConfigurationItem) -> some View {
+            switch item.kind {
+            case let .destination(destination):
+                Button {
+                    handleTopBarConfigurationDestination(destination)
+                } label: {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+            case let .backgroundExecution(enabled):
+                Toggle(isOn: Binding(
+                    get: { enabled },
+                    set: { _ in
+                        let preferences = BackgroundExecutionPreferences.shared
+                        preferences.isEnabled.toggle()
+                        if preferences.isEnabled {
+                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+                        }
+                    }
+                )) {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+            case let .autoCompact(enabled):
+                Toggle(isOn: Binding(
+                    get: { enabled },
+                    set: { _ in onToggleAutoCompact?() }
+                )) {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+            case .renameAgent:
+                Button {
+                    renameText = activeAgentName
+                    showsRenameAlert = true
+                } label: {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+            case .deleteAgent:
+                Button(role: .destructive) {
+                    onDeleteCurrentAgent?()
+                } label: {
+                    Label(item.title, systemImage: item.systemImage)
+                }
+            }
+        }
+
+        private func handleTopBarConfigurationDestination(_ destination: ChatTopBar.Destination) {
+            let action: ChatViewControllerWrapper.MenuAction = switch destination {
+            case .llm:
+                .openLLM
+            case .skills:
+                .openSkills
+            case .context:
+                .openContext
+            case .cron:
+                .openCron
+            case .remoteControl:
+                .openRemoteControl
+            }
+            onMenuAction?(action)
+        }
+    #endif
+
+    private var contentView: some View {
+        chatControllerView
     }
 
     private var chatControllerView: some View {
@@ -578,7 +715,12 @@ private struct ChatScreen: View {
         )
         .id(scopedSessionID)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        #if targetEnvironment(macCatalyst)
+            .toolbar(.hidden, for: .navigationBar)
+        #else
+            .toolbar(showsSystemTopBar ? .visible : .hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 

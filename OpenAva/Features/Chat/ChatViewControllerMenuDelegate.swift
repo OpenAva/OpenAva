@@ -14,10 +14,7 @@ public protocol ChatViewControllerMenuDelegate: AnyObject {
     /// Override to add menu, actions, or other button configurations.
     func chatViewControllerLeadingButton(_ controller: ChatViewController, button: UIButton)
 
-    /// Called when user taps the primary title row (Agent).
-    func chatViewControllerDidTapAgentTitle(_ controller: ChatViewController)
-
-    /// Called when user taps the secondary title row (Model/Provider).
+    /// Called when user taps the title control shown by the host platform.
     func chatViewControllerDidTapModelTitle(_ controller: ChatViewController)
 
     /// Called when ChatUI receives a local slash command that the host may want to handle.
@@ -34,10 +31,6 @@ public extension ChatViewControllerMenuDelegate {
     func chatViewControllerLeadingButton(_ controller: ChatViewController, button: UIButton) {
         _ = controller
         _ = button
-    }
-
-    func chatViewControllerDidTapAgentTitle(_ controller: ChatViewController) {
-        _ = controller
     }
 
     func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
