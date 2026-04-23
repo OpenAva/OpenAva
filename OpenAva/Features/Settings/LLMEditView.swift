@@ -79,314 +79,297 @@ struct LLMEditView: View {
         "Optional system prompt"
     }
 
-    private func fieldLabel(_ title: String) -> some View {
-        Text(title).foregroundStyle(.primary)
+    var body: some View {
+        Group {
+            #if targetEnvironment(macCatalyst)
+                VStack(spacing: 0) {
+                    sheetTopBar()
+                    formContent
+                }
+            #else
+                formContent
+                    .navigationTitle(navigationTitle)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(L10n.tr("common.cancel")) {
+                                requestCancel()
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.tr("common.save")) {
+                                saveModel()
+                            }
+                            .disabled(!viewModel.isValid)
+                        }
+                    }
+            #endif
+        }
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+        .alert(L10n.tr("settings.llmEdit.discard.title"), isPresented: $isShowingDiscardAlert) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.discard"), role: .destructive) {
+                cancelEditing()
+            }
+        } message: {
+            Text(L10n.tr("settings.llmEdit.discard.message"))
+        }
     }
 
-    var body: some View {
-        Form {
-            #if targetEnvironment(macCatalyst)
-                macActionSection
-            #endif
-
-            Section {
-                Picker(selection: $viewModel.selectedProviderType) {
-                    ForEach(LLMProvider.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                } label: {
-                    fieldLabel(L10n.tr("settings.llm.provider.header"))
-                }
-                .pickerStyle(.menu)
-
-                LabeledContent {
-                    SecureField(L10n.tr("settings.llmEdit.required"), text: $viewModel.apiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(.secondary)
-                        .settingsInputFieldStyle()
-                } label: {
-                    fieldLabel(L10n.tr("settings.llm.apiKey"))
-                }
-
-                if viewModel.supportsQuickSetup {
-                    Picker(selection: $viewModel.selectedModelOption) {
-                        ForEach(viewModel.recommendedModelsForSelectedProvider) { model in
-                            Text(model.displayName).tag(model.id)
+    private var formContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                CustomSection(title: L10n.tr("settings.llmEdit.basicSettings")) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        labeledField(L10n.tr("settings.llm.provider.header")) {
+                            Picker(selection: $viewModel.selectedProviderType) {
+                                ForEach(LLMProvider.allCases) { provider in
+                                    Text(provider.displayName).tag(provider)
+                                }
+                            } label: {
+                                EmptyView()
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.primary)
                         }
-                        Text(L10n.tr("common.custom")).tag(viewModel.customModelOptionID)
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.model.picker"))
-                    }
-                    .pickerStyle(.menu)
 
-                    if viewModel.shouldShowCustomModelInput {
-                        LabeledContent {
-                            TextField(L10n.tr("settings.llmEdit.modelIdentifier"), text: $viewModel.model)
+                        labeledField(L10n.tr("settings.llm.apiKey")) {
+                            SecureField(L10n.tr("settings.llmEdit.required"), text: $viewModel.apiKey)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
                                 .settingsInputFieldStyle()
-                                .onChange(of: viewModel.model) { _, _ in
-                                    viewModel.handleModelChanged()
+                        }
+
+                        if viewModel.supportsQuickSetup {
+                            labeledField(L10n.tr("settings.llm.model.picker")) {
+                                Picker(selection: $viewModel.selectedModelOption) {
+                                    ForEach(viewModel.recommendedModelsForSelectedProvider) { model in
+                                        Text(model.displayName).tag(model.id)
+                                    }
+                                    Text(L10n.tr("common.custom")).tag(viewModel.customModelOptionID)
+                                } label: {
+                                    EmptyView()
                                 }
-                        } label: {
-                            fieldLabel(L10n.tr("settings.llm.customModel"))
-                        }
-                    }
-                } else {
-                    LabeledContent {
-                        TextField(L10n.tr("settings.llmEdit.providerExample"), text: $viewModel.provider)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.providerId"))
-                    }
-
-                    LabeledContent {
-                        TextField(L10n.tr("settings.llmEdit.modelExample"), text: $viewModel.model)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                            .onChange(of: viewModel.model) { _, _ in
-                                viewModel.handleModelChanged()
+                                .pickerStyle(.menu)
+                                .tint(.primary)
                             }
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.model.picker"))
-                    }
-                }
 
-                LabeledContent {
-                    TextField(L10n.tr("settings.llmEdit.displayName"), text: $viewModel.name)
-                        .textInputAutocapitalization(.words)
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(.secondary)
-                        .settingsInputFieldStyle()
-                        .onChange(of: viewModel.name) { _, _ in
-                            viewModel.handleNameChangedByUser()
-                        }
-                } label: {
-                    fieldLabel(L10n.tr("common.name"))
-                }
-
-            } header: {
-                Text(L10n.tr("settings.llmEdit.basicSettings"))
-                    .textCase(.none)
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            Section {
-                DisclosureGroup(L10n.tr("settings.llm.advanced.title")) {
-                    LabeledContent {
-                        TextField(endpointPlaceholder, text: $viewModel.endpoint)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.endpoint"))
-                    }
-                    if let message = viewModel.endpointValidationMessage {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    LabeledContent {
-                        TextField(apiKeyHeaderPlaceholder, text: $viewModel.apiKeyHeader)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.apiKeyHeader"))
-                    }
-
-                    LabeledContent {
-                        TextField(contextTokensPlaceholder, text: $viewModel.contextTokens)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                            .onChange(of: viewModel.contextTokens) { _, _ in
-                                viewModel.handleContextTokensChangedByUser()
+                            if viewModel.shouldShowCustomModelInput {
+                                labeledField(L10n.tr("settings.llm.customModel")) {
+                                    TextField(L10n.tr("settings.llmEdit.modelIdentifier"), text: $viewModel.model)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                        .settingsInputFieldStyle()
+                                        .onChange(of: viewModel.model) { _, _ in
+                                            viewModel.handleModelChanged()
+                                        }
+                                }
                             }
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.contextTokens"))
-                    }
-                    if let message = viewModel.contextTokensValidationMessage {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
+                        } else {
+                            labeledField(L10n.tr("settings.llm.providerId")) {
+                                TextField(L10n.tr("settings.llmEdit.providerExample"), text: $viewModel.provider)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .settingsInputFieldStyle()
+                            }
 
-                    LabeledContent {
-                        TextField(timeoutPlaceholder, text: $viewModel.requestTimeoutMs)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                    } label: {
-                        fieldLabel(L10n.tr("settings.llm.timeoutMs"))
-                    }
-                    if let message = viewModel.requestTimeoutValidationMessage {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        fieldLabel(L10n.tr("settings.llm.systemPrompt"))
-                        TextField(systemPromptPlaceholder, text: $viewModel.systemPrompt, axis: .vertical)
-                            .lineLimit(4 ... 12)
-                            .foregroundStyle(.secondary)
-                            .settingsInputFieldStyle()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            Section {
-                Button {
-                    Task { await viewModel.testConnection() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if viewModel.isTestingConnection {
-                            ProgressView().tint(.white)
+                            labeledField(L10n.tr("settings.llm.model.picker")) {
+                                TextField(L10n.tr("settings.llmEdit.modelExample"), text: $viewModel.model)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .settingsInputFieldStyle()
+                                    .onChange(of: viewModel.model) { _, _ in
+                                        viewModel.handleModelChanged()
+                                    }
+                            }
                         }
-                        Text(viewModel.isTestingConnection ? L10n.tr("settings.llmEdit.testing") : L10n.tr("settings.llm.testConnection"))
-                            .frame(maxWidth: .infinity)
-                            .font(.system(size: 16, weight: .regular))
-                    }
-                    .padding(.vertical, 8)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                    .frame(maxWidth: .infinity)
-                    .background(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isTestingConnection || !viewModel.canTestConnection)
 
-                if let isSuccess = viewModel.isConnectionTestSuccessful,
-                   let message = viewModel.connectionTestMessage
-                {
-                    Label(message, systemImage: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        labeledField(L10n.tr("common.name")) {
+                            TextField(L10n.tr("settings.llmEdit.displayName"), text: $viewModel.name)
+                                .textInputAutocapitalization(.words)
+                                .settingsInputFieldStyle()
+                                .onChange(of: viewModel.name) { _, _ in
+                                    viewModel.handleNameChangedByUser()
+                                }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                CustomSection {
+                    DisclosureGroup(L10n.tr("settings.llm.advanced.title")) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            labeledField(L10n.tr("settings.llm.endpoint")) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TextField(endpointPlaceholder, text: $viewModel.endpoint)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                        .keyboardType(.URL)
+                                        .settingsInputFieldStyle()
+                                    if let message = viewModel.endpointValidationMessage {
+                                        Text(message).font(.caption).foregroundStyle(.red)
+                                    }
+                                }
+                            }
+
+                            labeledField(L10n.tr("settings.llm.apiKeyHeader")) {
+                                TextField(apiKeyHeaderPlaceholder, text: $viewModel.apiKeyHeader)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .settingsInputFieldStyle()
+                            }
+
+                            labeledField(L10n.tr("settings.llm.contextTokens")) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TextField(contextTokensPlaceholder, text: $viewModel.contextTokens)
+                                        .keyboardType(.numberPad)
+                                        .settingsInputFieldStyle()
+                                        .onChange(of: viewModel.contextTokens) { _, _ in
+                                            viewModel.handleContextTokensChangedByUser()
+                                        }
+                                    if let message = viewModel.contextTokensValidationMessage {
+                                        Text(message).font(.caption).foregroundStyle(.red)
+                                    }
+                                }
+                            }
+
+                            labeledField(L10n.tr("settings.llm.timeoutMs")) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TextField(timeoutPlaceholder, text: $viewModel.requestTimeoutMs)
+                                        .keyboardType(.numberPad)
+                                        .settingsInputFieldStyle()
+                                    if let message = viewModel.requestTimeoutValidationMessage {
+                                        Text(message).font(.caption).foregroundStyle(.red)
+                                    }
+                                }
+                            }
+
+                            labeledField(L10n.tr("settings.llm.systemPrompt")) {
+                                TextField(systemPromptPlaceholder, text: $viewModel.systemPrompt, axis: .vertical)
+                                    .lineLimit(4 ... 12)
+                                    .settingsInputFieldStyle()
+                            }
+                        }
+                        .padding(.top, 16)
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .tint(Color(uiColor: ChatUIDesign.Color.black50))
+                    .padding(.horizontal, 20)
+                }
+
+                VStack(spacing: 16) {
+                    Button {
+                        Task { await viewModel.testConnection() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isTestingConnection {
+                                ProgressView().tint(.white)
+                            }
+                            Text(viewModel.isTestingConnection ? L10n.tr("settings.llmEdit.testing") : L10n.tr("settings.llm.testConnection"))
+                                .frame(maxWidth: .infinity)
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                        .padding(.vertical, 14)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            (viewModel.isTestingConnection || !viewModel.canTestConnection)
+                                ? Color(uiColor: ChatUIDesign.Color.black50).opacity(0.3)
+                                : Color(uiColor: ChatUIDesign.Color.offBlack)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isTestingConnection || !viewModel.canTestConnection)
+
+                    if let isSuccess = viewModel.isConnectionTestSuccessful,
+                       let message = viewModel.connectionTestMessage
+                    {
+                        Label(message, systemImage: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(isSuccess ? .green : .red)
+                    }
+
+                    if let errorText = viewModel.errorText {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(errorText)
+                        }
                         .font(.footnote)
-                        .foregroundStyle(isSuccess ? .green : .red)
-                }
-            }
-            // Remove the white background frame around the button
-            .listRowBackground(Color.clear)
-            // Horizontal padding keeps the button from touching the edges on Mac Catalyst
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .foregroundStyle(.red)
+                    }
 
-            if let errorText = viewModel.errorText {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                    Text(errorText)
+                    if let message = viewModel.saveValidationMessage,
+                       !viewModel.isValid
+                    {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .foregroundStyle(.red)
-                .listRowBackground(Color.clear)
+                .padding(.horizontal, 20)
             }
-
-            if let message = viewModel.saveValidationMessage,
-               !viewModel.isValid
-            {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .listRowBackground(Color.clear)
-            }
+            .padding(.vertical, 24)
         }
-        .scrollContentBackground(.hidden)
-        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-        .navigationTitle(navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        #if targetEnvironment(macCatalyst)
-            .formStyle(.grouped)
-        #else
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.tr("common.cancel")) {
-                        requestCancel()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.tr("common.save")) {
-                        saveModel()
-                    }
-                    .disabled(!viewModel.isValid)
-                }
-            }
+        #if !targetEnvironment(macCatalyst)
+        .scrollDismissesKeyboard(.interactively)
         #endif
-            .alert(L10n.tr("settings.llmEdit.discard.title"), isPresented: $isShowingDiscardAlert) {
-                Button(L10n.tr("common.cancel"), role: .cancel) {}
-                Button(L10n.tr("common.discard"), role: .destructive) {
-                    cancelEditing()
-                }
-            } message: {
-                Text(L10n.tr("settings.llmEdit.discard.message"))
-            }
     }
 
     #if targetEnvironment(macCatalyst)
-        private var macActionSection: some View {
-            Section {
-                HStack(spacing: 12) {
-                    actionButton(
-                        title: L10n.tr("common.cancel"),
-                        role: .secondary,
-                        isDisabled: false,
-                        action: requestCancel
-                    )
+        private func sheetTopBar() -> some View {
+            VStack(spacing: 0) {
+                ZStack {
+                    Text(navigationTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-                    Spacer(minLength: 0)
-
-                    actionButton(
-                        title: L10n.tr("common.save"),
-                        role: .primary,
-                        isDisabled: !viewModel.isValid,
-                        action: saveModel
-                    )
+                    HStack {
+                        actionButton(
+                            title: L10n.tr("common.cancel"),
+                            role: .secondary,
+                            action: requestCancel
+                        )
+                        Spacer(minLength: 0)
+                        actionButton(
+                            title: L10n.tr("common.save"),
+                            role: .primary,
+                            action: saveModel
+                        )
+                        .disabled(!viewModel.isValid)
+                    }
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+
+                Rectangle()
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                    .frame(height: 1)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         }
     #endif
 
-    private enum ActionButtonRole {
+    private enum InlineActionRole {
         case primary
         case secondary
     }
 
     private func actionButton(
         title: String,
-        role: ActionButtonRole,
-        isDisabled: Bool,
+        role: InlineActionRole,
         action: @escaping () -> Void
     ) -> some View {
         let foregroundColor: UIColor = switch role {
         case .primary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.pureWhite
+            ChatUIDesign.Color.pureWhite
         case .secondary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.offBlack
+            ChatUIDesign.Color.offBlack
         }
         let backgroundColor: Color = switch role {
         case .primary:
-            Color(uiColor: isDisabled ? UIColor.tertiarySystemFill : ChatUIDesign.Color.offBlack)
+            Color(uiColor: ChatUIDesign.Color.offBlack)
         case .secondary:
             .clear
         }
@@ -405,7 +388,54 @@ struct LLMEditView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
+    }
+
+    private struct CustomSection<Content: View, Footer: View>: View {
+        let title: String?
+        let footer: Footer?
+        @ViewBuilder let content: () -> Content
+
+        init(title: String? = nil, @ViewBuilder footer: () -> Footer, @ViewBuilder content: @escaping () -> Content) {
+            self.title = title
+            self.footer = footer()
+            self.content = content
+        }
+
+        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) where Footer == EmptyView {
+            self.title = title
+            self.footer = nil
+            self.content = content
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                if let title {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .padding(.horizontal, 20)
+                }
+
+                content()
+
+                if let footer {
+                    footer
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+
+    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+            content()
+        }
     }
 
     private func requestCancel() {
@@ -431,7 +461,8 @@ struct LLMEditView: View {
 
 private extension View {
     func settingsInputFieldStyle() -> some View {
-        padding(.horizontal, 10)
+        frame(minHeight: 34)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 Color(uiColor: ChatUIDesign.Color.pureWhite),

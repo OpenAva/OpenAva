@@ -294,6 +294,16 @@
         }
       }
     },
+    "Ask anything or type / for skills" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送任意问题，或输入 / 唤起技能"
+          }
+        }
+      }
+    },
     "Image" : {
       "localizations" : {
         "zh-Hans" : {
@@ -765,6 +775,7 @@
       }
     },
     "Type something..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

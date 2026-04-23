@@ -35,6 +35,12 @@ extension ChatInputView {
     func submitValues() {
         let object = collectObject()
         guard !object.hasEmptyContent else { return }
+
+        // Prevent submitting if text is only whitespace/newlines and there are no attachments
+        if object.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, object.attachments.isEmpty {
+            return
+        }
+
         endEditing(true)
 
         resetValues()

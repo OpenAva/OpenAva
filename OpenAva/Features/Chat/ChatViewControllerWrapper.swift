@@ -427,7 +427,6 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var items: [QuickSettingItem] = [
             // Localize quick command labels while preserving the slash command token.
             .command(id: "context-usage", title: L10n.tr("chat.contextUsage.badgePlaceholder"), icon: "gauge", command: QuickCommand.context),
-            .command(id: "run-heartbeat", title: L10n.tr("chat.command.runHeartbeatNow"), icon: "heartbeat", command: "/heartbeat"),
         ]
 
         let frequentSkills = buildFrequentSkillItems()

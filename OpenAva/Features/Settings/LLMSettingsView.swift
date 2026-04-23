@@ -293,7 +293,7 @@ struct LLMSettingsView: View {
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.clear)
+                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
                     .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
@@ -301,6 +301,7 @@ struct LLMSettingsView: View {
                     )
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
     #endif
 

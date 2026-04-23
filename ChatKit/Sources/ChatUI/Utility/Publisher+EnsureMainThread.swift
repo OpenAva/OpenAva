@@ -8,6 +8,12 @@ import Foundation
 
 extension Publisher {
     func ensureMainThread() -> AnyPublisher<Output, Failure> {
-        receive(on: DispatchQueue.main).eraseToAnyPublisher()
+        self.flatMap(maxPublishers: .max(1)) { output -> AnyPublisher<Output, Failure> in
+            if Thread.isMainThread {
+                return Just(output).setFailureType(to: Failure.self).eraseToAnyPublisher()
+            } else {
+                return Just(output).setFailureType(to: Failure.self).receive(on: DispatchQueue.main).eraseToAnyPublisher()
+            }
+        }.eraseToAnyPublisher()
     }
 }

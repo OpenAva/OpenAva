@@ -152,6 +152,17 @@ extension InputEditor: UITextViewDelegate {
             usingWidth: textView.frame.width
         ).height
         let decision = ceil(max(textHeight, font.lineHeight))
-        doEditorLayoutAnimation { self.textHeight.send(decision) }
+
+        textView.isScrollEnabled = decision >= maxTextEditorHeight
+
+        if self.textHeight.value != decision {
+            // Keep the content offset stable while we update the layout
+            let offset = textView.contentOffset
+            UIView.performWithoutAnimation {
+                self.textHeight.send(decision)
+                self.textView.layoutIfNeeded()
+            }
+            textView.setContentOffset(offset, animated: false)
+        }
     }
 }

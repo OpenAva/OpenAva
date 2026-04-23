@@ -142,7 +142,7 @@ struct SkillListView: View {
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.clear)
+                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
                     .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
@@ -150,6 +150,7 @@ struct SkillListView: View {
                     )
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
     #endif
 
@@ -157,8 +158,9 @@ struct SkillListView: View {
         List {
             #if targetEnvironment(macCatalyst)
                 Text(L10n.tr("settings.skills.workspace.header"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -176,8 +178,9 @@ struct SkillListView: View {
                 }
 
                 Text(L10n.tr("settings.skills.builtin.header"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)

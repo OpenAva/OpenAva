@@ -76,6 +76,10 @@ final class HeartbeatRuntimeRegistry {
         return await runtime.requestRunNow()
     }
 
+    func isRuntimeRegistered(for agentID: String) -> Bool {
+        return runtimes[agentID] != nil
+    }
+
     @discardableResult
     func processPendingCronTriggers(for agentID: String) async -> Bool {
         guard let runtime = runtimes[agentID] else {

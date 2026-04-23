@@ -20,277 +20,222 @@ extension InputEditor {
     }
 
     @objc private func switchToRequiredStatusEx() {
-        doWithAnimation { [self] in
-            bossButton.transform = .identity
-            moreButton.transform = .identity
-            sendButton.transform = .identity
-            voiceButton.transform = .identity
-            stopVoiceButton.transform = .identity
-            cancelVoiceButton.transform = .identity
-            if isVoiceRecording {
-                layoutStatus = .voiceRecording
-                return
-            }
-            if isExecuting {
-                layoutStatus = .executing
-                return
-            }
-            if textView.isFirstResponder {
-                if textView.text.isEmpty {
-                    layoutStatus = .preFocusText
-                } else {
-                    layoutStatus = .editingText
-                }
+        // Without doWithAnimation, which may cause jumpiness when text height updates.
+        // We only animate layoutStatus changes if it's not simply editing text growth.
+        let oldStatus = layoutStatus
+        var newStatus = layoutStatus
+
+        bossButton.transform = .identity
+        moreButton.transform = .identity
+        sendButton.transform = .identity
+        voiceButton.transform = .identity
+        stopVoiceButton.transform = .identity
+        cancelVoiceButton.transform = .identity
+
+        if isVoiceRecording {
+            newStatus = .voiceRecording
+        } else if isExecuting {
+            newStatus = .executing
+        } else if textView.isFirstResponder {
+            if textView.text.isEmpty {
+                newStatus = .preFocusText
             } else {
-                if textView.text.isEmpty {
-                    layoutStatus = .standard
-                } else {
-                    layoutStatus = .editingText
+                newStatus = .editingText
+            }
+        } else {
+            if textView.text.isEmpty {
+                newStatus = .standard
+            } else {
+                newStatus = .editingText
+            }
+        }
+
+        if oldStatus != newStatus {
+            doWithAnimation { [self] in
+                layoutStatus = newStatus
+                layoutIfNeeded()
+            }
+        } else {
+            layoutStatus = newStatus
+            // Even if status didn't change, we might need to update send button alpha
+            // based on whether the text is only whitespaces
+            if newStatus == .editingText {
+                let isTextValid = !(textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                UIView.animate(withDuration: 0.2) {
+                    self.sendButton.alpha = isTextValid ? 1 : 0.3
                 }
             }
         }
     }
 
-    func layoutAsEditingText() {
-        stopVoiceButton.alpha = 0
-        cancelVoiceButton.alpha = 0
-        voiceActivityIndicator.alpha = 0
-        sendButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: bounds.height - iconSize.height - inset.bottom,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        sendButton.alpha = 1
-        moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: bounds.height - iconSize.height - inset.bottom,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        defer { moreButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        moreButton.alpha = 0
-        voiceButton.frame = CGRect(
-            x: sendButton.frame.minX - iconSize.width - iconSpacing,
-            y: sendButton.frame.minY,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        voiceButton.alpha = 1
-
+    private func layoutBase() {
         let textLayoutHeight = textLayoutHeight(textHeight.value)
         textView.frame = CGRect(
             x: inset.left,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - inset.left - iconSpacing,
-            height: textLayoutHeight
+            y: inset.top,
+            width: bounds.width - inset.left - inset.right,
+            height: max(textLayoutHeight, font.lineHeight)
         )
         placeholderLabel.frame = textView.frame
 
+        let sendBottomY = bounds.height - inset.bottom - sendButtonSize.height
+        let iconBottomY = bounds.height - inset.bottom - iconSize.height - (sendButtonSize.height - iconSize.height) / 2
+
         bossButton.frame = CGRect(
-            x: 0 - inset.left - iconSize.width,
-            y: inset.top,
+            x: inset.left,
+            y: iconBottomY,
             width: iconSize.width,
             height: iconSize.height
         )
-        bossButton.alpha = 0
+
+        contextButton.frame = CGRect(
+            x: bossButton.frame.maxX + iconSpacing,
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        appsButton.frame = CGRect(
+            x: contextButton.frame.maxX + iconSpacing,
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        sendButton.frame = CGRect(
+            x: bounds.width - inset.right - sendButtonSize.width,
+            y: sendBottomY,
+            width: sendButtonSize.width,
+            height: sendButtonSize.height
+        )
+
+        voiceButton.frame = CGRect(
+            x: sendButton.frame.minX - iconSize.width - iconSpacing,
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        stopVoiceButton.frame = sendButton.frame
+        cancelVoiceButton.frame = voiceButton.frame
+        voiceActivityIndicator.frame = CGRect(
+            x: cancelVoiceButton.frame.minX - iconSpacing - iconSize.width,
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        moreButton.frame = bossButton.frame
+    }
+
+    func layoutAsEditingText() {
+        layoutBase()
+        stopVoiceButton.alpha = 0
+        cancelVoiceButton.alpha = 0
+        voiceActivityIndicator.alpha = 0
+
+        let isTextValid = !(textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sendButton.alpha = isTextValid ? 1 : 0.3
+
+        voiceButton.alpha = 1
+        bossButton.alpha = 1
+        contextButton.alpha = 1
+        appsButton.alpha = 1
+        moreButton.alpha = 0
+        textView.alpha = 1
+        placeholderLabel.alpha = 0
     }
 
     func layoutAsPreEditingText() {
-        defer { bossButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        defer { sendButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
+        layoutBase()
         stopVoiceButton.alpha = 0
         cancelVoiceButton.alpha = 0
         voiceActivityIndicator.alpha = 0
 
-        bossButton.frame = CGRect(
-            x: 0 - inset.left - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 0
-
-        moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        moreButton.alpha = 1
-        voiceButton.frame = CGRect(
-            x: moreButton.frame.minX - iconSize.width - iconSpacing,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
+        sendButton.alpha = 0.3
         voiceButton.alpha = 1
-        let textLayoutHeight = textLayoutHeight(textHeight.value)
-        textView.frame = CGRect(
-            x: inset.left,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - inset.left - iconSpacing,
-            height: textLayoutHeight
-        )
+        bossButton.alpha = 1
+        contextButton.alpha = 1
+        appsButton.alpha = 1
+        moreButton.alpha = 0
         textView.alpha = 1
-        placeholderLabel.frame = textView.frame
-
-        sendButton.frame = CGRect(
-            x: bounds.width + iconSpacing + inset.right,
-            y: bounds.height - iconSize.height - inset.bottom,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        sendButton.alpha = 0
+        placeholderLabel.alpha = 1
     }
 
     func layoutAsStandard() {
-        defer { sendButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
+        layoutBase()
         stopVoiceButton.alpha = 0
         cancelVoiceButton.alpha = 0
         voiceActivityIndicator.alpha = 0
 
-        bossButton.frame = CGRect(
-            x: inset.left,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 1
-        moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        moreButton.alpha = 1
-        moreButton.transform = .identity
-        voiceButton.frame = CGRect(
-            x: moreButton.frame.minX - iconSize.width - iconSpacing,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
+        sendButton.alpha = 0.3
         voiceButton.alpha = 1
-        let textLayoutHeight = textLayoutHeight(textHeight.value)
-        textView.frame = CGRect(
-            x: bossButton.frame.maxX + iconSpacing,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - bossButton.frame.maxX - iconSpacing * 2,
-            height: textLayoutHeight
-        )
+        bossButton.alpha = 1
+        contextButton.alpha = 1
+        appsButton.alpha = 1
+        moreButton.alpha = 0
         textView.alpha = 1
-        placeholderLabel.frame = textView.frame
-
-        sendButton.frame = CGRect(
-            x: bounds.width + inset.right,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        sendButton.alpha = 0
+        placeholderLabel.alpha = 1
     }
 
     func layoutAsVoiceRecording() {
-        defer { bossButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        defer { moreButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        defer { sendButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-        defer { voiceButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-
-        bossButton.frame = CGRect(x: -inset.left - iconSize.width, y: inset.top, width: iconSize.width, height: iconSize.height)
-        bossButton.alpha = 0
-        moreButton.frame = CGRect(x: bounds.width + iconSpacing, y: inset.top, width: iconSize.width, height: iconSize.height)
-        moreButton.alpha = 0
-        sendButton.frame = CGRect(x: bounds.width + iconSpacing, y: inset.top, width: iconSize.width, height: iconSize.height)
-        sendButton.alpha = 0
-        voiceButton.frame = CGRect(x: bounds.width + iconSpacing, y: inset.top, width: iconSize.width, height: iconSize.height)
-        voiceButton.alpha = 0
-        placeholderLabel.alpha = 0
-
-        let controlsY = (bounds.height - iconSize.height) / 2
-        stopVoiceButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: controlsY,
-            width: iconSize.width,
-            height: iconSize.height
-        )
+        layoutBase()
         stopVoiceButton.alpha = 1
-        cancelVoiceButton.frame = CGRect(
-            x: stopVoiceButton.frame.minX - iconSize.width - iconSpacing,
-            y: controlsY,
-            width: iconSize.width,
-            height: iconSize.height
-        )
         cancelVoiceButton.alpha = 1
-
-        voiceActivityIndicator.frame = CGRect(
-            x: cancelVoiceButton.frame.minX - iconSize.width - iconSpacing,
-            y: controlsY,
-            width: iconSize.width,
-            height: iconSize.height
-        )
         voiceActivityIndicator.alpha = 1
 
-        let textLayoutHeight = textLayoutHeight(textHeight.value)
-        textView.frame = CGRect(
+        let sendBottomY = bounds.height - inset.bottom - sendButtonSize.height
+        let iconBottomY = bounds.height - inset.bottom - iconSize.height - (sendButtonSize.height - iconSize.height) / 2
+
+        // Cancel button on the far left
+        cancelVoiceButton.frame = CGRect(
             x: inset.left,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceActivityIndicator.frame.minX - inset.left - iconSpacing,
-            height: max(textLayoutHeight, font.lineHeight)
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
         )
+
+        // Stop button on the far right
+        stopVoiceButton.frame = CGRect(
+            x: bounds.width - inset.right - iconSize.width,
+            y: iconBottomY,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+
+        // Voice activity indicator fills the space between cancel and stop buttons
+        let indicatorX = cancelVoiceButton.frame.maxX + iconSpacing
+        let indicatorWidth = stopVoiceButton.frame.minX - indicatorX - iconSpacing
+        voiceActivityIndicator.frame = CGRect(
+            x: indicatorX,
+            y: iconBottomY,
+            width: indicatorWidth,
+            height: iconSize.height
+        )
+
+        sendButton.alpha = 0
+        voiceButton.alpha = 0
+        bossButton.alpha = 0
+        contextButton.alpha = 0
+        appsButton.alpha = 0
+        moreButton.alpha = 0
         textView.alpha = 1
-        placeholderLabel.frame = textView.frame
+        placeholderLabel.alpha = 0
     }
 
     func layoutAsExecuting() {
+        layoutBase()
         stopVoiceButton.alpha = 0
         cancelVoiceButton.alpha = 0
         voiceActivityIndicator.alpha = 0
 
-        sendButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: bounds.height - iconSize.height - inset.bottom,
-            width: iconSize.width,
-            height: iconSize.height
-        )
         sendButton.alpha = 1
-
-        moreButton.frame = CGRect(
-            x: bounds.width + iconSpacing,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
+        voiceButton.alpha = 0.3
+        bossButton.alpha = 0.3
+        contextButton.alpha = 0.3
+        appsButton.alpha = 0.3
         moreButton.alpha = 0
-        moreButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-
-        voiceButton.frame = CGRect(
-            x: bounds.width + iconSpacing,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        voiceButton.alpha = 0
-        voiceButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-
-        let textLayoutHeight = textLayoutHeight(textHeight.value)
-        textView.frame = CGRect(
-            x: inset.left,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: sendButton.frame.minX - inset.left - iconSpacing,
-            height: textLayoutHeight
-        )
         textView.alpha = 1
-        placeholderLabel.frame = textView.frame
         placeholderLabel.alpha = 0
-
-        bossButton.frame = CGRect(
-            x: 0 - inset.left - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 0
-        bossButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
     }
 }

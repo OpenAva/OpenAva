@@ -59,13 +59,12 @@ open class ChatInputView: EditorSectionView {
     }
 
     lazy var sectionSubviews: [EditorSectionView] = [
-        quickSettingBar,
         attachmentsBar,
         inputEditor,
         controlPanel,
     ]
 
-    let spacing: CGFloat = 12
+    let spacing: CGFloat = 16
     var keyboardAdditionalHeight: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }
@@ -101,7 +100,8 @@ open class ChatInputView: EditorSectionView {
 
         backgroundBlurView.isUserInteractionEnabled = false
         addSubview(backgroundBlurView)
-        shadowContainer.layer.cornerRadius = ChatUIDesign.Radius.card
+        // Make the corner radius larger to match the app window
+        shadowContainer.layer.cornerRadius = 24
         shadowContainer.layer.cornerCurve = .continuous
         shadowContainer.layer.borderWidth = 1
         shadowContainer.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
@@ -232,7 +232,10 @@ open class ChatInputView: EditorSectionView {
     }
 
     public func quickSettingButton(forCommand command: String) -> UIView? {
-        quickSettingBar.button(forCommand: command)
+        if command == "/context" {
+            return inputEditor.contextButton
+        }
+        return quickSettingBar.button(forCommand: command)
     }
 
     public func updateQuickSettingCommand(command: String, title: String, icon: String? = nil) {
@@ -317,6 +320,44 @@ open class ChatInputView: EditorSectionView {
         inputEditor.configuration = configuration
         quickSettingBar.configure(with: configuration.quickSettingItems)
         controlPanel.configure(with: configuration.controlPanelItems)
+        updateAppsMenu()
+    }
+
+    private func updateAppsMenu() {
+        var actions: [UIMenuElement] = []
+        for item in configuration.quickSettingItems {
+            switch item {
+            case let .skill(_, title, icon, prompt, autoSubmit):
+                let action = UIAction(
+                    title: title,
+                    image: UIImage.chatInputIcon(named: icon)
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    self.delegate?.chatInputDidTriggerSkill(self, prompt: prompt, autoSubmit: autoSubmit)
+                    if autoSubmit {
+                        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        self.refill(withText: trimmed, attachments: [])
+                        self.submitValues()
+                    }
+                }
+                actions.append(action)
+            case let .command(_, title, icon, command):
+                // Filter out context command as it's mapped to contextButton
+                if command == "/context" { continue }
+                let action = UIAction(
+                    title: title,
+                    image: UIImage.chatInputIcon(named: icon)
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    self.delegate?.chatInputDidTriggerCommand(self, command: command)
+                }
+                actions.append(action)
+            default:
+                break
+            }
+        }
+        inputEditor.appsButton.menu = UIMenu(title: "", children: actions)
     }
 
     @objc private func applicationWillResignActive() {

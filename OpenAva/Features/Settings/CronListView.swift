@@ -127,15 +127,16 @@ struct CronListView: View {
     #if targetEnvironment(macCatalyst)
         private func addActionButton(
             title: String,
+            icon: String = "plus",
             action: @escaping () -> Void
         ) -> some View {
             Button(action: action) {
-                Label(title, systemImage: "plus")
+                Label(title, systemImage: icon)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.clear)
+                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
                     .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
@@ -143,6 +144,7 @@ struct CronListView: View {
                     )
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
     #endif
 
@@ -150,8 +152,9 @@ struct CronListView: View {
         List {
             #if targetEnvironment(macCatalyst)
                 Text(L10n.tr("settings.cron.scheduled.header"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -202,24 +205,46 @@ struct CronListView: View {
                 .listRowSeparator(.hidden)
         } else {
             ForEach(jobs, id: \.id) { job in
-                CronJobRow(job: job, agentName: resolvedAgentName(for: job))
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            jobToRemove = job
-                        } label: {
-                            Label(L10n.tr("common.delete"), systemImage: "trash")
+                VStack(alignment: .leading, spacing: 0) {
+                    CronJobRow(job: job, agentName: resolvedAgentName(for: job))
+
+                    if job.kind == .heartbeat, let agentID = job.agentID {
+                        let isRegistered = HeartbeatRuntimeRegistry.shared.isRuntimeRegistered(for: agentID)
+                        if isRegistered {
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task {
+                                        await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
+                                    }
+                                } label: {
+                                    Label(L10n.tr("chat.command.runHeartbeatNow"), systemImage: "waveform.path.ecg")
+                                        .font(.footnote)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.blue)
+                            }
+                            .padding(.top, 8)
                         }
                     }
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            jobToRemove = job
-                        } label: {
-                            Label(L10n.tr("common.delete"), systemImage: "trash")
-                        }
+                }
+                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        jobToRemove = job
+                    } label: {
+                        Label(L10n.tr("common.delete"), systemImage: "trash")
                     }
+                }
+                .contextMenu {
+                    Button(role: .destructive) {
+                        jobToRemove = job
+                    } label: {
+                        Label(L10n.tr("common.delete"), systemImage: "trash")
+                    }
+                }
             }
         }
     }

@@ -7,30 +7,41 @@ import Combine
 import UIKit
 
 final class InputEditor: EditorSectionView {
-    let font = UIFont.systemFont(ofSize: 15, weight: .regular)
+    let font = UIFont.systemFont(ofSize: 16, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
     private var isApplyingTextPresentation = false
 
     let elementClipper = UIView()
 
-    #if targetEnvironment(macCatalyst)
-        let bossButton = IconButton(icon: "attachment")
-    #else
-        let bossButton = IconButton(icon: "camera")
-    #endif
+    let bossButton = IconButton(icon: "plus")
+    let contextButton = IconButton(icon: "gauge")
+    let appsButton: UIButton = {
+        let button = UIButton(type: .custom)
+        #if targetEnvironment(macCatalyst)
+            if #available(macCatalyst 15.0, *) {
+                button.preferredBehavioralStyle = .pad
+            }
+        #endif
+        let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        button.setImage(UIImage(systemName: "square.grid.2x2", withConfiguration: config), for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        return button
+    }()
+
     let textView = TextEditorView()
     let placeholderLabel = UILabel()
     let voiceButton = IconButton(icon: "mic")
     let stopVoiceButton = IconButton(icon: "stop.circle.fill")
     let cancelVoiceButton = IconButton(icon: "xmark.circle")
     let voiceActivityIndicator = VoiceWaveIndicatorView()
-    let moreButton = IconButton(icon: "plus.circle")
-    let sendButton = IconButton(icon: "send")
+    let moreButton = IconButton(icon: "plus.circle") // Can remove moreButton later, or use bossButton
+    let sendButton = IconButton(icon: "arrow.up.circle.fill")
 
-    let inset: UIEdgeInsets = .init(top: 8, left: 8, bottom: 8, right: 8)
-    let iconSpacing: CGFloat = 8
-    let iconSize = CGSize(width: 28, height: 28)
+    let inset: UIEdgeInsets = .init(top: 14, left: 14, bottom: 10, right: 14)
+    let iconSpacing: CGFloat = 16
+    let iconSize = CGSize(width: 24, height: 24)
+    let sendButtonSize = CGSize(width: 36, height: 36)
 
     var isControlPanelOpened: Bool = false {
         didSet { moreButton.change(icon: isControlPanelOpened ? "x.circle" : "plus.circle") }
@@ -76,15 +87,27 @@ final class InputEditor: EditorSectionView {
         super.initializeViews()
 
         bossButton.tapAction = { [weak self] in
-            #if targetEnvironment(macCatalyst)
-                self?.delegate?.onInputEditorPickAttachmentTapped()
-            #else
-                self?.delegate?.onInputEditorCaptureButtonTapped()
-            #endif
+            self?.delegate?.onInputEditorToggleMoreButtonTapped()
         }
         addSubview(elementClipper)
         elementClipper.clipsToBounds = true
         elementClipper.addSubview(bossButton)
+
+        contextButton.tapAction = { [weak self] in
+            self?.delegate?.onInputEditorContextButtonTapped()
+        }
+        elementClipper.addSubview(contextButton)
+        elementClipper.addSubview(appsButton)
+
+        let secondaryColor = ChatUIDesign.Color.black60
+        bossButton.imageView.tintColor = secondaryColor
+        contextButton.imageView.tintColor = secondaryColor
+        appsButton.tintColor = secondaryColor
+        voiceButton.imageView.tintColor = secondaryColor
+
+        // Use a black tint for the send button (similar to Apple Intelligence)
+        sendButton.imageView.tintColor = ChatUIDesign.Color.offBlack
+
         textView.font = font
         textView.delegate = self
         textView.showsVerticalScrollIndicator = false
@@ -98,9 +121,9 @@ final class InputEditor: EditorSectionView {
         textView.textContainer.lineBreakMode = .byTruncatingTail
         textView.textContainer.lineFragmentPadding = .zero
         textView.textContainer.maximumNumberOfLines = 0
-        textView.clipsToBounds = false
+        textView.clipsToBounds = true
         textView.isSelectable = true
-        textView.isScrollEnabled = true
+        textView.isScrollEnabled = false
         textView.isEditable = true
         textView.returnKeyType = .send
         textView.onReturnKeyPressed = { [weak self] in
@@ -109,13 +132,15 @@ final class InputEditor: EditorSectionView {
         }
         textView.onCommandReturnKeyPressed = { [weak self] in
             guard let self, !self.isExecuting else { return }
+            let text = (self.textView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { return } // Do not allow submit via shortcut if text is empty or only whitespace
             self.sendButton.tapAction()
         }
         textView.onImagePasted = { [weak self] image in
             self?.delegate?.onInputEditorPastingImage(image: image)
         }
         elementClipper.addSubview(textView)
-        placeholderLabel.text = String.localized("Type something...")
+        placeholderLabel.text = String.localized("Ask anything or type / for skills")
         placeholderLabel.font = font
         placeholderLabel.textColor = ChatUIDesign.Color.black50
         elementClipper.addSubview(placeholderLabel)
@@ -153,8 +178,9 @@ final class InputEditor: EditorSectionView {
         textHeight.removeDuplicates()
             .compactMap { [weak self] textHeight -> CGFloat? in
                 guard let self else { return nil }
-                return max(textLayoutHeight(textHeight), iconSize.height)
-                    + inset.top + inset.bottom
+                // Calculate height for two rows: Text View (top) + Toolbar (bottom)
+                // Note: sendButtonSize.height is slightly larger than iconSize.height
+                return textLayoutHeight(textHeight) + max(iconSize.height, sendButtonSize.height) + inset.top + inset.bottom + 12 // 12 is spacing between text and icons
             }
             .ensureMainThread()
             .sink { [weak self] height in self?.heightPublisher.send(height) }
@@ -191,10 +217,14 @@ final class InputEditor: EditorSectionView {
         updateTextHeight()
     }
 
+    private var originalTextBeforeVoice = ""
+
     func beginVoiceRecording() {
         isVoiceRecording = true
+        originalTextBeforeVoice = textView.text ?? ""
         voiceTranscriptText = ""
-        textView.text = ""
+
+        // We do not clear the text entirely, we will show originalTextBeforeVoice + current transcript
         textView.resignFirstResponder()
         textView.isEditable = false
         textView.isSelectable = false
@@ -206,7 +236,13 @@ final class InputEditor: EditorSectionView {
     func updateVoiceTranscript(_ text: String) {
         guard isVoiceRecording else { return }
         voiceTranscriptText = text
-        textView.text = text
+
+        let needsSpace = !originalTextBeforeVoice.isEmpty &&
+            !originalTextBeforeVoice.hasSuffix(" ") &&
+            !originalTextBeforeVoice.hasSuffix("\n")
+        let space = needsSpace ? " " : ""
+
+        textView.text = originalTextBeforeVoice + space + text
         updateTextHeight()
     }
 
@@ -217,7 +253,20 @@ final class InputEditor: EditorSectionView {
         textView.isEditable = true
         textView.isSelectable = true
         voiceActivityIndicator.stopAnimating()
-        textView.text = ""
+
+        if !applyTranscript {
+            // Restore original text if cancelled
+            textView.text = originalTextBeforeVoice
+        } else {
+            // We already updated the textView in updateVoiceTranscript, but let's make sure it's set
+            let needsSpace = !originalTextBeforeVoice.isEmpty &&
+                !originalTextBeforeVoice.hasSuffix(" ") &&
+                !originalTextBeforeVoice.hasSuffix("\n")
+            let space = needsSpace ? " " : ""
+            textView.text = originalTextBeforeVoice + (transcript.isEmpty ? "" : (space + transcript))
+        }
+
+        originalTextBeforeVoice = ""
         updateTextHeight()
         switchToRequiredStatus()
         return applyTranscript ? transcript : ""
@@ -323,9 +372,9 @@ private extension NSRange {
 }
 
 final class VoiceWaveIndicatorView: UIView {
-    private let bars: [UIView] = (0 ..< 3).map { _ in
+    private let bars: [UIView] = (0 ..< 5).map { _ in
         let bar = UIView()
-        bar.layer.cornerRadius = 1.5
+        bar.layer.cornerRadius = 2
         bar.layer.cornerCurve = .continuous
         return bar
     }
@@ -357,13 +406,18 @@ final class VoiceWaveIndicatorView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let barWidth: CGFloat = max(2, bounds.width * 0.14)
-        let spacing: CGFloat = barWidth * 0.55
-        let contentWidth = barWidth * 3 + spacing * 2
+        // Center the 5 bars horizontally.
+        let barCount = CGFloat(bars.count)
+        let barWidth: CGFloat = 3
+        let spacing: CGFloat = 4
+        let contentWidth = barWidth * barCount + spacing * (barCount - 1)
         let startX = (bounds.width - contentWidth) / 2
-        let minHeight: CGFloat = max(5, bounds.height * 0.28)
-        let maxHeight: CGFloat = max(10, bounds.height * 0.68)
-        let heights: [CGFloat] = [minHeight, maxHeight, minHeight]
+
+        // Define base static heights for the 5 bars to create a natural wave shape
+        let minHeight: CGFloat = 6
+        let midHeight: CGFloat = 12
+        let maxHeight: CGFloat = 18
+        let heights: [CGFloat] = [minHeight, midHeight, maxHeight, midHeight, minHeight]
 
         for (index, bar) in bars.enumerated() {
             let x = startX + CGFloat(index) * (barWidth + spacing)
@@ -379,12 +433,12 @@ final class VoiceWaveIndicatorView: UIView {
 
         for (index, bar) in bars.enumerated() {
             let animation = CABasicAnimation(keyPath: "transform.scale.y")
-            animation.fromValue = 0.45
+            animation.fromValue = 0.3
             animation.toValue = 1.0
-            animation.duration = 0.55
+            animation.duration = 0.45
             animation.autoreverses = true
             animation.repeatCount = .infinity
-            animation.beginTime = CACurrentMediaTime() + Double(index) * 0.14
+            animation.beginTime = CACurrentMediaTime() + Double(index) * 0.12
             animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             bar.layer.add(animation, forKey: "voice.wave")
         }

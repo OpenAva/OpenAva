@@ -20,6 +20,11 @@ extension ChatInputView: InputEditor.Delegate {
         openFilePicker()
     }
 
+    func onInputEditorContextButtonTapped() {
+        // Trigger the context usage command usually from QuickSettingBar
+        delegate?.chatInputDidTriggerCommand(self, command: "/context")
+    }
+
     func onInputEditorMicButtonTapped() {
         presentSpeechRecognition()
     }
@@ -45,6 +50,10 @@ extension ChatInputView: InputEditor.Delegate {
     }
 
     func onInputEditorSubmitButtonTapped() {
+        let object = collectObject()
+        if object.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, object.attachments.isEmpty {
+            return
+        }
         submitValues()
     }
 
@@ -162,15 +171,15 @@ extension ChatInputView {
         voiceRecognitionSession = nil
 
         let transcript = inputEditor.finishVoiceRecording(applyTranscript: applyTranscript)
-        guard applyTranscript, !transcript.isEmpty else { return }
 
-        let existingText = inputEditor.textView.text ?? ""
-        let needsSpace = !existingText.isEmpty &&
-            !existingText.hasSuffix(" ") &&
-            !existingText.hasSuffix("\n")
-        let mergedText = existingText + (needsSpace ? " " : "") + transcript
-        inputEditor.set(text: mergedText)
-        inputEditor.textView.becomeFirstResponder()
+        // Since InputEditor now handles merging the text, we don't need to append the transcript again here.
+        // We just need to trigger a UI update and refocus if applyTranscript is true.
+        if applyTranscript {
+            // We ensure we read the finalized merged text from InputEditor
+            let finalMergedText = inputEditor.textView.text ?? ""
+            inputEditor.set(text: finalMergedText)
+            inputEditor.textView.becomeFirstResponder()
+        }
     }
 }
 

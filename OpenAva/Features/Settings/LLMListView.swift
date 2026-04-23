@@ -13,57 +13,55 @@ struct LLMListView: View {
     @State private var modelToDelete: AppConfig.LLMModel?
     @State private var showResetUsageConfirmation = false
 
-    #if targetEnvironment(macCatalyst)
-        @State private var editorMode: EditorMode?
-    #endif
-
-    #if targetEnvironment(macCatalyst)
-        private enum EditorMode {
-            case create
-            case edit(AppConfig.LLMModel)
-
-            var id: String {
-                switch self {
-                case .create:
-                    return "create"
-                case let .edit(model):
-                    return "edit-\(model.id.uuidString)"
-                }
-            }
-        }
-    #endif
-
     var body: some View {
-        #if targetEnvironment(macCatalyst)
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer(minLength: 0)
-                    addActionButton(
-                        title: L10n.tr("settings.llmList.addModel"),
-                        action: { editorMode = .create }
-                    )
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-
-                Group {
-                    if let editorMode {
-                        HStack(spacing: 0) {
-                            modelList
-                                .frame(minWidth: 300, idealWidth: 340)
-
-                            modelDetail(for: editorMode)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                        }
-                        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                    } else {
-                        modelList
+        modelList
+            .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        isShowingAddSheet = true
+                    } label: {
+                        Label(L10n.tr("settings.llmList.addModel"), systemImage: "plus")
                     }
                 }
             }
-            .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
-            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $isShowingAddSheet) {
+                NavigationStack {
+                    LLMEditView(
+                        mode: .add,
+                        onSave: { newModel in
+                            containerStore.saveLLMModel(newModel)
+                            refreshModels()
+                            isShowingAddSheet = false
+                        },
+                        onCancel: {
+                            isShowingAddSheet = false
+                        }
+                    )
+                }
+                #if targetEnvironment(macCatalyst)
+                .frame(minWidth: 640, idealWidth: 640, minHeight: 600, idealHeight: 600)
+                #endif
+            }
+            .sheet(item: $editingModel) { model in
+                NavigationStack {
+                    LLMEditView(
+                        mode: .edit(model),
+                        onSave: { updatedModel in
+                            containerStore.saveLLMModel(updatedModel)
+                            refreshModels()
+                            editingModel = nil
+                        },
+                        onCancel: {
+                            editingModel = nil
+                        }
+                    )
+                }
+                #if targetEnvironment(macCatalyst)
+                .frame(minWidth: 640, idealWidth: 640, minHeight: 600, idealHeight: 600)
+                #endif
+            }
             .alert(L10n.tr("settings.llmList.delete.title"), isPresented: .constant(modelToDelete != nil)) {
                 Button(L10n.tr("common.cancel"), role: .cancel) {
                     modelToDelete = nil
@@ -81,76 +79,15 @@ struct LLMListView: View {
             .onAppear {
                 refreshModels()
             }
-            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-        #else
-            modelList
-                .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            isShowingAddSheet = true
-                        } label: {
-                            Label(L10n.tr("settings.llmList.addModel"), systemImage: "plus")
-                        }
-                    }
-                }
-                .sheet(isPresented: $isShowingAddSheet) {
-                    NavigationStack {
-                        LLMEditView(
-                            mode: .add,
-                            onSave: { newModel in
-                                containerStore.saveLLMModel(newModel)
-                                refreshModels()
-                                isShowingAddSheet = false
-                            },
-                            onCancel: {
-                                isShowingAddSheet = false
-                            }
-                        )
-                    }
-                }
-                .sheet(item: $editingModel) { model in
-                    NavigationStack {
-                        LLMEditView(
-                            mode: .edit(model),
-                            onSave: { updatedModel in
-                                containerStore.saveLLMModel(updatedModel)
-                                refreshModels()
-                                editingModel = nil
-                            },
-                            onCancel: {
-                                editingModel = nil
-                            }
-                        )
-                    }
-                }
-                .alert(L10n.tr("settings.llmList.delete.title"), isPresented: .constant(modelToDelete != nil)) {
-                    Button(L10n.tr("common.cancel"), role: .cancel) {
-                        modelToDelete = nil
-                    }
-                    Button(L10n.tr("common.delete"), role: .destructive) {
-                        if let model = modelToDelete {
-                            deleteModel(model)
-                        }
-                    }
-                } message: {
-                    if let model = modelToDelete {
-                        Text(L10n.tr("settings.llmList.delete.message", model.name))
-                    }
-                }
-                .onAppear {
-                    refreshModels()
-                }
-        #endif
     }
 
     private var modelList: some View {
         List {
             #if targetEnvironment(macCatalyst)
                 Text(L10n.tr("settings.llmList.configured.header"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -250,49 +187,6 @@ struct LLMListView: View {
     }
 
     #if targetEnvironment(macCatalyst)
-        @ViewBuilder
-        private func modelDetail(for mode: EditorMode) -> some View {
-            switch mode {
-            case .create:
-                LLMEditView(
-                    mode: .add,
-                    onSave: { newModel in
-                        containerStore.saveLLMModel(newModel)
-                        refreshModels()
-                        selectedModelID = newModel.id
-                        editorMode = .edit(newModel)
-                    },
-                    onCancel: {
-                        editorMode = nil
-                    },
-                    presentationStyle: .embedded
-                )
-            case let .edit(model):
-                LLMEditView(
-                    mode: .edit(model),
-                    onSave: { updatedModel in
-                        containerStore.saveLLMModel(updatedModel)
-                        refreshModels()
-                        selectedModelID = updatedModel.id
-                        editorMode = .edit(updatedModel)
-                    },
-                    onCancel: {
-                        editorMode = nil
-                    },
-                    presentationStyle: .embedded
-                )
-                .id(model.id)
-            }
-        }
-    #endif
-
-    private func refreshModels() {
-        let collection = containerStore.container.config.llmCollection
-        models = collection.models
-        selectedModelID = containerStore.container.config.selectedLLMModelID
-    }
-
-    #if targetEnvironment(macCatalyst)
         private func addActionButton(
             title: String,
             action: @escaping () -> Void
@@ -303,7 +197,7 @@ struct LLMListView: View {
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.clear)
+                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
                     .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
@@ -311,8 +205,15 @@ struct LLMListView: View {
                     )
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
     #endif
+
+    private func refreshModels() {
+        let collection = containerStore.container.config.llmCollection
+        models = collection.models
+        selectedModelID = containerStore.container.config.selectedLLMModelID
+    }
 
     private var configuredFooterText: String {
         #if targetEnvironment(macCatalyst)
@@ -328,8 +229,9 @@ struct LLMListView: View {
         if !snapshot.byModel.isEmpty {
             #if targetEnvironment(macCatalyst)
                 Text(L10n.tr("settings.usage.navigationTitle"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 16, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .textCase(nil)
                     .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                     .listRowBackground(Color.clear)
@@ -354,12 +256,15 @@ struct LLMListView: View {
                         }
                     }
                     Rectangle().fill(Color(red: 235 / 255, green: 235 / 255, blue: 235 / 255)).frame(height: 1)
-                    Button(role: .destructive) {
+                    Button {
                         showResetUsageConfirmation = true
                     } label: {
                         Text(L10n.tr("settings.usage.reset"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -423,21 +328,12 @@ struct LLMListView: View {
     }
 
     private func openEditor(for model: AppConfig.LLMModel) {
-        #if targetEnvironment(macCatalyst)
-            editorMode = .edit(model)
-        #else
-            editingModel = model
-        #endif
+        editingModel = model
     }
 
     private func deleteModel(_ model: AppConfig.LLMModel) {
         containerStore.deleteLLMModel(id: model.id)
         refreshModels()
-        #if targetEnvironment(macCatalyst)
-            if selectedModelID == model.id {
-                editorMode = nil
-            }
-        #endif
         modelToDelete = nil
     }
 }
@@ -500,12 +396,12 @@ private struct ModelRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.18) : Color(uiColor: .quaternarySystemFill))
+                .fill(Color(uiColor: .quaternarySystemFill))
                 .frame(width: 34, height: 34)
                 .overlay(
                     Image(systemName: "cpu")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange) : .secondary)
+                        .foregroundStyle(isSelected ? Color(uiColor: ChatUIDesign.Color.offBlack) : .secondary)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -530,12 +426,12 @@ private struct ModelRow: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.12) : Color(uiColor: ChatUIDesign.Color.warmCream))
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
         )
         .overlay(
             Group {
                 RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                    .strokeBorder(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.35) : Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: isSelected ? 1 : 1)
+                    .strokeBorder(isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange) : Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: isSelected ? 2 : 1)
             }
         )
         .contentTransition(.opacity)
