@@ -40,6 +40,7 @@ final class ToolRuntime: @unchecked Sendable {
     private let javaScriptService: JavaScriptService
     private let textImageRenderService: TextImageRenderService
     private let fileSystemService: FileSystemService
+    private let bashService: BashService
     private let workspaceRootURL: URL?
     private let runtimeRootURL: URL?
     private let modelConfig: AppConfig.LLMModel?
@@ -116,6 +117,11 @@ final class ToolRuntime: @unchecked Sendable {
             baseDirectoryURL: workspaceRootURL,
             additionalReadableRootURLs: builtInSkillRoots
         )
+        let bashService = BashService(
+            workspaceRootURL: workspaceRootURL,
+            runtimeRootURL: runtimeRootURL,
+            notificationCenter: notificationCenter
+        )
 
         return ToolRuntime(
             cameraService: cameraService,
@@ -141,6 +147,7 @@ final class ToolRuntime: @unchecked Sendable {
             javaScriptService: JavaScriptService(),
             textImageRenderService: TextImageRenderService(),
             fileSystemService: fileSystemService,
+            bashService: bashService,
             modelConfig: modelConfig,
             weatherService: WeatherService(),
             yahooFinanceService: YahooFinanceService(),
@@ -177,6 +184,7 @@ final class ToolRuntime: @unchecked Sendable {
         javaScriptService: JavaScriptService,
         textImageRenderService: TextImageRenderService,
         fileSystemService: FileSystemService,
+        bashService: BashService = BashService(),
         modelConfig: AppConfig.LLMModel? = nil,
         weatherService: WeatherService = WeatherService(),
         yahooFinanceService: YahooFinanceService = YahooFinanceService(),
@@ -210,6 +218,7 @@ final class ToolRuntime: @unchecked Sendable {
         self.javaScriptService = javaScriptService
         self.textImageRenderService = textImageRenderService
         self.fileSystemService = fileSystemService
+        self.bashService = bashService
         self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
         self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
         self.modelConfig = modelConfig
@@ -301,6 +310,7 @@ final class ToolRuntime: @unchecked Sendable {
             javaScriptService,
             textImageRenderService,
             fileSystemService,
+            bashService,
             memoryProvider,
             blogWatchProvider,
             subAgentProvider,
