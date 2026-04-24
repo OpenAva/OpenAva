@@ -50,6 +50,7 @@ open class ChatInputView: EditorSectionView {
     let dropContainer = DropView()
     let dropColorView = UIView()
     let attachmentSeprator = UIView()
+    let controlPanelSeparator = UIView()
     var voiceRecognitionSession: SpeechRecognitionSession?
 
     private var glassEffectView: UIVisualEffectView?
@@ -98,7 +99,7 @@ open class ChatInputView: EditorSectionView {
     override public func initializeViews() {
         super.initializeViews()
 
-        backgroundBlurView.isUserInteractionEnabled = false
+        backgroundBlurView.isHidden = true
         addSubview(backgroundBlurView)
         // Make the corner radius larger to match the app window
         shadowContainer.layer.cornerRadius = 24
@@ -122,9 +123,9 @@ open class ChatInputView: EditorSectionView {
         } else {
             shadowContainer.backgroundColor = ChatUIDesign.Color.warmCream
             shadowContainer.layer.shadowColor = UIColor.black.cgColor
-            shadowContainer.layer.shadowOpacity = 0.0 // no visible shadow by default
-            shadowContainer.layer.shadowRadius = 8
-            shadowContainer.layer.shadowOffset = .zero
+            shadowContainer.layer.shadowOpacity = 0.08 // subtle shadow for floating effect
+            shadowContainer.layer.shadowRadius = 12
+            shadowContainer.layer.shadowOffset = CGSize(width: 0, height: 4)
         }
 
         dropContainer.clipsToBounds = true
@@ -142,6 +143,9 @@ open class ChatInputView: EditorSectionView {
 
         attachmentSeprator.backgroundColor = .gray.withAlphaComponent(0.25)
         addSubview(attachmentSeprator)
+
+        controlPanelSeparator.backgroundColor = .gray.withAlphaComponent(0.25)
+        addSubview(controlPanelSeparator)
 
         inputEditor.delegate = self
         controlPanel.delegate = self
@@ -194,17 +198,20 @@ open class ChatInputView: EditorSectionView {
             }
         }
 
+        let containerTopY = attachmentsBar.heightPublisher.value > 0 ? attachmentsBar.frame.minY : inputEditor.frame.minY
+        let containerBottomY = controlPanel.heightPublisher.value > 0 ? controlPanel.frame.maxY + spacing : inputEditor.frame.maxY
+
+        shadowContainer.frame = .init(
+            x: spacing,
+            y: containerTopY,
+            width: bounds.width - spacing * 2,
+            height: containerBottomY - containerTopY
+        )
+
         if attachmentsBar.heightPublisher.value > 0 {
             attachmentSeprator.alpha = 1
-            shadowContainer.frame = .init(
-                x: spacing,
-                y: attachmentsBar.frame.minY,
-                width: bounds.width - spacing * 2,
-                height: inputEditor.frame.maxY - attachmentsBar.frame.minY
-            )
         } else {
             attachmentSeprator.alpha = 0
-            shadowContainer.frame = inputEditor.frame
         }
 
         if let glassEffectView {
@@ -225,10 +232,23 @@ open class ChatInputView: EditorSectionView {
             height: 1
         )
 
+        controlPanelSeparator.frame = .init(
+            x: shadowContainer.frame.minX,
+            y: controlPanel.frame.minY - (spacing / 2),
+            width: shadowContainer.frame.width,
+            height: 1
+        )
+        if controlPanel.heightPublisher.value > 0 {
+            controlPanelSeparator.alpha = 1
+        } else {
+            controlPanelSeparator.alpha = 0
+        }
+
         dropContainer.frame = shadowContainer.frame
         dropColorView.frame = dropContainer.bounds
 
-        heightPublisher.send(finalHeight + keyboardAdditionalHeight + spacing)
+        let totalHeightForLayout = controlPanel.heightPublisher.value > 0 ? finalHeight + spacing : finalHeight
+        heightPublisher.send(totalHeightForLayout + keyboardAdditionalHeight + spacing)
     }
 
     public func quickSettingButton(forCommand command: String) -> UIView? {

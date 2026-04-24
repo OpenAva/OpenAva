@@ -405,7 +405,6 @@
 "settings.cron.schedule.every" = "Every";
 "settings.cron.agent.field" = "Agent";
 "settings.cron.agent.select" = "Select Agent";
-"settings.cron.agent.none" = "None";
 "settings.cron.message.section" = "Message";
 "settings.cron.message.placeholder" = "What should OpenAva remind you?";
 "settings.cron.message.placeholder.heartbeat" = "Optional label for this heartbeat trigger";

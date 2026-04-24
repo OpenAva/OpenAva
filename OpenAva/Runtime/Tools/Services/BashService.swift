@@ -133,7 +133,7 @@ actor BashService {
         }
     }
 
-    private static let inlineOutputLimit = 30_000
+    private static let inlineOutputLimit = 30000
     private static let maxCapturedOutputBytes = 1_000_000
     private static let defaultTimeoutMs = 120_000
     private static let maxTimeoutMs = 600_000
@@ -157,7 +157,7 @@ actor BashService {
         "mkdir", "touch", "git add", "git checkout", "git switch", "git branch", "git commit",
         "git reset", "git restore", "git stash", "chmod", "chown", "ln", "mv", "cp", "rm",
         "npm install", "yarn install", "pnpm install", "bun install", "cargo build", "go build",
-        "swift build", "xcodebuild"
+        "swift build", "xcodebuild",
     ]
 
     private let workspaceRootURL: URL?
@@ -296,10 +296,9 @@ actor BashService {
 
     private func noOutputExpected(command: String) -> Bool {
         let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = Self.noOutputExpectedCommands.contains { prefix in
+        return Self.noOutputExpectedCommands.contains { prefix in
             normalized == prefix || normalized.hasPrefix(prefix + " ")
         }
-        return matches
     }
 
     private func makeEnvironment(workingDirectoryURL: URL) -> [String: String] {
@@ -378,7 +377,7 @@ actor BashService {
         return processIdentifier
     }
 
-    nonisolated private static func withCStringArray<Result>(
+    private nonisolated static func withCStringArray<Result>(
         _ strings: [String],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Result
     ) rethrows -> Result {
@@ -390,7 +389,7 @@ actor BashService {
         }
     }
 
-    nonisolated private static func readAllFromDescriptor(_ fileDescriptor: Int32, accumulator: LockedDataAccumulator) {
+    private nonisolated static func readAllFromDescriptor(_ fileDescriptor: Int32, accumulator: LockedDataAccumulator) {
         defer { close(fileDescriptor) }
 
         let bufferSize = 4096
@@ -411,7 +410,7 @@ actor BashService {
         }
     }
 
-    nonisolated private static func blockingWaitForPID(_ processIdentifier: pid_t) -> Int32 {
+    private nonisolated static func blockingWaitForPID(_ processIdentifier: pid_t) -> Int32 {
         var status: Int32 = 0
         while true {
             let result = waitpid(processIdentifier, &status, 0)
@@ -431,7 +430,7 @@ actor BashService {
         }
     }
 
-    nonisolated private static func isProcessRunning(_ processIdentifier: pid_t) -> Bool {
+    private nonisolated static func isProcessRunning(_ processIdentifier: pid_t) -> Bool {
         guard processIdentifier > 0 else { return false }
         if kill(processIdentifier, 0) == 0 {
             return true
@@ -439,21 +438,21 @@ actor BashService {
         return errno == EPERM
     }
 
-    nonisolated private static func didExit(_ status: Int32) -> Bool {
-        (status & 0x7f) == 0
+    private nonisolated static func didExit(_ status: Int32) -> Bool {
+        (status & 0x7F) == 0
     }
 
-    nonisolated private static func exitStatus(_ status: Int32) -> Int32 {
-        (status >> 8) & 0xff
+    private nonisolated static func exitStatus(_ status: Int32) -> Int32 {
+        (status >> 8) & 0xFF
     }
 
-    nonisolated private static func wasSignaled(_ status: Int32) -> Bool {
-        let signal = status & 0x7f
-        return signal != 0 && signal != 0x7f
+    private nonisolated static func wasSignaled(_ status: Int32) -> Bool {
+        let signal = status & 0x7F
+        return signal != 0 && signal != 0x7F
     }
 
-    nonisolated private static func terminatingSignal(_ status: Int32) -> Int32 {
-        status & 0x7f
+    private nonisolated static func terminatingSignal(_ status: Int32) -> Int32 {
+        status & 0x7F
     }
 
     private func writePersistedOutput(command: String, cwd: String, stdout: String, stderr: String) throws -> URL {

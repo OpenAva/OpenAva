@@ -337,7 +337,7 @@ private struct CronAddJobSheet: View {
     @State private var selectedAgentID = ""
     @State private var mode: ScheduleMode = .at
     @State private var atDate = Date().addingTimeInterval(300)
-    @State private var everyMinutes = 5
+    @State private var everyMinutesText = "5"
 
     let onCreate: (CronCreateDraft) -> Void
     let onCancel: (() -> Void)?
@@ -383,6 +383,26 @@ private struct CronAddJobSheet: View {
             #endif
         }
         .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+        .task {
+            ensureSelectedAgent()
+        }
+        .onChange(of: jobKind) { _, newValue in
+            if newValue == .heartbeat {
+                ensureSelectedAgent()
+            }
+        }
+        .onChange(of: containerStore.activeAgent?.id) { _, _ in
+            ensureSelectedAgent()
+        }
+        .onChange(of: containerStore.agents.map(\.id)) { _, _ in
+            ensureSelectedAgent()
+        }
+        .onChange(of: everyMinutesText) { _, newValue in
+            let digits = newValue.filter(\.isNumber)
+            if digits != newValue {
+                everyMinutesText = digits
+            }
+        }
     }
 
     private var formContent: some View {
@@ -406,7 +426,6 @@ private struct CronAddJobSheet: View {
                     CustomSection {
                         labeledField(L10n.tr("settings.cron.agent.field")) {
                             Picker(selection: $selectedAgentID) {
-                                Text(L10n.tr("settings.cron.agent.none")).tag("")
                                 ForEach(containerStore.agents, id: \.id) { agent in
                                     Text(agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)")
                                         .tag(agent.id.uuidString)
@@ -414,8 +433,10 @@ private struct CronAddJobSheet: View {
                             } label: {
                                 EmptyView()
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .pickerStyle(.menu)
                             .tint(.primary)
+                            .settingsInputFieldStyle()
                         }
                         .padding(.horizontal, 20)
                     }
@@ -452,8 +473,15 @@ private struct CronAddJobSheet: View {
                             }
                         } else {
                             labeledField(L10n.tr("settings.cron.schedule.every")) {
-                                Stepper(value: $everyMinutes, in: 1 ... 1440) {
-                                    Text("\(everyMinutes) \(L10n.tr("common.minutes"))")
+                                HStack(spacing: 8) {
+                                    TextField(
+                                        L10n.tr("settings.cron.schedule.every"),
+                                        text: $everyMinutesText
+                                    )
+                                    .keyboardType(.numberPad)
+
+                                    Text(L10n.tr("common.minutes"))
+                                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                                 }
                                 .settingsInputFieldStyle()
                             }
@@ -580,6 +608,9 @@ private struct CronAddJobSheet: View {
         if jobKind == .heartbeat {
             if selectedAgentID.isEmpty { return false }
         }
+        if mode == .every, resolvedEveryMinutes == nil {
+            return false
+        }
         return true
     }
 
@@ -617,6 +648,14 @@ private struct CronAddJobSheet: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private var resolvedEveryMinutes: Int? {
+        let trimmed = everyMinutesText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), (1 ... 1440).contains(value) else {
+            return nil
+        }
+        return value
+    }
+
     private func ensureSelectedAgent() {
         guard jobKind == .heartbeat else { return }
         if let selected = resolvedSelectedAgentID,
@@ -650,7 +689,7 @@ private struct CronAddJobSheet: View {
                 kind: jobKind.cronKind,
                 agentID: resolvedSelectedAgentID,
                 atDate: nil,
-                everySeconds: everyMinutes * 60
+                everySeconds: (resolvedEveryMinutes ?? 5) * 60
             )
         }
     }

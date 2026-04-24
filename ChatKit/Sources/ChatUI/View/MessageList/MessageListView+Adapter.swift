@@ -158,12 +158,40 @@ extension MessageListView: ListViewAdapter {
             case let .subAgentTask(_, task):
                 return SubAgentTaskCardView.contentHeight(for: task, theme: theme, maxWidth: containerWidth)
             case let .toolResultContent(_, toolResult):
-                // Match ReasoningContentView text sizing (footnote, leading inset 14)
-                let attributed = NSAttributedString(string: toolResult.displayText, attributes: [
-                    .font: theme.fonts.footnote,
-                    .paragraphStyle: ToolResultContentView.paragraphStyle,
-                ])
-                return ceil(boundingSize(with: containerWidth - 14, for: attributed).height)
+                let textWidth = max(0, containerWidth - 14)
+
+                var totalHeight: CGFloat = 0
+                let titleFont = theme.fonts.footnote.bold
+                let codeFont = theme.fonts.code
+
+                let titleAttributes: [NSAttributedString.Key: Any] = [.font: titleFont]
+
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.lineSpacing = 4
+                paragraphStyle.lineBreakMode = .byCharWrapping
+                let codeAttributes: [NSAttributedString.Key: Any] = [
+                    .font: codeFont,
+                    .paragraphStyle: paragraphStyle,
+                ]
+
+                let contentWidth = max(0, textWidth - 16)
+
+                if toolResult.hasParameters {
+                    let titleHeight = ceil(NSAttributedString(string: String.localized("Tool Arguments"), attributes: titleAttributes).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
+                    let codeHeight = ceil(NSAttributedString(string: toolResult.formattedParameters, attributes: codeAttributes).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
+                    totalHeight += titleHeight + 8 // spacing to block
+                    totalHeight += codeHeight + 16 // 8pt padding top/bottom
+                }
+
+                if toolResult.hasResult {
+                    if totalHeight > 0 { totalHeight += 16 } // stack view spacing
+                    let titleHeight = ceil(NSAttributedString(string: String.localized("Tool Result"), attributes: titleAttributes).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
+                    let codeHeight = ceil(NSAttributedString(string: toolResult.formattedResult, attributes: codeAttributes).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
+                    totalHeight += titleHeight + 8
+                    totalHeight += codeHeight + 16
+                }
+
+                return min(totalHeight, 360)
             case let .chartContent(_, chart):
                 return ChartMessageView.contentHeight(for: chart.spec, containerWidth: containerWidth)
             case let .mapContent(_, map):
@@ -312,7 +340,7 @@ extension MessageListView: ListViewAdapter {
         } else if let toolResultContentView = rowView as? ToolResultContentView {
             if case let .toolResultContent(_, toolResult) = entry {
                 toolResultContentView.theme = theme
-                toolResultContentView.text = toolResult.displayText
+                toolResultContentView.configure(with: toolResult)
             }
         } else if let chartMessageView = rowView as? ChartMessageView {
             if case let .chartContent(_, chart) = entry {

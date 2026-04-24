@@ -17,11 +17,11 @@ extension MessageListView {
         private let parser = MarkdownParser()
 
         func package(
-            for messageRepresentation: MessageRepresentation,
+            for content: String,
+            id: String,
             theme: MarkdownTheme
         ) -> MarkdownTextView.PreprocessedContent {
-            let id = messageRepresentation.id
-            let contentHash = messageRepresentation.content.hashValue
+            let contentHash = content.hashValue
 
             lock.lock()
             if let cached = cachedPackages[id], cachedHashes[id] == contentHash {
@@ -30,14 +30,21 @@ extension MessageListView {
             }
             lock.unlock()
 
-            let content = updateCache(content: messageRepresentation.content, theme: theme)
+            let processedContent = updateCache(content: content, theme: theme)
 
             lock.lock()
-            cachedPackages[id] = content
+            cachedPackages[id] = processedContent
             cachedHashes[id] = contentHash
             lock.unlock()
 
-            return content
+            return processedContent
+        }
+
+        func package(
+            for messageRepresentation: MessageRepresentation,
+            theme: MarkdownTheme
+        ) -> MarkdownTextView.PreprocessedContent {
+            return package(for: messageRepresentation.content, id: messageRepresentation.id, theme: theme)
         }
 
         private func updateCache(content: String, theme: MarkdownTheme) -> MarkdownTextView.PreprocessedContent {

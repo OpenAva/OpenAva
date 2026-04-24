@@ -404,9 +404,8 @@
 "settings.cron.kind.field" = "类型";
 "settings.cron.schedule.atTime" = "指定时间";
 "settings.cron.schedule.every" = "每隔";
-"settings.cron.agent.field" = "Agent";
-"settings.cron.agent.select" = "选择 Agent";
-"settings.cron.agent.none" = "无";
+"settings.cron.agent.field" = "执行对象";
+"settings.cron.agent.select" = "选择执行对象";
 "settings.cron.message.section" = "提醒内容";
 "settings.cron.message.placeholder" = "OpenAva 应该提醒你什么？";
 "settings.cron.message.placeholder.heartbeat" = "这个心跳触发器的标签，可选填写";
@@ -419,7 +418,7 @@
 "settings.cron.nextRun" = "下次：%@";
 "settings.cron.kind.notify" = "提醒";
 "settings.cron.kind.heartbeat" = "心跳";
-"settings.cron.agent.unknown" = "未知 Agent";
+"settings.cron.agent.unknown" = "未知执行对象";
 "settings.cron.schedule.everyInterval" = "每隔 %@";
 "settings.cron.schedule.at" = "于 %@";
 "settings.cron.empty.title" = "暂无 Cron 任务";

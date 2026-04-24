@@ -489,14 +489,16 @@ open class ChatViewController: UIViewController {
             listTop = 0
         }
 
+        let keyboardOverlap = keyboardHeight > 0 ? keyboardHeight + safeArea.bottom : 0
         messageListView.frame = CGRect(
             x: chatColumn.minX,
             y: listTop,
             width: chatColumn.width,
-            height: chatInputView.frame.minY - listTop
+            height: chatColumn.height - keyboardOverlap
         )
         let listSafeTop = chatColumn.minY == 0 ? safeArea.top : 0
-        messageListView.contentSafeAreaInsets = UIEdgeInsets(top: listSafeTop, left: 0, bottom: 0, right: 0)
+        let bottomInset = keyboardHeight > 0 ? inputHeight : totalInputHeight
+        messageListView.contentSafeAreaInsets = UIEdgeInsets(top: listSafeTop, left: 0, bottom: bottomInset, right: 0)
     }
 
     private func setupKeyboardObservation() {

@@ -36,28 +36,36 @@ extension MessageListView {
         let parameters: String
         let result: String
 
-        var displayText: String {
-            let trimmedParameters = parameters.trimmingCharacters(in: .whitespacesAndNewlines)
-            let trimmedResult = result.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            switch (trimmedParameters.isEmpty, trimmedResult.isEmpty) {
-            case (false, false):
-                return [
-                    String.localized("Tool Arguments"),
-                    parameters,
-                    String.localized("Tool Result"),
-                    result,
-                ].joined(separator: "\n\n")
-            case (false, true):
-                return [
-                    String.localized("Tool Arguments"),
-                    parameters,
-                ].joined(separator: "\n\n")
-            case (true, false):
-                return result
-            case (true, true):
-                return ""
+        private func formatJSON(_ text: String) -> String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = trimmed.data(using: .utf8),
+                  let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
+                  let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .withoutEscapingSlashes]),
+                  let prettyString = String(data: prettyData, encoding: .utf8)
+            else {
+                return trimmed
             }
+            return prettyString
+        }
+
+        var formattedParameters: String {
+            formatJSON(parameters)
+        }
+
+        var formattedResult: String {
+            formatJSON(result)
+        }
+
+        var hasParameters: Bool {
+            !parameters.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var hasResult: Bool {
+            !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var isEmpty: Bool {
+            !hasParameters && !hasResult
         }
     }
 
@@ -159,6 +167,7 @@ extension MessageListView {
     func entries(from messages: [ConversationMessage]) -> [Entry] {
         var entries: [Entry] = []
         var latestDisplayedDay: Date?
+        var inlineRenderedToolResultIDs: Set<String> = []
 
         func shouldDisplayInTranscript(_ message: ConversationMessage) -> Bool {
             if message.isCompactSummary {
@@ -242,6 +251,16 @@ extension MessageListView {
                     return call.id == toolCallID
                 }
             })?.id
+        }
+
+        func firstToolResultMessage(for toolCallID: String) -> (messageID: String, result: ToolResultContentPart)? {
+            for message in messages where message.role == .tool {
+                for part in message.parts {
+                    guard case let .toolResult(result) = part, result.toolCallID == toolCallID else { continue }
+                    return (message.id, result)
+                }
+            }
+            return nil
         }
 
         let dateFormatter = DateFormatter()
@@ -344,24 +363,29 @@ extension MessageListView {
                         )
                         entries.append(.reasoningContent(reasoningPart.id, reasoningRep))
                     case let .toolCall(tc):
-                        let matchingResults = messages.compactMap { m -> ToolResultContentPart? in
-                            guard m.role == .tool else { return nil }
-                            return m.parts.compactMap { part -> ToolResultContentPart? in
-                                guard case let .toolResult(value) = part, value.toolCallID == tc.id else { return nil }
-                                return value
-                            }.first
-                        }
+                        let matchingToolResultMessage = firstToolResultMessage(for: tc.id)
+                        let matchingResult = matchingToolResultMessage?.result
                         entries.append(
                             .toolCallHint(
                                 tc.id,
                                 ToolCallRepresentation(
-                                    messageID: message.id,
+                                    messageID: matchingToolResultMessage?.messageID ?? message.id,
                                     toolCall: tc,
-                                    hasResult: !matchingResults.isEmpty,
-                                    isExpanded: matchingResults.contains(where: { !$0.isCollapsed })
+                                    hasResult: matchingResult != nil,
+                                    isExpanded: !(matchingResult?.isCollapsed ?? true)
                                 )
                             )
                         )
+                        if let matchingResult, !matchingResult.isCollapsed {
+                            let representation = ToolResultRepresentation(
+                                parameters: tc.parameters,
+                                result: matchingResult.result
+                            )
+                            if !representation.isEmpty {
+                                entries.append(.toolResultContent(matchingResult.id, representation))
+                                inlineRenderedToolResultIDs.insert(matchingResult.id)
+                            }
+                        }
                     case let .text(textPart):
                         guard !textPart.text.isEmpty else { continue }
                         let segments = ChartMarkdownParser.parseSegments(from: textPart.text)
@@ -507,6 +531,7 @@ extension MessageListView {
                     break
                 }
                 guard !toolResult.isCollapsed else { break }
+                guard !inlineRenderedToolResultIDs.contains(toolResult.id) else { break }
                 let assistantID = assistantMessageID(forToolResult: toolResult.toolCallID, startingAt: messageIndex) ?? message.id
                 let toolCall = messages.first(where: { $0.id == assistantID })?.parts.first { part in
                     guard case let .toolCall(value) = part else { return false }
@@ -520,7 +545,7 @@ extension MessageListView {
                     parameters: parameters,
                     result: toolResult.result
                 )
-                guard !representation.displayText.isEmpty else { break }
+                guard !representation.isEmpty else { break }
                 entries.append(.toolResultContent(toolResult.id, representation))
 
             case .system:

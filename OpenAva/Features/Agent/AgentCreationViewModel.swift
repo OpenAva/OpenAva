@@ -13,7 +13,7 @@ final class AgentCreationViewModel {
         "Vera", "Wes", "Wyatt", "Zara", "Zoe", "Adrian", "Ayla", "Beckett",
         "Brielle", "Calla", "Cole", "Delia", "Elio", "Freya", "Gavin", "Hugo",
         "Isla", "Julian", "Keira", "Leona", "Maeve", "Micah", "Naomi", "Rowan",
-        ]
+    ]
 
     enum CreationMode: String, CaseIterable, Identifiable {
         case singleAgent

@@ -9,8 +9,9 @@ import UIKit
 final class ControlPanel: EditorSectionView {
     let isPanelOpen: CurrentValueSubject<Bool, Never> = .init(false)
 
-    let buttonHeight: CGFloat = 100
+    let buttonHeight: CGFloat = 56
     let buttonSpacing: CGFloat = 10
+    let topPadding: CGFloat = 8
 
     private var buttonViews: [GiantButton] = []
     private var items: [ControlPanelItem] = []
@@ -25,7 +26,7 @@ final class ControlPanel: EditorSectionView {
             .ensureMainThread()
             .sink { [weak self] input in
                 guard let self else { return }
-                heightPublisher.send(input ? buttonHeight : 0)
+                heightPublisher.send(input ? buttonHeight + topPadding : 0)
                 if input {
                     delegate?.onControlPanelOpen()
                 } else {
@@ -71,11 +72,15 @@ final class ControlPanel: EditorSectionView {
         super.layoutSubviews()
 
         guard !buttonViews.isEmpty else { return }
-        let buttonWidth = ceil(bounds.width + buttonSpacing) / CGFloat(buttonViews.count) - buttonSpacing
+
+        let horizontalInset: CGFloat = 14
+        let availableWidth = bounds.width - horizontalInset * 2
+        let buttonWidth = ceil(availableWidth + buttonSpacing) / CGFloat(buttonViews.count) - buttonSpacing
+
         for (idx, view) in buttonViews.enumerated() {
             view.frame = .init(
-                x: CGFloat(idx) * (buttonWidth + buttonSpacing),
-                y: 0,
+                x: horizontalInset + CGFloat(idx) * (buttonWidth + buttonSpacing),
+                y: topPadding,
                 width: buttonWidth,
                 height: buttonHeight
             )

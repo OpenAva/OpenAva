@@ -12,7 +12,7 @@ final class GiantButton: UIView {
 
     var actionBlock: () -> Void = {}
 
-    init(title: String, icon: String) {
+    init(title _: String, icon: String) {
         super.init(frame: .zero)
 
         backgroundView.backgroundColor = .label.withAlphaComponent(0.05)
@@ -21,14 +21,11 @@ final class GiantButton: UIView {
         addSubview(backgroundView)
 
         imageView.contentMode = .scaleAspectFit
-        imageView.tintColor = .label.withAlphaComponent(0.75)
+        imageView.tintColor = ChatUIDesign.Color.black60
         imageView.image = UIImage.chatInputIcon(named: icon)
         backgroundView.addSubview(imageView)
 
-        labelView.text = title
-        labelView.textAlignment = .center
-        labelView.font = .preferredFont(forTextStyle: .footnote)
-        labelView.textColor = .secondaryLabel
+        labelView.isHidden = true
         addSubview(labelView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(onTapped))
@@ -44,26 +41,13 @@ final class GiantButton: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        let labelHeight: CGFloat = 32
-
-        backgroundView.frame = .init(
-            x: 0,
-            y: 0,
-            width: bounds.width,
-            height: bounds.height - labelHeight
-        )
-        let imageSize = CGSize(width: 28, height: 28)
+        backgroundView.frame = bounds
+        let imageSize = CGSize(width: 24, height: 24)
         imageView.frame = .init(
             x: (backgroundView.bounds.width - imageSize.width) / 2,
             y: (backgroundView.bounds.height - imageSize.height) / 2,
             width: imageSize.width,
             height: imageSize.height
-        )
-        labelView.frame = .init(
-            x: 0,
-            y: backgroundView.frame.maxY,
-            width: bounds.width,
-            height: labelHeight
         )
     }
 
