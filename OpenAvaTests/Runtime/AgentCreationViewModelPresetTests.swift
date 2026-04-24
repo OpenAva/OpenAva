@@ -60,12 +60,66 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         XCTAssertTrue(viewModel.emojiCandidates.contains(viewModel.data.agentEmoji))
     }
 
+    func testRandomizeAgentNameUsesBuiltInEnglishNamePool() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        viewModel.data.agentName = "Custom"
+
+        viewModel.randomizeAgentName(avoiding: [])
+
+        XCTAssertTrue(viewModel.agentNameCandidates.contains(viewModel.data.agentName))
+    }
+
+    func testApplyAgentDefaultsUsesRandomNameInsteadOfOwnerBasedDefault() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        viewModel.data.userCallName = "Yuan"
+
+        viewModel.applyAgentDefaultsIfNeeded(avoiding: [], usedAgentNames: [])
+
+        XCTAssertTrue(viewModel.agentNameCandidates.contains(viewModel.data.agentName))
+        XCTAssertNotEqual(
+            viewModel.data.agentName,
+            L10n.tr("agent.creation.defaultNameWithOwner", "Yuan")
+        )
+    }
+
+    func testRandomizeAgentNameAvoidsExistingAgentNames() throws {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        let expected = try XCTUnwrap(viewModel.agentNameCandidates.last)
+        let usedNames = Set(
+            viewModel.agentNameCandidates.dropLast().enumerated().map { index, name in
+                index == 0 ? "  \(name.uppercased())  " : name
+            }
+        )
+
+        viewModel.randomizeAgentName(avoiding: usedNames)
+
+        XCTAssertEqual(viewModel.data.agentName, expected)
+    }
+
+    func testRandomizeAgentNameFallsBackToUniqueDefaultNameWhenPoolIsExhausted() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+
+        let usedNames = Set(viewModel.agentNameCandidates).union([
+            L10n.tr("agent.creation.defaultName"),
+        ])
+
+        viewModel.randomizeAgentName(avoiding: usedNames)
+
+        XCTAssertEqual(
+            viewModel.data.agentName,
+            "\(L10n.tr("agent.creation.defaultName")) 2"
+        )
+    }
+
     func testCanCompleteDependsOnUserAndAgentIdentity() {
         let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
 
         XCTAssertFalse(viewModel.canComplete)
 
         viewModel.data.userCallName = "Yuan"
+        XCTAssertFalse(viewModel.canComplete)
+
+        viewModel.applyAgentDefaultsIfNeeded(avoiding: [], usedAgentNames: [])
         XCTAssertTrue(viewModel.canComplete)
 
         viewModel.data.agentName = "   "

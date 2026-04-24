@@ -3,6 +3,18 @@ import SwiftUI
 
 @MainActor @Observable
 final class AgentCreationViewModel {
+    static let randomAgentNameCandidates = [
+        "Aiden", "Aria", "Atlas", "Avery", "Blake", "Brooks", "Caleb", "Carmen",
+        "Cassian", "Cleo", "Damon", "Daphne", "Ellis", "Ember", "Ethan", "Eva",
+        "Felix", "Finn", "Hazel", "Iris", "Jasper", "Juno", "Kai", "Lena",
+        "Leo", "Liam", "Lila", "Luca", "Lyra", "Mason", "Mila", "Milo",
+        "Nadia", "Nolan", "Noah", "Nova", "Orion", "Owen", "Piper", "Quinn",
+        "Riley", "Roman", "Ruby", "Sawyer", "Silas", "Stella", "Sutton", "Theo",
+        "Vera", "Wes", "Wyatt", "Zara", "Zoe", "Adrian", "Ayla", "Beckett",
+        "Brielle", "Calla", "Cole", "Delia", "Elio", "Freya", "Gavin", "Hugo",
+        "Isla", "Julian", "Keira", "Leona", "Maeve", "Micah", "Naomi", "Rowan",
+        ]
+
     enum CreationMode: String, CaseIterable, Identifiable {
         case singleAgent
 
@@ -30,6 +42,7 @@ final class AgentCreationViewModel {
     private(set) var hasAppliedInitialDefaults = false
     private let userDirectoryURL: URL?
     let presets: [AgentPreset]
+    let agentNameCandidates = AgentCreationViewModel.randomAgentNameCandidates
 
     /// Shared emoji source for picker and random fill.
     let emojiCandidates = EmojiPickerCatalog.candidates
@@ -86,10 +99,10 @@ final class AgentCreationViewModel {
 
     // MARK: - Initial Setup
 
-    func applyAgentDefaultsIfNeeded(avoiding usedEmojis: Set<String>) {
+    func applyAgentDefaultsIfNeeded(avoiding usedEmojis: Set<String>, usedAgentNames: Set<String>) {
         guard !hasAppliedInitialDefaults else { return }
         hasAppliedInitialDefaults = true
-        applyAgentDefaults(avoiding: usedEmojis)
+        applyAgentDefaults(avoiding: usedEmojis, usedAgentNames: usedAgentNames)
     }
 
     // MARK: - Emoji
@@ -115,6 +128,20 @@ final class AgentCreationViewModel {
         } else {
             setAgentEmoji(preset.agentEmoji)
         }
+    }
+
+    func randomizeAgentName(avoiding usedAgentNames: Set<String>) {
+        let normalizedUsed = Set(usedAgentNames.map(Self.normalizedName).filter { !$0.isEmpty })
+        let currentName = Self.normalizedName(data.agentName)
+        let uniqueCandidates = agentNameCandidates.filter { !normalizedUsed.contains(Self.normalizedName($0)) }
+        let available = uniqueCandidates.filter { Self.normalizedName($0) != currentName }
+
+        if let selected = available.randomElement() ?? uniqueCandidates.randomElement() {
+            data.agentName = selected
+            return
+        }
+
+        data.agentName = uniqueFallbackAgentName(avoiding: normalizedUsed)
     }
 
     func toggleTruthOption(_ option: String) {
@@ -209,6 +236,12 @@ final class AgentCreationViewModel {
         EmojiPickerCatalog.normalized(raw)
     }
 
+    private static func normalizedName(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
     private var truthLines: [String] {
         data.soulCoreTruths
             .split(whereSeparator: \.isNewline)
@@ -217,10 +250,10 @@ final class AgentCreationViewModel {
     }
 
     /// Auto-fills agent fields when the user enters step 2.
-    private func applyAgentDefaults(avoiding usedEmojis: Set<String>) {
+    private func applyAgentDefaults(avoiding usedEmojis: Set<String>, usedAgentNames: Set<String>) {
         let trimmedName = data.agentName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedName.isEmpty || trimmedName == L10n.tr("agent.creation.defaultName") {
-            data.agentName = defaultAgentName()
+        if trimmedName.isEmpty || isLegacyDefaultAgentName(trimmedName) {
+            randomizeAgentName(avoiding: usedAgentNames)
         }
 
         let trimmedEmoji = data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -230,10 +263,36 @@ final class AgentCreationViewModel {
     }
 
     private func defaultAgentName() -> String {
-        let callName = data.userCallName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !callName.isEmpty {
-            return L10n.tr("agent.creation.defaultNameWithOwner", callName)
-        }
         return L10n.tr("agent.creation.defaultName")
+    }
+
+    private func isLegacyDefaultAgentName(_ name: String) -> Bool {
+        let normalizedName = Self.normalizedName(name)
+        if normalizedName == Self.normalizedName(L10n.tr("agent.creation.defaultName")) {
+            return true
+        }
+
+        let callName = data.userCallName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !callName.isEmpty else {
+            return false
+        }
+
+        return normalizedName == Self.normalizedName(L10n.tr("agent.creation.defaultNameWithOwner", callName))
+    }
+
+    private func uniqueFallbackAgentName(avoiding normalizedUsed: Set<String>) -> String {
+        let baseName = defaultAgentName()
+        if !normalizedUsed.contains(Self.normalizedName(baseName)) {
+            return baseName
+        }
+
+        var index = 2
+        while true {
+            let candidate = "\(baseName) \(index)"
+            if !normalizedUsed.contains(Self.normalizedName(candidate)) {
+                return candidate
+            }
+            index += 1
+        }
     }
 }

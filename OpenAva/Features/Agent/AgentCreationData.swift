@@ -13,7 +13,7 @@ struct AgentCreationData {
     // MARK: - IDENTITY.md fields
 
     /// Agent name.
-    var agentName: String = "Agent"
+    var agentName: String = ""
 
     /// Agent emoji signature.
     var agentEmoji: String = "🦞"

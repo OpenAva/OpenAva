@@ -79,6 +79,10 @@ struct AgentCreationView: View {
         Set(containerStore.agents.map { $0.emoji.trimmingCharacters(in: .whitespacesAndNewlines) })
     }
 
+    private var usedAgentNames: Set<String> {
+        Set(containerStore.agents.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) })
+    }
+
     var body: some View {
         formContent
             .navigationTitle(L10n.tr("agent.creation.nav.title"))
@@ -94,7 +98,7 @@ struct AgentCreationView: View {
             }
         #endif
             .onAppear {
-                viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis)
+                viewModel.applyAgentDefaultsIfNeeded(avoiding: usedEmojis, usedAgentNames: usedAgentNames)
             }
     }
 
@@ -225,8 +229,11 @@ struct AgentCreationView: View {
                 onPick: {
                     isEmojiPickerPresented = true
                 },
-                onShuffle: {
+                onEmojiShuffle: {
                     viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
+                },
+                onNameShuffle: {
+                    viewModel.randomizeAgentName(avoiding: usedAgentNames)
                 }
             )
             .padding(.horizontal, 20)
@@ -495,10 +502,11 @@ struct AgentCreationView: View {
         namePlaceholder: String,
         emoji: String,
         onPick: @escaping () -> Void,
-        onShuffle: @escaping () -> Void
+        onEmojiShuffle: @escaping () -> Void,
+        onNameShuffle: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
-            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onShuffle)
+            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onEmojiShuffle)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 14)
                 .background(
@@ -510,9 +518,33 @@ struct AgentCreationView: View {
                         .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                 )
 
-            TextField(namePlaceholder, text: name)
-                .textInputAutocapitalization(.words)
-                .styledField()
+            HStack(spacing: 8) {
+                TextField(namePlaceholder, text: name)
+                    .textInputAutocapitalization(.words)
+
+                Button(action: onNameShuffle) {
+                    Image(systemName: "shuffle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Color(uiColor: ChatUIDesign.Color.warmCream),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(minHeight: 34)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Color(uiColor: ChatUIDesign.Color.pureWhite),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
         }
     }
 
