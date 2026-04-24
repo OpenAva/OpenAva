@@ -29,6 +29,7 @@ struct RunSkillIntent: AppIntent {
         self.task = task
     }
 
+    @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let displayName = try SkillLaunchService.enqueueSkillLaunch(
             skillID: skillID,

@@ -354,6 +354,7 @@
 "common.add" = "添加";
 "common.apply" = "应用";
 "common.save" = "保存";
+"common.minutes" = "分钟";
 "common.create" = "创建";
 "common.discard" = "放弃";
 "common.description" = "描述";
@@ -361,13 +362,20 @@
 "common.unknownError" = "未知错误";
 
 "settings.llmList.configured.header" = "已配置模型";
-"settings.llmList.configured.footer" = "点击模型可设为当前激活模型，左滑可编辑或删除。";
-"settings.llmList.configured.footer.mac" = "点击模型可设为当前激活模型，右键可编辑或删除。";
+"settings.llmList.configured.footer" = "点击模型可设为当前模型，也可直接使用行内操作进行编辑或删除。";
+"settings.llmList.configured.footer.mac" = "点击模型可设为当前模型，也可直接使用行内操作或右键进行编辑或删除。";
 "settings.llmList.addModel" = "添加模型";
 "settings.llmList.delete.title" = "删除模型？";
 "settings.llmList.delete.message" = "确认删除 \"%@\" 吗？此操作不可撤销。";
 "settings.llmList.empty.title" = "暂无已配置模型";
 "settings.llmList.empty.message" = "点击右上角 + 按钮添加。";
+"settings.llmList.current.header" = "当前使用模型";
+"settings.llmList.current.emptyTitle" = "先选择一个模型开始";
+"settings.llmList.current.emptyMessage" = "添加你的第一个模型，并将它用于后续对话。";
+"settings.llmList.action.use" = "设为当前";
+"settings.llmList.status.active" = "当前";
+"settings.llmList.status.ready" = "可用";
+"settings.llmList.status.incomplete" = "待完善";
 
 "settings.context.applyTemplate" = "应用模板";
 "settings.context.applyTemplate.confirmTitle" = "应用模板？";

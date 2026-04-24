@@ -299,14 +299,6 @@ struct LLMEditView: View {
                         .font(.footnote)
                         .foregroundStyle(.red)
                     }
-
-                    if let message = viewModel.saveValidationMessage,
-                       !viewModel.isValid
-                    {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 .padding(.horizontal, 20)
             }
@@ -563,25 +555,6 @@ final class LLMEditViewModel {
             && requestTimeoutValidationMessage == nil
     }
 
-    var saveValidationMessage: String? {
-        guard !isValid else { return nil }
-
-        var items: [String] = []
-        if !missingRequiredFieldsForSave.isEmpty {
-            items.append(L10n.tr("settings.llmEdit.missingFields", missingRequiredFieldsForSave.joined(separator: ", ")))
-        }
-        if let endpointValidationMessage {
-            items.append(endpointValidationMessage)
-        }
-        if let contextTokensValidationMessage {
-            items.append(contextTokensValidationMessage)
-        }
-        if let requestTimeoutValidationMessage {
-            items.append(requestTimeoutValidationMessage)
-        }
-        return items.isEmpty ? nil : items.joined(separator: "\n")
-    }
-
     private var missingRequiredFieldsForSave: [String] {
         var missing: [String] = []
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -644,25 +617,6 @@ final class LLMEditViewModel {
             && endpointValidationMessage == nil
             && contextTokensValidationMessage == nil
             && requestTimeoutValidationMessage == nil
-    }
-
-    var testValidationMessage: String? {
-        guard !canTestConnection else { return nil }
-
-        var items: [String] = []
-        if !missingRequiredFieldsForTest.isEmpty {
-            items.append(L10n.tr("settings.llmEdit.missingFields", missingRequiredFieldsForTest.joined(separator: ", ")))
-        }
-        if let endpointValidationMessage {
-            items.append(endpointValidationMessage)
-        }
-        if let contextTokensValidationMessage {
-            items.append(contextTokensValidationMessage)
-        }
-        if let requestTimeoutValidationMessage {
-            items.append(requestTimeoutValidationMessage)
-        }
-        return items.isEmpty ? nil : items.joined(separator: "\n")
     }
 
     init(mode: LLMEditView.Mode) {

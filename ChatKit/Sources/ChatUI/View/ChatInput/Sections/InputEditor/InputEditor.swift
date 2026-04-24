@@ -7,6 +7,7 @@ import Combine
 import UIKit
 
 final class InputEditor: EditorSectionView {
+    private let primaryActionSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)
     let font = UIFont.systemFont(ofSize: 16, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
@@ -50,7 +51,7 @@ final class InputEditor: EditorSectionView {
     var isExecuting = false {
         didSet {
             guard oldValue != isExecuting else { return }
-            sendButton.change(icon: isExecuting ? "stop" : "send")
+            updatePrimaryActionButtonAppearance()
             textView.returnKeyType = isExecuting ? .default : .send
             switchToRequiredStatus()
         }
@@ -105,8 +106,13 @@ final class InputEditor: EditorSectionView {
         appsButton.tintColor = secondaryColor
         voiceButton.imageView.tintColor = secondaryColor
 
-        // Use a black tint for the send button (similar to Apple Intelligence)
-        sendButton.imageView.tintColor = ChatUIDesign.Color.offBlack
+        sendButton.backgroundColor = ChatUIDesign.Color.offBlack
+        sendButton.layer.cornerRadius = sendButtonSize.height / 2
+        sendButton.layer.cornerCurve = .continuous
+        sendButton.clipsToBounds = true
+        sendButton.imageInsets = .init(top: 10, left: 10, bottom: 10, right: 10)
+        sendButton.imageView.tintColor = ChatUIDesign.Color.pureWhite
+        updatePrimaryActionButtonAppearance()
 
         textView.font = font
         textView.delegate = self
@@ -362,6 +368,14 @@ final class InputEditor: EditorSectionView {
         let commandEnd = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
         let command = String(trimmed[..<commandEnd])
         return command.count > 1 ? command : nil
+    }
+
+    private func updatePrimaryActionButtonAppearance() {
+        let symbolName = isExecuting ? "stop.fill" : "arrow.up"
+        sendButton.imageView.image = UIImage(
+            systemName: symbolName,
+            withConfiguration: primaryActionSymbolConfiguration
+        )?.withRenderingMode(.alwaysTemplate)
     }
 }
 

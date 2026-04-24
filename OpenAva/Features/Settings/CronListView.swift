@@ -91,22 +91,24 @@ struct CronListView: View {
 
     private var cronList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(L10n.tr("settings.cron.scheduled.header"))
-                    .font(.system(size: 16, weight: .semibold))
-                    .tracking(-0.3)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.tr("settings.cron.scheduled.header"))
+                        .font(.system(size: 20, weight: .regular))
+                        .tracking(-0.2)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .padding(.horizontal, 16)
+
+                    VStack(spacing: 12) {
+                        cronRows
+                    }
                     .padding(.horizontal, 16)
 
-                VStack(spacing: 12) {
-                    cronRows
+                    Text(scheduledFooterText)
+                        .font(.footnote)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
-
-                Text(scheduledFooterText)
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    .padding(.horizontal, 16)
             }
             .padding(.vertical, 24)
         }
@@ -122,55 +124,17 @@ struct CronListView: View {
                 .padding(.vertical, 24)
         } else if jobs.isEmpty {
             EmptyCronJobsView()
+                .padding(.vertical, 16)
         } else {
             ForEach(jobs, id: \.id) { job in
-                VStack(alignment: .leading, spacing: 0) {
-                    CronJobRow(job: job, agentName: resolvedAgentName(for: job))
-
-                    if job.kind == .heartbeat, let agentID = job.agentID {
-                        let isRegistered = HeartbeatRuntimeRegistry.shared.isRuntimeRegistered(for: agentID)
-                        if isRegistered {
-                            HStack {
-                                Spacer()
-                                Button {
-                                    Task {
-                                        await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
-                                    }
-                                } label: {
-                                    Label(L10n.tr("chat.command.runHeartbeatNow"), systemImage: "waveform.path.ecg")
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                                )
-                            }
-                            .padding(.top, 12)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 12)
+                CronJobRow(job: job, agentName: resolvedAgentName(for: job))
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            jobToRemove = job
+                        } label: {
+                            Label(L10n.tr("common.delete"), systemImage: "trash")
                         }
                     }
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                )
-                .contextMenu {
-                    Button(role: .destructive) {
-                        jobToRemove = job
-                    } label: {
-                        Label(L10n.tr("common.delete"), systemImage: "trash")
-                    }
-                }
             }
         }
     }
@@ -433,8 +397,7 @@ private struct CronAddJobSheet: View {
                         } label: {
                             EmptyView()
                         }
-                        .pickerStyle(.menu)
-                        .tint(.primary)
+                        .pickerStyle(.segmented)
                     }
                     .padding(.horizontal, 20)
                 }
@@ -477,8 +440,7 @@ private struct CronAddJobSheet: View {
                             } label: {
                                 EmptyView()
                             }
-                            .pickerStyle(.menu)
-                            .tint(.primary)
+                            .pickerStyle(.segmented)
                         }
 
                         if mode == .at {
@@ -512,7 +474,7 @@ private struct CronAddJobSheet: View {
             VStack(spacing: 0) {
                 ZStack {
                     Text(L10n.tr("settings.cron.addJob"))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
                     HStack {
@@ -545,45 +507,6 @@ private struct CronAddJobSheet: View {
             }
         }
     #endif
-
-    private enum InlineActionRole {
-        case primary
-        case secondary
-    }
-
-    private func actionButton(
-        title: String,
-        role: InlineActionRole,
-        action: @escaping () -> Void
-    ) -> some View {
-        let foregroundColor: UIColor = switch role {
-        case .primary:
-            ChatUIDesign.Color.pureWhite
-        case .secondary:
-            ChatUIDesign.Color.offBlack
-        }
-        let backgroundColor: Color = switch role {
-        case .primary:
-            Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .secondary:
-            .clear
-        }
-
-        return Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(uiColor: foregroundColor))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
-                )
-        }
-        .buttonStyle(.plain)
-    }
 
     private struct CustomSection<Content: View, Footer: View>: View {
         let title: String?
@@ -641,36 +564,13 @@ private struct CronAddJobSheet: View {
     private func actionButton(
         title: String,
         role: ActionButtonRole,
-        isDisabled: Bool,
+        isDisabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        let foregroundColor: UIColor = switch role {
-        case .primary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.pureWhite
-        case .secondary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.offBlack
-        }
-        let backgroundColor: Color = switch role {
-        case .primary:
-            Color(uiColor: isDisabled ? UIColor.tertiarySystemFill : ChatUIDesign.Color.offBlack)
-        case .secondary:
-            .clear
-        }
-
-        return Button(action: action) {
+        Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(uiColor: foregroundColor))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
-                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PhysicalButtonStyle(role: role == .primary ? PhysicalButtonRole.primary : PhysicalButtonRole.secondary, isDisabled: isDisabled))
         .disabled(isDisabled)
     }
 
@@ -758,7 +658,9 @@ private struct CronAddJobSheet: View {
 
 private extension View {
     func settingsInputFieldStyle() -> some View {
-        padding(.horizontal, 10)
+        frame(minHeight: 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 Color(uiColor: ChatUIDesign.Color.pureWhite),
@@ -795,41 +697,119 @@ private struct CronJobRow: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .center, spacing: 16) {
+            jobIcon
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(job.message)
-                    .font(.headline)
-                    .lineLimit(2)
-
-                Spacer(minLength: 8)
-
-                Text(kindTitle)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(kindTint)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(kindTint.opacity(0.14), in: Capsule())
-            }
-
-            Text(scheduleText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if let agentName {
-                Label(agentName, systemImage: "person.crop.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
+
+                HStack(alignment: .center, spacing: 8) {
+                    StatusBadge(
+                        title: kindTitle,
+                        foreground: kindTint,
+                        background: kindTint.opacity(0.12)
+                    )
+
+                    Text("•")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+
+                    HStack(spacing: 3) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 11))
+                        Text(scheduleText)
+                            .font(.system(size: 13))
+                    }
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+
+                    if let agentName {
+                        Text("•")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+
+                        HStack(spacing: 3) {
+                            Image(systemName: "cpu")
+                                .font(.system(size: 11))
+                            Text(agentName)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    }
+                }
             }
 
-            if let nextRunText {
-                Text(L10n.tr("settings.cron.nextRun", nextRunText))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 6) {
+                if job.kind == .heartbeat, let agentID = job.agentID {
+                    let isRegistered = HeartbeatRuntimeRegistry.shared.isRuntimeRegistered(for: agentID)
+                    if isRegistered {
+                        Button {
+                            Task {
+                                await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
+                            }
+                        } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                                .padding(8)
+                                .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(PhysicalRowButtonStyle())
+                    } else {
+                        nextRunView
+                    }
+                } else {
+                    nextRunView
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var nextRunView: some View {
+        if let nextRunText {
+            Text(L10n.tr("settings.cron.nextRun", nextRunText))
+                .font(.system(size: 12))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var jobIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                )
+
+            Image(systemName: job.kind == .heartbeat ? "waveform.path.ecg" : "bell.fill")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(job.kind == .heartbeat ? Color(uiColor: ChatUIDesign.Color.brandOrange) : Color(uiColor: ChatUIDesign.Color.black60))
+        }
     }
 
     private var kindTitle: String {
@@ -844,9 +824,9 @@ private struct CronJobRow: View {
     private var kindTint: Color {
         switch job.kind {
         case .notify:
-            return .blue
+            return Color(uiColor: ChatUIDesign.Color.black60)
         case .heartbeat:
-            return .orange
+            return Color(uiColor: ChatUIDesign.Color.brandOrange)
         }
     }
 
@@ -884,35 +864,166 @@ private struct CronJobRow: View {
 
 private struct EmptyCronJobsView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "clock.badge")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                    .frame(width: 56, height: 56)
+                    .overlay(Circle().strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1))
 
-            Text(L10n.tr("settings.cron.empty.title"))
-                .font(.subheadline.weight(.regular))
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 24, weight: .light))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+            }
 
-            Text(L10n.tr("settings.cron.empty.message"))
-                .font(.footnote)
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                .multilineTextAlignment(.center)
+            VStack(spacing: 4) {
+                Text(L10n.tr("settings.cron.empty.title"))
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                Text(L10n.tr("settings.cron.empty.message"))
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .multilineTextAlignment(.center)
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 120)
-        .padding()
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .padding(24)
         .background(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
         )
         .overlay(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
         )
+    }
+}
+
+private struct StatusBadge: View {
+    let title: String
+    let foreground: Color
+    let background: Color
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .regular))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 
 #Preview {
     NavigationStack {
         CronListView()
+    }
+}
+
+enum PhysicalButtonRole {
+    case primary
+    case secondary
+    case card
+}
+
+struct PhysicalRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+    }
+}
+
+struct PhysicalButtonStyle: ButtonStyle {
+    let role: PhysicalButtonRole
+    var isDisabled: Bool = false
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isPressed = configuration.isPressed
+        let scale = isPressed ? 0.85 : (isHovered ? 1.1 : 1.0)
+
+        Group {
+            switch role {
+            case .primary:
+                let bg: Color = isPressed ? Color(hex: "#2c6415") : (isHovered ? .white : Color(uiColor: ChatUIDesign.Color.offBlack))
+                let fg: Color = isHovered && !isPressed ? Color(uiColor: ChatUIDesign.Color.offBlack) : .white
+
+                configuration.label
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(isDisabled ? Color(uiColor: .systemGray2) : fg)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(isDisabled ? Color(uiColor: .tertiarySystemFill) : bg)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(isDisabled ? .clear : (isHovered && !isPressed ? Color(uiColor: ChatUIDesign.Color.offBlack) : .clear), lineWidth: 1)
+                    )
+            case .secondary:
+                let bg: Color = isPressed ? Color(hex: "#2c6415") : (isHovered ? .white : .clear)
+                let fg: Color = isPressed ? .white : Color(uiColor: ChatUIDesign.Color.offBlack)
+
+                configuration.label
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(isDisabled ? Color(uiColor: .systemGray2) : fg)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(bg)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(isDisabled ? Color(uiColor: .systemGray2) : (isPressed ? .clear : Color(uiColor: ChatUIDesign.Color.offBlack)), lineWidth: 1)
+                    )
+            case .card:
+                configuration.label
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+            }
+        }
+        .scaleEffect(scale)
+        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: isHovered)
+        .onHover { hovering in
+            isHovered = hovering && !isDisabled
+        }
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }

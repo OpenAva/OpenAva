@@ -7,6 +7,9 @@ import UIKit
 
 final class IconButton: UIView {
     let imageView = UIImageView()
+    var imageInsets: UIEdgeInsets = .init(top: 2, left: 2, bottom: 2, right: 2) {
+        didSet { setNeedsLayout() }
+    }
 
     var tapAction: () -> Void = {}
 
@@ -45,7 +48,7 @@ final class IconButton: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        imageView.frame = bounds.insetBy(dx: 2, dy: 2)
+        imageView.frame = bounds.inset(by: imageInsets)
     }
 
     @objc private func buttonAction() {

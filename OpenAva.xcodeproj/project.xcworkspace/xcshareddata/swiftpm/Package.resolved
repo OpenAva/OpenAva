@@ -1,5 +1,5 @@
 {
-  "originHash" : "6db57c83e76f336823913c8081ced043b849b4a0b73fd1d91944608ac9b20b69",
+  "originHash" : "520a245a61cf6cf2213aafec53d980ca1862665d6bb188b25955f97b77d825b9",
   "pins" : [
     {
       "identity" : "alignedcollectionviewflowlayout",
@@ -150,8 +150,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections",
       "state" : {
-        "revision" : "8d9834a6189db730f6264db7556a7ffb751e99ee",
-        "version" : "1.4.0"
+        "revision" : "6675bc0ff86e61436e615df6fc5174e043e57924",
+        "version" : "1.4.1"
       }
     },
     {

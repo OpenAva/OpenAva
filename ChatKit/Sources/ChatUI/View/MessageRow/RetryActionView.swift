@@ -1,11 +1,11 @@
 import UIKit
 
 final class RetryActionView: MessageListRowView {
-    static let rowHeight: CGFloat = 88
+    static let rowHeight: CGFloat = 64
 
     private enum UI {
-        static let normalButtonTitle = String.localized("重试")
-        static let loadingButtonTitle = String.localized("重试中")
+        static let normalButtonTitle = String.localized("Retry")
+        static let loadingButtonTitle = String.localized("Retrying...")
     }
 
     var title: String = "" {
@@ -78,7 +78,12 @@ final class RetryActionView: MessageListRowView {
         containerView.addSubview(titleLabel)
         containerView.addSubview(button)
         button.addSubview(activityIndicator)
-        button.addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+
+        button.isUserInteractionEnabled = false
+
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        containerView.addGestureRecognizer(tapGesture)
+
         updateLoadingState()
     }
 
@@ -90,14 +95,17 @@ final class RetryActionView: MessageListRowView {
     override func layoutSubviews() {
         super.layoutSubviews()
         containerView.frame = contentView.bounds
-        iconView.frame = CGRect(x: 14, y: 16, width: 18, height: 18)
+
+        let containerHeight = contentView.bounds.height
+
+        iconView.frame = CGRect(x: 14, y: (containerHeight - 18) / 2, width: 18, height: 18)
 
         button.sizeToFit()
-        let buttonWidth = min(max(72, button.bounds.width + 20), 96)
-        let buttonHeight = max(32, button.bounds.height)
+        let buttonWidth = button.bounds.width
+        let buttonHeight = button.bounds.height
         button.frame = CGRect(
             x: contentView.bounds.width - buttonWidth - 14,
-            y: max(12, (contentView.bounds.height - buttonHeight) / 2),
+            y: max(12, (containerHeight - buttonHeight) / 2),
             width: buttonWidth,
             height: buttonHeight
         )
@@ -107,9 +115,9 @@ final class RetryActionView: MessageListRowView {
         let titleWidth = max(0, button.frame.minX - titleX - 12)
         titleLabel.frame = CGRect(
             x: titleX,
-            y: 12,
+            y: 0,
             width: titleWidth,
-            height: contentView.bounds.height - 24
+            height: containerHeight
         )
     }
 

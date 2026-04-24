@@ -353,6 +353,7 @@
 "common.add" = "Add";
 "common.apply" = "Apply";
 "common.save" = "Save";
+"common.minutes" = "minutes";
 "common.create" = "Create";
 "common.discard" = "Discard";
 "common.description" = "Description";
@@ -360,13 +361,20 @@
 "common.unknownError" = "Unknown error";
 
 "settings.llmList.configured.header" = "Configured Models";
-"settings.llmList.configured.footer" = "Tap a model to select it as the active model. Swipe left to edit or delete.";
-"settings.llmList.configured.footer.mac" = "Click a model to select it as the active model. Right-click to edit or delete.";
+"settings.llmList.configured.footer" = "Tap a model to make it active. Use the inline actions to edit or delete.";
+"settings.llmList.configured.footer.mac" = "Click a model to make it active. Use the inline actions or right-click to edit or delete.";
 "settings.llmList.addModel" = "Add Model";
 "settings.llmList.delete.title" = "Delete Model?";
 "settings.llmList.delete.message" = "Are you sure you want to delete \"%@\"? This action cannot be undone.";
 "settings.llmList.empty.title" = "No Models Configured";
 "settings.llmList.empty.message" = "Tap the + button in the top-right to add.";
+"settings.llmList.current.header" = "Current Model";
+"settings.llmList.current.emptyTitle" = "Choose a model to start";
+"settings.llmList.current.emptyMessage" = "Add your first model and use it for conversations.";
+"settings.llmList.action.use" = "Use";
+"settings.llmList.status.active" = "Active";
+"settings.llmList.status.ready" = "Ready";
+"settings.llmList.status.incomplete" = "Needs Setup";
 
 "settings.context.applyTemplate" = "Apply Template";
 "settings.context.applyTemplate.confirmTitle" = "Apply Template?";

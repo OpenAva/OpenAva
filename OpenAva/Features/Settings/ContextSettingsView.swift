@@ -7,14 +7,14 @@ struct ContextSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 24) {
                 contextRows
 
                 if let errorText = viewModel.errorText {
                     Text(errorText)
-                        .font(.system(size: 14))
+                        .font(.footnote)
                         .foregroundStyle(.red)
-                        .padding(.top, 8)
+                        .padding(.horizontal, 16)
                 }
             }
             .padding(.vertical, 24)
@@ -32,13 +32,30 @@ struct ContextSettingsView: View {
     }
 
     private var contextRows: some View {
-        ForEach(AgentContextDocumentKind.allCases) { kind in
-            NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
-                ContextDocumentRow(kind: kind)
+        VStack(spacing: 0) {
+            ForEach(Array(AgentContextDocumentKind.allCases.enumerated()), id: \.element) { index, kind in
+                NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
+                    ContextDocumentRow(kind: kind)
+                }
+                .buttonStyle(PhysicalRowButtonStyle())
+
+                if index < AgentContextDocumentKind.allCases.count - 1 {
+                    Rectangle()
+                        .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                        .frame(height: 1)
+                        .padding(.leading, 60)
+                }
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
         }
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
+        .padding(.horizontal, 16)
     }
 }
 
@@ -48,45 +65,36 @@ private struct ContextDocumentRow: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(uiColor: ChatUIDesign.Color.black60).opacity(0.05))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
 
                 Image(systemName: "doc.text")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(kind.fileName)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .tracking(-0.2)
+                    .lineLimit(1)
 
                 Text(kind.localizedPurpose)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    .lineSpacing(2)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
 
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 }
 
@@ -107,16 +115,40 @@ private struct ContextDocumentEditorView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .scrollContentBackground(.hidden)
-            .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
             .padding(16)
 
             if viewModel.content(for: kind).isEmpty {
-                Text(L10n.tr("settings.context.emptyPlaceholder"))
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 24)
-                    .allowsHitTesting(false)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(L10n.tr("settings.context.emptyPlaceholder"))
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .lineSpacing(4)
+                        .allowsHitTesting(false)
+
+                    if let document = viewModel.document(for: kind), document.hasTemplateContent {
+                        Button {
+                            viewModel.applyTemplate(for: kind)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "wand.and.stars")
+                                Text(L10n.tr("settings.context.applyTemplate"))
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+                            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button)
+                                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
             }
         }
         .background(Color(uiColor: ChatUIDesign.Color.pureWhite).ignoresSafeArea())

@@ -22,8 +22,9 @@ struct SkillListView: View {
                     Button {
                         presentCreateEditor()
                     } label: {
-                        Label(L10n.tr("settings.skills.addSkill"), systemImage: "plus")
+                        Image(systemName: "plus")
                     }
+                    .accessibilityLabel(L10n.tr("settings.skills.addSkill"))
                 }
             }
             .sheet(item: $editorPresentation) { presentation in
@@ -104,44 +105,23 @@ struct SkillListView: View {
     private var skillList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(L10n.tr("settings.skills.workspace.header"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .tracking(-0.3)
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .padding(.horizontal, 16)
-
-                    VStack(spacing: 12) {
-                        workspaceSkillRows
-                    }
-                    .padding(.horizontal, 16)
-
-                    if !workspaceSkills.isEmpty {
-                        Text(workspaceFooterText)
-                            .font(.footnote)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                            .padding(.horizontal, 16)
-                    }
+                SkillSection(
+                    title: L10n.tr("settings.skills.workspace.header"),
+                    detail: workspaceFooterText,
+                    count: workspaceSkills.count
+                ) {
+                    workspaceSkillRows
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(L10n.tr("settings.skills.builtin.header"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .tracking(-0.3)
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .padding(.horizontal, 16)
-
-                    VStack(spacing: 12) {
-                        builtInSkillRows
-                    }
-                    .padding(.horizontal, 16)
-
-                    Text(L10n.tr("settings.skills.builtin.footer"))
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                        .padding(.horizontal, 16)
+                SkillSection(
+                    title: L10n.tr("settings.skills.builtin.header"),
+                    detail: L10n.tr("settings.skills.builtin.footer"),
+                    count: builtInSkills.count
+                ) {
+                    builtInSkillRows
                 }
             }
+            .padding(.horizontal, 16)
             .padding(.vertical, 24)
         }
         .scrollContentBackground(.hidden)
@@ -151,35 +131,61 @@ struct SkillListView: View {
     @ViewBuilder
     private var workspaceSkillRows: some View {
         if isLoading, workspaceSkills.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+            SkillRowsCard {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            }
         } else if workspaceSkills.isEmpty {
             EmptySkillsView(
+                systemImage: "square.and.pencil",
                 title: L10n.tr("settings.skills.emptyWorkspace.title"),
-                message: L10n.tr("settings.skills.emptyWorkspace.message")
+                actionTitle: L10n.tr("settings.skills.addSkill"),
+                action: presentCreateEditor
             )
-            .padding(.vertical, 16)
         } else {
-            ForEach(workspaceSkills) { skill in
-                SkillRow(
-                    skill: skill,
-                    isEnabled: skillEnabledBinding(for: skill),
-                    onOpen: {
-                        presentEditEditor(for: skill)
+            SkillRowsCard {
+                ForEach(Array(workspaceSkills.enumerated()), id: \.element.id) { index, skill in
+                    SkillRow(
+                        skill: skill,
+                        isEnabled: skillEnabledBinding(for: skill),
+                        onOpen: {
+                            presentEditEditor(for: skill)
+                        },
+                        onDelete: {
+                            skillToDelete = skill
+                        }
+                    )
+                    .contextMenu {
+                        Button {
+                            presentEditEditor(for: skill)
+                        } label: {
+                            Label(L10n.tr("common.edit"), systemImage: "pencil")
+                        }
+
+                        Button(role: .destructive) {
+                            skillToDelete = skill
+                        } label: {
+                            Label(L10n.tr("common.delete"), systemImage: "trash")
+                        }
                     }
-                )
-                .contextMenu {
-                    Button {
-                        presentEditEditor(for: skill)
-                    } label: {
-                        Label(L10n.tr("common.edit"), systemImage: "pencil")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            presentEditEditor(for: skill)
+                        } label: {
+                            Label(L10n.tr("common.edit"), systemImage: "pencil")
+                        }
+                        .tint(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                        Button(role: .destructive) {
+                            skillToDelete = skill
+                        } label: {
+                            Label(L10n.tr("common.delete"), systemImage: "trash")
+                        }
                     }
 
-                    Button(role: .destructive) {
-                        skillToDelete = skill
-                    } label: {
-                        Label(L10n.tr("common.delete"), systemImage: "trash")
+                    if index < workspaceSkills.count - 1 {
+                        SkillRowDivider()
                     }
                 }
             }
@@ -190,24 +196,30 @@ struct SkillListView: View {
     private var builtInSkillRows: some View {
         if builtInSkills.isEmpty {
             EmptySkillsView(
+                systemImage: "shippingbox",
                 title: L10n.tr("settings.skills.emptyBuiltin.title"),
                 message: L10n.tr("settings.skills.emptyBuiltin.message")
             )
-            .padding(.vertical, 16)
         } else {
-            ForEach(builtInSkills) { skill in
-                SkillRow(
-                    skill: skill,
-                    isEnabled: skillEnabledBinding(for: skill),
-                    onOpen: {
-                        presentReadOnlyDetail(for: skill)
+            SkillRowsCard {
+                ForEach(Array(builtInSkills.enumerated()), id: \.element.id) { index, skill in
+                    SkillRow(
+                        skill: skill,
+                        isEnabled: skillEnabledBinding(for: skill),
+                        onOpen: {
+                            presentReadOnlyDetail(for: skill)
+                        }
+                    )
+                    .contextMenu {
+                        Button {
+                            presentReadOnlyDetail(for: skill)
+                        } label: {
+                            Label(L10n.tr("common.edit"), systemImage: "doc.text.magnifyingglass")
+                        }
                     }
-                )
-                .contextMenu {
-                    Button {
-                        presentReadOnlyDetail(for: skill)
-                    } label: {
-                        Label(L10n.tr("common.edit"), systemImage: "doc.text.magnifyingglass")
+
+                    if index < builtInSkills.count - 1 {
+                        SkillRowDivider()
                     }
                 }
             }
@@ -494,6 +506,77 @@ private struct SkillEditorPresentation: Identifiable {
     }
 }
 
+private struct SkillSection<Content: View>: View {
+    let title: String
+    let detail: String
+    let count: Int
+    @ViewBuilder @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 20, weight: .regular))
+                        .tracking(-0.2)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                        )
+                }
+
+                Spacer(minLength: 12)
+            }
+
+            Text(detail)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                .fixedSize(horizontal: false, vertical: true)
+
+            content()
+        }
+    }
+}
+
+private struct SkillRowsCard<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
+    }
+}
+
+private struct SkillRowDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+            .frame(height: 1)
+            .padding(.leading, 70)
+    }
+}
+
 private enum SkillSaveOutcome {
     case created(String)
     case saved(String)
@@ -701,7 +784,7 @@ private struct SkillEditorSheet: View {
                 }
             #else
                 formContent
-                    .navigationTitle(navigationTitle)
+                    .navigationTitle(mode.title)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -824,7 +907,7 @@ private struct SkillEditorSheet: View {
             VStack(spacing: 0) {
                 ZStack {
                     Text(mode.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
                     HStack {
@@ -913,33 +996,10 @@ private struct SkillEditorSheet: View {
         isDisabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        let foregroundColor: UIColor = switch role {
-        case .primary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.pureWhite
-        case .secondary:
-            isDisabled ? UIColor.systemGray2 : ChatUIDesign.Color.offBlack
-        }
-        let backgroundColor: Color = switch role {
-        case .primary:
-            Color(uiColor: isDisabled ? UIColor.tertiarySystemFill : ChatUIDesign.Color.offBlack)
-        case .secondary:
-            .clear
-        }
-
-        return Button(action: action) {
+        Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(uiColor: foregroundColor))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
-                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PhysicalButtonStyle(role: role == .primary ? PhysicalButtonRole.primary : PhysicalButtonRole.secondary, isDisabled: isDisabled))
         .disabled(isDisabled)
     }
 
@@ -1264,89 +1324,102 @@ private struct SkillRow: View {
     let skill: SkillListItem
     @Binding var isEnabled: Bool
     var onOpen: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 14) {
             tappableContent
 
-            HStack(spacing: 10) {
-                if onOpen != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                }
-
+            VStack(alignment: .trailing, spacing: 10) {
                 Toggle(L10n.tr("settings.skills.enabled"), isOn: $isEnabled)
                     .labelsHidden()
                     .tint(Color(uiColor: ChatUIDesign.Color.brandOrange))
-                    .scaleEffect(0.8)
-                    .padding(.trailing, -4)
+                    .scaleEffect(0.85)
+
+                if let onDelete {
+                    Menu {
+                        if let onOpen {
+                            Button(action: onOpen) {
+                                Label(L10n.tr("common.edit"), systemImage: "pencil")
+                            }
+                        }
+
+                        Button(role: .destructive, action: onDelete) {
+                            Label(L10n.tr("common.delete"), systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
-        .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-        )
+        .padding(.vertical, 14)
         .animation(.easeInOut(duration: 0.2), value: isEnabled)
     }
 
     private var tappableContent: some View {
-        HStack(spacing: 12) {
-            skillIcon
-            skillSummary
-            Spacer(minLength: 8)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             onOpen?()
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                skillIcon
+                    .padding(.top, 2)
+                skillSummary
+
+                Spacer(minLength: 8)
+
+                if onOpen != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
+                        .padding(.top, 4)
+                }
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PhysicalRowButtonStyle())
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var skillIcon: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: skill.isAvailable
-                            ? [Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.18), Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.07)]
-                            : [Color.orange.opacity(0.18), Color.orange.opacity(0.07)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 46, height: 46)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06))
+                .frame(width: 40, height: 40)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(
-                            skill.isAvailable
-                                ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.15)
-                                : Color.orange.opacity(0.2),
-                            lineWidth: 0.5
-                        )
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
                 )
 
             if let emoji = skill.emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 22))
+                    .font(.system(size: 20))
             } else {
                 Image(systemName: skill.isAvailable ? "hammer.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(skill.isAvailable ? Color(uiColor: ChatUIDesign.Color.brandOrange) : .orange)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(skill.isAvailable ? Color(uiColor: ChatUIDesign.Color.black60) : Color(uiColor: ChatUIDesign.Color.black50))
             }
         }
     }
 
     private var skillSummary: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 7) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(skill.displayName)
-                    .font(.system(.body, design: .default, weight: .regular))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
 
@@ -1354,34 +1427,45 @@ private struct SkillRow: View {
                     StatusBadge(
                         title: L10n.tr("settings.skills.readOnly"),
                         foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                        background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.1)
+                        background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
                     )
                 }
             }
 
             if !skill.description.isEmpty {
                 Text(skill.description)
-                    .font(.subheadline)
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                     .lineLimit(2)
+                    .padding(.bottom, 4)
+                    .padding(.top, 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !skill.isAvailable || !isEnabled {
-                HStack(spacing: 5) {
-                    if !skill.isAvailable {
-                        StatusBadge(
-                            title: L10n.tr("settings.skills.unavailable"),
-                            foreground: .orange,
-                            background: Color.orange.opacity(0.12)
-                        )
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(skill.name)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .tracking(0.2)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                    .lineLimit(1)
 
-                    if !isEnabled {
-                        StatusBadge(
-                            title: L10n.tr("settings.skills.disabled"),
-                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.1)
-                        )
+                if !skill.isAvailable || !isEnabled {
+                    HStack(spacing: 6) {
+                        if !skill.isAvailable {
+                            StatusBadge(
+                                title: L10n.tr("settings.skills.unavailable"),
+                                foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                                background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
+                            )
+                        }
+
+                        if !isEnabled {
+                            StatusBadge(
+                                title: L10n.tr("settings.skills.disabled"),
+                                foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                                background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
+                            )
+                        }
                     }
                 }
             }
@@ -1391,29 +1475,41 @@ private struct SkillRow: View {
 }
 
 private struct EmptySkillsView: View {
+    let systemImage: String
     let title: String
-    let message: String
+    var message: String? = nil
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkles.rectangle.stack")
+        VStack(spacing: 14) {
+            Image(systemName: systemImage)
                 .font(.system(size: 32, weight: .light))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
 
             Text(title)
-                .font(.subheadline.weight(.regular))
+                .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                .multilineTextAlignment(.center)
+            if let message {
+                Text(message)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .multilineTextAlignment(.center)
+            }
+
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: "plus")
+                }
+                .buttonStyle(PhysicalButtonStyle(role: PhysicalButtonRole.card))
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 120)
-        .padding()
+        .padding(20)
         .background(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
         )
         .overlay(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
@@ -1429,12 +1525,18 @@ private struct StatusBadge: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 10, weight: .regular))
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(foreground)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(background)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(foreground.opacity(0.12), lineWidth: 1)
+            )
     }
 }
 
@@ -1454,14 +1556,14 @@ private struct FeedbackBannerView: View {
             }
 
             Text(banner.message)
-                .font(.subheadline.weight(.medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(.ultraThinMaterial)
+        .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
         .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
