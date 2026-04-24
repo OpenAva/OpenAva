@@ -14,213 +14,138 @@ struct SkillListView: View {
     @State private var skillToDelete: SkillListItem?
 
     var body: some View {
-        Group {
-            #if targetEnvironment(macCatalyst)
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer(minLength: 0)
-                        addActionButton(
-                            title: L10n.tr("settings.skills.addSkill"),
-                            action: presentCreateEditor
-                        )
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-
-                    Group {
-                        if let presentation = editorPresentation {
-                            HStack(spacing: 0) {
-                                skillList
-                                    .frame(minWidth: 300, idealWidth: 340)
-
-                                skillDetail(for: presentation)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                            }
-                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                        } else {
-                            skillList
-                        }
+        skillList
+            .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        presentCreateEditor()
+                    } label: {
+                        Label(L10n.tr("settings.skills.addSkill"), systemImage: "plus")
                     }
                 }
-                .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
-                .navigationBarTitleDisplayMode(.inline)
-                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-            #else
-                skillList
-                    .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button {
-                                presentCreateEditor()
-                            } label: {
-                                Label(L10n.tr("settings.skills.addSkill"), systemImage: "plus")
+            }
+            .sheet(item: $editorPresentation) { presentation in
+                NavigationStack {
+                    SkillEditorSheet(
+                        mode: presentation.mode,
+                        initialName: presentation.skill?.displayName ?? "",
+                        initialContent: presentation.initialContent,
+                        onSave: { name, content in
+                            guard presentation.mode.supportsSaving else {
+                                editorPresentation = nil
+                                return
                             }
-                        }
-                    }
-                    .sheet(item: $editorPresentation) { presentation in
-                        NavigationStack {
-                            SkillEditorSheet(
-                                mode: presentation.mode,
-                                initialName: presentation.skill?.displayName ?? "",
-                                initialContent: presentation.initialContent,
-                                onSave: { name, content in
-                                    guard presentation.mode.supportsSaving else {
-                                        editorPresentation = nil
-                                        return
-                                    }
 
-                                    let outcome = try saveSkill(
-                                        name: name,
-                                        content: content,
-                                        mode: presentation.mode,
-                                        targetSkill: presentation.skill
-                                    )
-                                    editorPresentation = nil
-                                    refreshSkills(force: true)
-                                    showFeedback(for: outcome)
-                                },
-                                onCancel: {
-                                    editorPresentation = nil
-                                }
+                            let outcome = try? saveSkill(
+                                name: name,
+                                content: content,
+                                mode: presentation.mode,
+                                targetSkill: presentation.skill
                             )
+                            editorPresentation = nil
+                            refreshSkills(force: true)
+                            if let outcome {
+                                showFeedback(for: outcome)
+                            }
+                        },
+                        onCancel: {
+                            editorPresentation = nil
                         }
-                    }
-            #endif
-        }
-        .confirmationDialog(
-            L10n.tr("settings.skills.delete.confirmTitle"),
-            isPresented: deleteDialogBinding,
-            titleVisibility: .visible,
-            presenting: skillToDelete
-        ) { skill in
-            Button(L10n.tr("common.delete"), role: .destructive) {
-                removeSkill(skill)
+                    )
+                }
+                #if targetEnvironment(macCatalyst)
+                .frame(width: 640, height: 600)
+                #endif
             }
-            Button(L10n.tr("common.cancel"), role: .cancel) {
-                skillToDelete = nil
+            .confirmationDialog(
+                L10n.tr("settings.skills.delete.confirmTitle"),
+                isPresented: deleteDialogBinding,
+                titleVisibility: .visible,
+                presenting: skillToDelete
+            ) { skill in
+                Button(L10n.tr("common.delete"), role: .destructive) {
+                    removeSkill(skill)
+                }
+                Button(L10n.tr("common.cancel"), role: .cancel) {
+                    skillToDelete = nil
+                }
+            } message: { skill in
+                Text(L10n.tr("settings.skills.delete.message", skill.displayName))
             }
-        } message: { skill in
-            Text(L10n.tr("settings.skills.delete.message", skill.displayName))
-        }
-        .alert(L10n.tr("settings.skills.error.title"), isPresented: errorAlertBinding) {
-            Button(L10n.tr("common.ok"), role: .cancel) {
-                errorMessage = nil
+            .alert(L10n.tr("settings.skills.error.title"), isPresented: errorAlertBinding) {
+                Button(L10n.tr("common.ok"), role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? L10n.tr("common.unknownError"))
             }
-        } message: {
-            Text(errorMessage ?? L10n.tr("common.unknownError"))
-        }
-        .refreshable {
-            refreshSkills(force: true)
-        }
-        .task {
-            refreshSkills(force: false)
-        }
-        .onChange(of: containerStore.activeAgent?.id.uuidString ?? "") { _, _ in
-            refreshSkills(force: true)
-        }
-        .safeAreaInset(edge: .bottom) {
-            if let feedbackBanner {
-                FeedbackBannerView(banner: feedbackBanner)
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            .refreshable {
+                refreshSkills(force: true)
             }
-        }
-        .animation(.easeInOut(duration: 0.2), value: feedbackBanner?.id)
+            .task {
+                refreshSkills(force: false)
+            }
+            .onChange(of: containerStore.activeAgent?.id.uuidString ?? "") { _, _ in
+                refreshSkills(force: true)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if let feedbackBanner {
+                    FeedbackBannerView(banner: feedbackBanner)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: feedbackBanner?.id)
     }
 
-    #if targetEnvironment(macCatalyst)
-        private func addActionButton(
-            title: String,
-            action: @escaping () -> Void
-        ) -> some View {
-            Button(action: action) {
-                Label(title, systemImage: "plus")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-        }
-    #endif
-
     private var skillList: some View {
-        List {
-            #if targetEnvironment(macCatalyst)
-                Text(L10n.tr("settings.skills.workspace.header"))
-                    .font(.system(size: 16, weight: .semibold))
-                    .tracking(-0.3)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-
-                workspaceSkillRows
-
-                if !workspaceSkills.isEmpty {
-                    Text(workspaceFooterText)
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-
-                Text(L10n.tr("settings.skills.builtin.header"))
-                    .font(.system(size: 16, weight: .semibold))
-                    .tracking(-0.3)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-
-                builtInSkillRows
-
-                Text(L10n.tr("settings.skills.builtin.footer"))
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            #else
-                Section {
-                    workspaceSkillRows
-                } header: {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text(L10n.tr("settings.skills.workspace.header"))
-                } footer: {
+                        .font(.system(size: 16, weight: .semibold))
+                        .tracking(-0.3)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .padding(.horizontal, 16)
+
+                    VStack(spacing: 12) {
+                        workspaceSkillRows
+                    }
+                    .padding(.horizontal, 16)
+
                     if !workspaceSkills.isEmpty {
                         Text(workspaceFooterText)
+                            .font(.footnote)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .padding(.horizontal, 16)
                     }
                 }
 
-                Section {
-                    builtInSkillRows
-                } header: {
+                VStack(alignment: .leading, spacing: 12) {
                     Text(L10n.tr("settings.skills.builtin.header"))
-                } footer: {
+                        .font(.system(size: 16, weight: .semibold))
+                        .tracking(-0.3)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .padding(.horizontal, 16)
+
+                    VStack(spacing: 12) {
+                        builtInSkillRows
+                    }
+                    .padding(.horizontal, 16)
+
                     Text(L10n.tr("settings.skills.builtin.footer"))
+                        .font(.footnote)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .padding(.horizontal, 16)
                 }
-            #endif
+            }
+            .padding(.vertical, 24)
         }
-        #if targetEnvironment(macCatalyst)
-        .listStyle(.plain)
-        #else
-        .listStyle(.insetGrouped)
-        #endif
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
     }
 
     @ViewBuilder
@@ -228,17 +153,13 @@ struct SkillListView: View {
         if isLoading, workspaceSkills.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .padding(.vertical, 24)
         } else if workspaceSkills.isEmpty {
             EmptySkillsView(
                 title: L10n.tr("settings.skills.emptyWorkspace.title"),
                 message: L10n.tr("settings.skills.emptyWorkspace.message")
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            .padding(.vertical, 16)
         } else {
             ForEach(workspaceSkills) { skill in
                 SkillRow(
@@ -248,16 +169,6 @@ struct SkillListView: View {
                         presentEditEditor(for: skill)
                     }
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        skillToDelete = skill
-                    } label: {
-                        Label(L10n.tr("common.delete"), systemImage: "trash")
-                    }
-                }
                 .contextMenu {
                     Button {
                         presentEditEditor(for: skill)
@@ -282,9 +193,7 @@ struct SkillListView: View {
                 title: L10n.tr("settings.skills.emptyBuiltin.title"),
                 message: L10n.tr("settings.skills.emptyBuiltin.message")
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            .padding(.vertical, 16)
         } else {
             ForEach(builtInSkills) { skill in
                 SkillRow(
@@ -294,9 +203,6 @@ struct SkillListView: View {
                         presentReadOnlyDetail(for: skill)
                     }
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
                 .contextMenu {
                     Button {
                         presentReadOnlyDetail(for: skill)
@@ -307,36 +213,6 @@ struct SkillListView: View {
             }
         }
     }
-
-    #if targetEnvironment(macCatalyst)
-        private func skillDetail(for presentation: SkillEditorPresentation) -> some View {
-            SkillEditorSheet(
-                mode: presentation.mode,
-                initialName: presentation.skill?.displayName ?? "",
-                initialContent: presentation.initialContent,
-                onSave: { name, content in
-                    guard presentation.mode.supportsSaving else {
-                        editorPresentation = nil
-                        return
-                    }
-
-                    let outcome = try saveSkill(
-                        name: name,
-                        content: content,
-                        mode: presentation.mode,
-                        targetSkill: presentation.skill
-                    )
-                    refreshSkills(force: true)
-                    showFeedback(for: outcome)
-                },
-                onCancel: {
-                    editorPresentation = nil
-                },
-                presentationStyle: .embedded
-            )
-            .id(presentation.id)
-        }
-    #endif
 
     private var workspaceSkills: [SkillListItem] {
         skills.filter(\.isWorkspace)
@@ -594,24 +470,18 @@ struct SkillListView: View {
         }
     }
 
-    private static let defaultSkillTemplate = """
-    ---
-    description: Briefly describe what this skill does.
-    user-invocable: true
-    context: inline
-    metadata:
-      emoji: 🧩
-    ---
+    private static var defaultSkillTemplate: String {
+        """
+        ---
+        user-invocable: true
+        context: inline
+        metadata:
+          emoji: 🧩
+        ---
 
-    # Purpose
-
-    Describe when and why this skill should be used.
-
-    # Steps
-
-    1. Add clear execution steps.
-    2. Keep outputs actionable.
-    """
+        \(L10n.tr("settings.skills.editor.defaultTemplate.purpose"))
+        """
+    }
 }
 
 private struct SkillEditorPresentation: Identifiable {
@@ -823,160 +693,214 @@ private struct SkillEditorSheet: View {
     }
 
     var body: some View {
-        Form {
+        Group {
             #if targetEnvironment(macCatalyst)
-                macActionSection
+                VStack(spacing: 0) {
+                    sheetTopBar()
+                    formContent
+                }
+            #else
+                formContent
+                    .navigationTitle(navigationTitle)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done")) {
+                                cancelEditing()
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            if mode.supportsSaving {
+                                Button(mode.actionTitle) {
+                                    commit()
+                                }
+                                .disabled(!canSave)
+                            }
+                        }
+                    }
             #endif
+        }
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+    }
 
-            Section(L10n.tr("settings.skills.editor.section.skill")) {
-                if mode.isNameEditable {
-                    TextField(L10n.tr("settings.skills.editor.skillName"), text: $name)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .settingsInputFieldStyle()
+    private var formContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                CustomSection {
+                    if mode.isNameEditable {
+                        labeledField(L10n.tr("settings.skills.editor.skillName")) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField(L10n.tr("settings.skills.editor.skillName"), text: $name)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .settingsInputFieldStyle()
 
-                    if let nameValidationMessage {
-                        Text(nameValidationMessage)
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                                if let nameValidationMessage {
+                                    Text(nameValidationMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                } else {
+                                    Text(L10n.tr("settings.skills.error.invalidName.format"))
+                                        .font(.caption)
+                                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                                }
+                            }
+                        }
                     } else {
-                        Text(L10n.tr("settings.skills.error.invalidName.format"))
-                            .font(.caption)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        labeledField(L10n.tr("common.name")) {
+                            Text(name)
+                                .settingsInputFieldStyle(readOnly: true)
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+                        }
+                    }
+                }
+
+                if mode.isMetadataEditable {
+                    CustomSection(footer: { Text(L10n.tr("settings.skills.editor.metadata.footer")) }) {
+                        labeledField(L10n.tr("common.description")) {
+                            TextField(L10n.tr("settings.skills.editor.description.placeholder"), text: $description)
+                                .textInputAutocapitalization(.sentences)
+                                .settingsInputFieldStyle()
+                        }
+
+                        labeledField(L10n.tr("settings.skills.editor.emoji")) {
+                            TextField("", text: $emoji)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .settingsInputFieldStyle()
+                        }
                     }
                 } else {
-                    LabeledContent(L10n.tr("common.name")) {
-                        Text(name)
+                    CustomSection(footer: { Text(L10n.tr("settings.skills.editor.readOnlyFooter")) }) {
+                        labeledField(L10n.tr("common.description")) {
+                            Text(description.isEmpty ? "-" : description)
+                                .settingsInputFieldStyle(readOnly: true)
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+                        }
+
+                        labeledField(L10n.tr("settings.skills.editor.emoji")) {
+                            Text(emoji.isEmpty ? "-" : emoji)
+                                .settingsInputFieldStyle(readOnly: true)
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+                        }
                     }
                 }
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
 
-            if mode.isMetadataEditable {
-                Section {
-                    LabeledContent(L10n.tr("common.description")) {
-                        TextField("", text: $description)
-                            .textInputAutocapitalization(.sentences)
-                            .settingsInputFieldStyle()
+                CustomSection {
+                    labeledField(L10n.tr("settings.skills.editor.section.file")) {
+                        TextEditor(text: $content)
+                            .frame(minHeight: 300)
+                            .font(.system(.body, design: .monospaced))
+                            .disabled(!mode.supportsSaving)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .background(
+                                (!mode.supportsSaving) ? Color(uiColor: ChatUIDesign.Color.oatBorder).opacity(0.3) : Color(uiColor: ChatUIDesign.Color.pureWhite),
+                                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                            )
                     }
-
-                    LabeledContent(L10n.tr("settings.skills.editor.emoji")) {
-                        TextField("", text: $emoji)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .settingsInputFieldStyle()
-                    }
-                } header: {
-                    Text(L10n.tr("settings.skills.editor.section.metadata"))
-                } footer: {
-                    Text(L10n.tr("settings.skills.editor.metadata.footer"))
                 }
-                .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-            } else {
-                Section {
-                    LabeledContent(L10n.tr("common.description")) {
-                        Text(description.isEmpty ? L10n.tr("common.unknown") : description)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    }
 
-                    LabeledContent(L10n.tr("settings.skills.editor.emoji")) {
-                        Text(emoji.isEmpty ? L10n.tr("common.unknown") : emoji)
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    }
-                } header: {
-                    Text(L10n.tr("settings.skills.editor.section.metadata"))
-                } footer: {
-                    Text(L10n.tr("settings.skills.editor.readOnlyFooter"))
-                }
-                .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-            }
-
-            Section {
-                TextEditor(text: $content)
-                    .frame(minHeight: 280)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .disabled(!mode.isContentEditable)
-                    .padding(8)
-                    .scrollContentBackground(.hidden)
-                    .background(
-                        Color(uiColor: ChatUIDesign.Color.pureWhite),
-                        in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                    )
-            } header: {
-                Text(L10n.tr("settings.skills.editor.section.file"))
-            } footer: {
-                Text(mode.isContentEditable ? L10n.tr("settings.skills.editor.file.footer") : L10n.tr("settings.skills.editor.readOnlyFileFooter"))
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            if let errorText {
-                Section {
+                if let errorText {
                     Text(errorText)
+                        .font(.footnote)
                         .foregroundStyle(.red)
                 }
-                .listRowBackground(Color.clear)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
         }
-        .scrollContentBackground(.hidden)
-        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-        .navigationTitle(mode.title)
-        .navigationBarTitleDisplayMode(.inline)
-        #if targetEnvironment(macCatalyst)
-            .formStyle(.grouped)
-        #else
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done")) {
-                        cancelEditing()
-                    }
-                }
-
-                if mode.supportsSaving {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(mode.actionTitle) {
-                            commit()
-                        }
-                        .disabled(!canSave)
-                    }
-                }
-            }
+        #if !targetEnvironment(macCatalyst)
+        .scrollDismissesKeyboard(.interactively)
         #endif
     }
 
     #if targetEnvironment(macCatalyst)
-        private var macActionSection: some View {
-            Section {
-                HStack(spacing: 12) {
-                    actionButton(
-                        title: mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done"),
-                        role: .secondary,
-                        isDisabled: false,
-                        action: cancelEditing
-                    )
+        private func sheetTopBar() -> some View {
+            VStack(spacing: 0) {
+                ZStack {
+                    Text(mode.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-                    Spacer(minLength: 0)
-
-                    if mode.supportsSaving {
+                    HStack {
                         actionButton(
-                            title: mode.actionTitle,
-                            role: .primary,
-                            isDisabled: !canSave,
-                            action: commit
+                            title: mode.supportsSaving ? L10n.tr("common.cancel") : L10n.tr("common.done"),
+                            role: .secondary,
+                            isDisabled: false,
+                            action: cancelEditing
                         )
+                        Spacer(minLength: 0)
+                        if mode.supportsSaving {
+                            actionButton(
+                                title: mode.actionTitle,
+                                role: .primary,
+                                isDisabled: !canSave,
+                                action: commit
+                            )
+                        }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+
+                Rectangle()
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                    .frame(height: 1)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         }
     #endif
+
+    private struct CustomSection<Content: View, Footer: View>: View {
+        let title: String?
+        let footer: Footer?
+        @ViewBuilder let content: () -> Content
+
+        init(title: String? = nil, @ViewBuilder footer: () -> Footer, @ViewBuilder content: @escaping () -> Content) {
+            self.title = title
+            self.footer = footer()
+            self.content = content
+        }
+
+        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) where Footer == EmptyView {
+            self.title = title
+            self.footer = nil
+            self.content = content
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                if let title {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                }
+
+                content()
+
+                if let footer {
+                    footer
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+            content()
+        }
+    }
 
     private enum ActionButtonRole {
         case primary
@@ -1320,11 +1244,13 @@ private struct SkillEditorSheet: View {
 }
 
 private extension View {
-    func settingsInputFieldStyle() -> some View {
-        padding(.horizontal, 10)
+    func settingsInputFieldStyle(readOnly: Bool = false) -> some View {
+        frame(minHeight: 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
-                Color(uiColor: ChatUIDesign.Color.warmCream),
+                readOnly ? Color(uiColor: ChatUIDesign.Color.oatBorder).opacity(0.3) : Color(uiColor: ChatUIDesign.Color.pureWhite),
                 in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
             )
             .overlay(

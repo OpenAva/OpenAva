@@ -398,6 +398,7 @@
 "settings.cron.schedule.every" = "每隔";
 "settings.cron.agent.field" = "Agent";
 "settings.cron.agent.select" = "选择 Agent";
+"settings.cron.agent.none" = "无";
 "settings.cron.message.section" = "提醒内容";
 "settings.cron.message.placeholder" = "OpenAva 应该提醒你什么？";
 "settings.cron.message.placeholder.heartbeat" = "这个心跳触发器的标签，可选填写";
@@ -530,3 +531,5 @@
 "chat.menu.deleteTeamNamed" = "删除「%@」";
 
 "team.management.action.manageAgents" = "管理 Agent";
+"settings.skills.editor.description.placeholder" = "简短描述该技能的用途";
+"settings.skills.editor.defaultTemplate.purpose" = "# 目标\n\n描述应该在何时以及为什么使用该技能。\n\n# 步骤\n\n1. 添加清晰的执行步骤。\n2. 确保输出具备可操作性。\n";

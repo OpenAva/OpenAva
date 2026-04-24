@@ -397,6 +397,7 @@
 "settings.cron.schedule.every" = "Every";
 "settings.cron.agent.field" = "Agent";
 "settings.cron.agent.select" = "Select Agent";
+"settings.cron.agent.none" = "None";
 "settings.cron.message.section" = "Message";
 "settings.cron.message.placeholder" = "What should OpenAva remind you?";
 "settings.cron.message.placeholder.heartbeat" = "Optional label for this heartbeat trigger";
@@ -530,3 +531,5 @@
 
 "team.management.action.manageAgents" = "Manage Agents";
 "chat.menu.team.noAgents" = "This team has no agents yet";
+"settings.skills.editor.description.placeholder" = "Briefly describe what this skill does.";
+"settings.skills.editor.defaultTemplate.purpose" = "# Purpose\n\nDescribe when and why this skill should be used.\n\n# Steps\n\n1. Add clear execution steps.\n2. Keep outputs actionable.\n";

@@ -8,9 +8,6 @@ struct CronListView: View {
     @State private var jobs: [CronJobPayload] = []
     @State private var isLoading = false
     @State private var isShowingAddSheet = false
-    #if targetEnvironment(macCatalyst)
-        @State private var isShowingInlineEditor = false
-    #endif
     @State private var jobToRemove: CronJobPayload?
     @State private var errorMessage: String?
     @State private var isShowingNotificationDeniedAlert = false
@@ -24,185 +21,107 @@ struct CronListView: View {
     }()
 
     var body: some View {
-        Group {
-            #if targetEnvironment(macCatalyst)
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer(minLength: 0)
-                        addActionButton(
-                            title: L10n.tr("settings.cron.addJob"),
-                            action: { isShowingInlineEditor = true }
-                        )
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-
-                    Group {
-                        if isShowingInlineEditor {
-                            HStack(spacing: 0) {
-                                cronList
-                                    .frame(minWidth: 300, idealWidth: 340)
-
-                                cronDetail
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                            }
-                            .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-                        } else {
-                            cronList
-                        }
+        cronList
+            .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        isShowingAddSheet = true
+                    } label: {
+                        Label(L10n.tr("settings.cron.addJob"), systemImage: "plus")
                     }
                 }
-                .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
-                .navigationBarTitleDisplayMode(.inline)
-                .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-            #else
-                cronList
-                    .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button {
-                                isShowingAddSheet = true
-                            } label: {
-                                Label(L10n.tr("settings.cron.addJob"), systemImage: "plus")
-                            }
+            }
+            .sheet(isPresented: $isShowingAddSheet) {
+                NavigationStack {
+                    CronAddJobSheet(onCreate: { draft in
+                        Task {
+                            await createJob(draft)
                         }
-                    }
-                    .sheet(isPresented: $isShowingAddSheet) {
-                        NavigationStack {
-                            CronAddJobSheet { draft in
-                                Task {
-                                    await createJob(draft)
-                                }
-                            } onCancel: {
-                                isShowingAddSheet = false
-                            }
-                        }
-                    }
-            #endif
-        }
-        .confirmationDialog(
-            L10n.tr("settings.cron.delete.confirmTitle"),
-            isPresented: deleteDialogBinding,
-            titleVisibility: .visible,
-            presenting: jobToRemove
-        ) { job in
-            Button(L10n.tr("common.delete"), role: .destructive) {
-                Task {
-                    await removeJob(job)
+                    }, onCancel: {
+                        isShowingAddSheet = false
+                    })
                 }
+                #if targetEnvironment(macCatalyst)
+                .frame(width: 640, height: 600)
+                #endif
             }
-            Button(L10n.tr("common.cancel"), role: .cancel) {
-                jobToRemove = nil
-            }
-        } message: { job in
-            Text(L10n.tr("settings.cron.delete.message", job.message))
-        }
-        .alert(L10n.tr("settings.cron.error.title"), isPresented: errorAlertBinding) {
-            Button(L10n.tr("common.ok"), role: .cancel) {
-                errorMessage = nil
-            }
-        } message: {
-            Text(errorMessage ?? L10n.tr("common.unknownError"))
-        }
-        .alert(L10n.tr("settings.cron.error.title"), isPresented: $isShowingNotificationDeniedAlert) {
-            Button(L10n.tr("settings.cron.error.openSettings")) {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+            .confirmationDialog(
+                L10n.tr("settings.cron.delete.confirmTitle"),
+                isPresented: deleteDialogBinding,
+                titleVisibility: .visible,
+                presenting: jobToRemove
+            ) { job in
+                Button(L10n.tr("common.delete"), role: .destructive) {
+                    Task {
+                        await removeJob(job)
+                    }
                 }
+                Button(L10n.tr("common.cancel"), role: .cancel) {
+                    jobToRemove = nil
+                }
+            } message: { job in
+                Text(L10n.tr("settings.cron.delete.message", job.message))
             }
-            Button(L10n.tr("common.cancel"), role: .cancel) {}
-        } message: {
-            Text(L10n.tr("settings.cron.error.notificationsDenied"))
-        }
-        .refreshable {
-            await refreshJobs(force: true)
-        }
-        .task {
-            await refreshJobs(force: false)
-        }
+            .alert(L10n.tr("settings.cron.error.title"), isPresented: errorAlertBinding) {
+                Button(L10n.tr("common.ok"), role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? L10n.tr("common.unknownError"))
+            }
+            .alert(L10n.tr("settings.cron.error.title"), isPresented: $isShowingNotificationDeniedAlert) {
+                Button(L10n.tr("settings.cron.error.openSettings")) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button(L10n.tr("common.cancel"), role: .cancel) {}
+            } message: {
+                Text(L10n.tr("settings.cron.error.notificationsDenied"))
+            }
+            .refreshable {
+                await refreshJobs(force: true)
+            }
+            .task {
+                await refreshJobs(force: false)
+            }
     }
 
-    #if targetEnvironment(macCatalyst)
-        private func addActionButton(
-            title: String,
-            icon: String = "plus",
-            action: @escaping () -> Void
-        ) -> some View {
-            Button(action: action) {
-                Label(title, systemImage: icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                    .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .contentShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-        }
-    #endif
-
     private var cronList: some View {
-        List {
-            #if targetEnvironment(macCatalyst)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
                 Text(L10n.tr("settings.cron.scheduled.header"))
                     .font(.system(size: 16, weight: .semibold))
                     .tracking(-0.3)
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .textCase(nil)
-                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    .padding(.horizontal, 16)
 
-                cronRows
+                VStack(spacing: 12) {
+                    cronRows
+                }
+                .padding(.horizontal, 16)
 
                 Text(scheduledFooterText)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            #else
-                Section {
-                    cronRows
-                } header: {
-                    Text(L10n.tr("settings.cron.scheduled.header"))
-                } footer: {
-                    Text(scheduledFooterText)
-                }
-            #endif
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                    .padding(.horizontal, 16)
+            }
+            .padding(.vertical, 24)
         }
-        #if targetEnvironment(macCatalyst)
-        .listStyle(.plain)
-        #else
-        .listStyle(.insetGrouped)
-        #endif
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
     }
 
     @ViewBuilder
     private var cronRows: some View {
         if isLoading, jobs.isEmpty {
-            HStack {
-                Spacer()
-                ProgressView()
-                Spacer()
-            }
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
         } else if jobs.isEmpty {
             EmptyCronJobsView()
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
         } else {
             ForEach(jobs, id: \.id) { job in
                 VStack(alignment: .leading, spacing: 0) {
@@ -219,25 +138,32 @@ struct CronListView: View {
                                     }
                                 } label: {
                                     Label(L10n.tr("chat.command.runHeartbeatNow"), systemImage: "waveform.path.ecg")
-                                        .font(.footnote)
+                                        .font(.system(size: 14, weight: .regular))
+                                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                                 }
-                                .buttonStyle(.bordered)
-                                .tint(.blue)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                                )
                             }
-                            .padding(.top, 8)
+                            .padding(.top, 12)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
                         }
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        jobToRemove = job
-                    } label: {
-                        Label(L10n.tr("common.delete"), systemImage: "trash")
-                    }
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                )
                 .contextMenu {
                     Button(role: .destructive) {
                         jobToRemove = job
@@ -248,31 +174,6 @@ struct CronListView: View {
             }
         }
     }
-
-    #if targetEnvironment(macCatalyst)
-        @ViewBuilder
-        private var cronDetail: some View {
-            if isShowingInlineEditor {
-                CronAddJobSheet(
-                    onCreate: { draft in
-                        Task {
-                            await createJob(draft)
-                        }
-                    },
-                    onCancel: {
-                        isShowingInlineEditor = false
-                    },
-                    presentationStyle: .embedded
-                )
-            } else {
-                ContentUnavailableView(
-                    L10n.tr("settings.cron.navigationTitle"),
-                    systemImage: "calendar.badge.clock",
-                    description: Text(scheduledFooterText)
-                )
-            }
-        }
-    #endif
 
     private var scheduledFooterText: String {
         #if targetEnvironment(macCatalyst)
@@ -346,7 +247,7 @@ struct CronListView: View {
                 agentID: draft.agentID
             )
             #if targetEnvironment(macCatalyst)
-                isShowingInlineEditor = false
+                isShowingAddSheet = false
             #endif
             await refreshJobs(force: true)
         } catch {
@@ -489,166 +390,248 @@ private struct CronAddJobSheet: View {
     }
 
     var body: some View {
-        Form {
+        Group {
             #if targetEnvironment(macCatalyst)
-                macActionSection
-            #endif
-
-            Section(L10n.tr("settings.cron.kind.section")) {
-                Picker(L10n.tr("settings.cron.kind.field"), selection: $jobKind) {
-                    ForEach(JobKindOption.allCases) { item in
-                        Text(item.title).tag(item)
-                    }
+                VStack(spacing: 0) {
+                    sheetTopBar()
+                    formContent
                 }
-                .pickerStyle(.segmented)
-
-                if jobKind == .heartbeat {
-                    Picker(L10n.tr("settings.cron.agent.field"), selection: $selectedAgentID) {
-                        Text(L10n.tr("settings.cron.agent.select"))
-                            .tag("")
-                        ForEach(containerStore.agents) { agent in
-                            Text(agentDisplayName(agent))
-                                .tag(agent.id.uuidString)
+            #else
+                formContent
+                    .navigationTitle(L10n.tr("settings.cron.addJob"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(L10n.tr("common.cancel")) {
+                                onCancel?()
+                                if presentationStyle == .modal {
+                                    dismiss()
+                                }
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.tr("common.save")) {
+                                onCreate(makeDraft())
+                            }
+                            .disabled(!isFormValid)
                         }
                     }
-                    .settingsInputFieldStyle()
-                }
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            Section(L10n.tr("settings.cron.message.section")) {
-                TextField(messagePlaceholder, text: $message, axis: .vertical)
-                    .lineLimit(2 ... 4)
-                    .settingsInputFieldStyle()
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            Section(L10n.tr("settings.cron.schedule.section")) {
-                Picker(L10n.tr("settings.cron.schedule.mode"), selection: $mode) {
-                    ForEach(ScheduleMode.allCases) { item in
-                        Text(item.title).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if mode == .at {
-                    DatePicker(L10n.tr("settings.cron.schedule.runAt"), selection: $atDate, in: Date().addingTimeInterval(60)..., displayedComponents: [.date, .hourAndMinute])
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .frame(minHeight: 36)
-                        .settingsInputFieldStyle()
-                } else {
-                    HStack {
-                        Text(L10n.tr("settings.cron.schedule.everyPrefix"))
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-
-                        TextField("", value: $everyMinutes, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.center)
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        #if targetEnvironment(macCatalyst)
-                            .frame(width: 60)
-                        #else
-                            .frame(width: 50)
-                        #endif
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                                    .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                            )
-
-                        Text(L10n.tr("settings.cron.schedule.minutesSuffix", everyMinutes == 1 ? "" : "s"))
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-
-                        Spacer()
-
-                        Stepper("", value: $everyMinutes, in: 1 ... 1440)
-                            .labelsHidden()
-                    }
-                    .accessibilityIdentifier("cron_every_minutes")
-                    .frame(minHeight: 36)
-                    .settingsInputFieldStyle()
-                }
-            }
-            .listRowBackground(Color(uiColor: ChatUIDesign.Color.warmCream))
+            #endif
         }
-        .scrollContentBackground(.hidden)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream))
-        .navigationTitle(L10n.tr("settings.cron.newJob.title"))
-        .navigationBarTitleDisplayMode(.inline)
-        #if targetEnvironment(macCatalyst)
-            .formStyle(.grouped)
-        #else
-            .onAppear {
-                ensureSelectedAgent()
-            }
-            .onChange(of: jobKind) { _, newKind in
-                if newKind == .heartbeat {
-                    ensureSelectedAgent()
+    }
+
+    private var formContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                CustomSection {
+                    labeledField(L10n.tr("settings.cron.kind.field")) {
+                        Picker(selection: $jobKind) {
+                            ForEach(JobKindOption.allCases) { item in
+                                Text(item.title).tag(item)
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.menu)
+                        .tint(.primary)
+                    }
+                    .padding(.horizontal, 20)
                 }
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.tr("common.cancel")) {
-                        cancelSheet()
+
+                if jobKind == .heartbeat {
+                    CustomSection {
+                        labeledField(L10n.tr("settings.cron.agent.field")) {
+                            Picker(selection: $selectedAgentID) {
+                                Text(L10n.tr("settings.cron.agent.none")).tag("")
+                                ForEach(containerStore.agents, id: \.id) { agent in
+                                    Text(agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)")
+                                        .tag(agent.id.uuidString)
+                                }
+                            } label: {
+                                EmptyView()
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.primary)
+                        }
+                        .padding(.horizontal, 20)
                     }
                 }
 
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.tr("common.add")) {
-                        onCreate(makeDraft())
-                        cancelSheet()
+                CustomSection {
+                    labeledField(L10n.tr("settings.cron.message.section")) {
+                        TextField(jobKind == .heartbeat ? L10n.tr("settings.cron.message.placeholder.heartbeat") : L10n.tr("settings.cron.message.placeholder"), text: $message, axis: .vertical)
+                            .lineLimit(2 ... 6)
+                            .settingsInputFieldStyle()
                     }
-                    .disabled(!canCreateJob)
+                    .padding(.horizontal, 20)
+                }
+
+                CustomSection {
+                    VStack(alignment: .leading, spacing: 16) {
+                        labeledField(L10n.tr("settings.cron.schedule.mode")) {
+                            Picker(selection: $mode) {
+                                ForEach(ScheduleMode.allCases) { m in
+                                    Text(m.title).tag(m)
+                                }
+                            } label: {
+                                EmptyView()
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.primary)
+                        }
+
+                        if mode == .at {
+                            labeledField(L10n.tr("settings.cron.schedule.atTime")) {
+                                DatePicker("", selection: $atDate, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                                    .labelsHidden()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .settingsInputFieldStyle()
+                            }
+                        } else {
+                            labeledField(L10n.tr("settings.cron.schedule.every")) {
+                                Stepper(value: $everyMinutes, in: 1 ... 1440) {
+                                    Text("\(everyMinutes) \(L10n.tr("common.minutes"))")
+                                }
+                                .settingsInputFieldStyle()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
             }
+            .padding(.vertical, 24)
+        }
+        #if !targetEnvironment(macCatalyst)
+        .scrollDismissesKeyboard(.interactively)
         #endif
-            .onAppear {
-                ensureSelectedAgent()
-            }
-            .onChange(of: jobKind) { _, newKind in
-                if newKind == .heartbeat {
-                    ensureSelectedAgent()
-                }
-            }
     }
 
     #if targetEnvironment(macCatalyst)
-        private var macActionSection: some View {
-            Section {
-                HStack(spacing: 12) {
-                    actionButton(
-                        title: L10n.tr("common.cancel"),
-                        role: .secondary,
-                        isDisabled: false,
-                        action: cancelSheet
-                    )
+        private func sheetTopBar() -> some View {
+            VStack(spacing: 0) {
+                ZStack {
+                    Text(L10n.tr("settings.cron.addJob"))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-                    Spacer(minLength: 0)
-
-                    actionButton(
-                        title: L10n.tr("common.add"),
-                        role: .primary,
-                        isDisabled: !canCreateJob,
-                        action: {
-                            onCreate(makeDraft())
-                            cancelSheet()
-                        }
-                    )
+                    HStack {
+                        actionButton(
+                            title: L10n.tr("common.cancel"),
+                            role: .secondary,
+                            action: {
+                                onCancel?()
+                                if presentationStyle == .modal {
+                                    dismiss()
+                                }
+                            }
+                        )
+                        Spacer(minLength: 0)
+                        actionButton(
+                            title: L10n.tr("common.save"),
+                            role: .primary,
+                            action: { onCreate(makeDraft()) }
+                        )
+                        .disabled(!isFormValid)
+                    }
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+
+                Rectangle()
+                    .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
+                    .frame(height: 1)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         }
     #endif
+
+    private enum InlineActionRole {
+        case primary
+        case secondary
+    }
+
+    private func actionButton(
+        title: String,
+        role: InlineActionRole,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foregroundColor: UIColor = switch role {
+        case .primary:
+            ChatUIDesign.Color.pureWhite
+        case .secondary:
+            ChatUIDesign.Color.offBlack
+        }
+        let backgroundColor: Color = switch role {
+        case .primary:
+            Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .secondary:
+            .clear
+        }
+
+        return Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: foregroundColor))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private struct CustomSection<Content: View, Footer: View>: View {
+        let title: String?
+        let footer: Footer?
+        @ViewBuilder let content: () -> Content
+
+        init(title: String? = nil, @ViewBuilder footer: () -> Footer, @ViewBuilder content: @escaping () -> Content) {
+            self.title = title
+            self.footer = footer()
+            self.content = content
+        }
+
+        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) where Footer == EmptyView {
+            self.title = title
+            self.footer = nil
+            self.content = content
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                if let title {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .padding(.horizontal, 20)
+                }
+
+                content()
+
+                if let footer {
+                    footer
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+
+    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80))
+            content()
+        }
+    }
 
     private enum ActionButtonRole {
         case primary
@@ -689,6 +672,15 @@ private struct CronAddJobSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+
+    private var isFormValid: Bool {
+        let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if msg.isEmpty { return false }
+        if jobKind == .heartbeat {
+            if selectedAgentID.isEmpty { return false }
+        }
+        return true
     }
 
     private func cancelSheet() {
@@ -838,14 +830,6 @@ private struct CronJobRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-        )
     }
 
     private var kindTitle: String {
