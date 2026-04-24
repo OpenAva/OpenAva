@@ -510,7 +510,7 @@ private struct SkillSection<Content: View>: View {
     let title: String
     let detail: String
     let count: Int
-    @ViewBuilder @ViewBuilder let content: () -> Content
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

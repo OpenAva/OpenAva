@@ -46,7 +46,7 @@ enum AgentPresetCatalog {
     static func builtInPresets() -> [AgentPreset] {
         [
             preset(
-                id: "explorer",
+                id: "nova",
                 titleKey: "agent.creation.preset.explorer.title",
                 subtitleKey: "agent.creation.preset.explorer.subtitle",
                 emoji: "🔭",
@@ -58,7 +58,7 @@ enum AgentPresetCatalog {
                 ]
             ),
             preset(
-                id: "planner",
+                id: "atlas",
                 titleKey: "agent.creation.preset.planner.title",
                 subtitleKey: "agent.creation.preset.planner.subtitle",
                 emoji: "🧭",
@@ -70,7 +70,7 @@ enum AgentPresetCatalog {
                 ]
             ),
             preset(
-                id: "designer",
+                id: "iris",
                 titleKey: "agent.creation.preset.designer.title",
                 subtitleKey: "agent.creation.preset.designer.subtitle",
                 emoji: "🎨",
@@ -82,7 +82,7 @@ enum AgentPresetCatalog {
                 ]
             ),
             preset(
-                id: "executor",
+                id: "jett",
                 titleKey: "agent.creation.preset.executor.title",
                 subtitleKey: "agent.creation.preset.executor.subtitle",
                 emoji: "⚡️",
@@ -94,7 +94,7 @@ enum AgentPresetCatalog {
                 ]
             ),
             preset(
-                id: "reviewer",
+                id: "vera",
                 titleKey: "agent.creation.preset.reviewer.title",
                 subtitleKey: "agent.creation.preset.reviewer.subtitle",
                 emoji: "🛡️",
@@ -106,7 +106,7 @@ enum AgentPresetCatalog {
                 ]
             ),
             preset(
-                id: "summarizer",
+                id: "sage",
                 titleKey: "agent.creation.preset.summarizer.title",
                 subtitleKey: "agent.creation.preset.summarizer.subtitle",
                 emoji: "📢",

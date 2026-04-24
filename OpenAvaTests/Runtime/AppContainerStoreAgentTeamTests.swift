@@ -35,7 +35,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
 
         let presets = [
             AgentPreset(
-                id: "explorer",
+                id: "nova",
                 title: "探索者",
                 subtitle: "信息检索",
                 agentName: "探索者",
@@ -44,7 +44,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
                 soulCoreTruths: "聚焦探索"
             ),
             AgentPreset(
-                id: "executor",
+                id: "jett",
                 title: "执行者",
                 subtitle: "任务执行",
                 agentName: "执行者",
