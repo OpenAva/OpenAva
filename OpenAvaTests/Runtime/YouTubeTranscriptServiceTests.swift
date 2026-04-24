@@ -127,4 +127,84 @@ final class YouTubeTranscriptServiceTests: XCTestCase {
         )
         XCTAssertEqual(selected, "zh-Hans")
     }
+
+    func testVisibleSegmentsPagesCreateStablePageSequence() {
+        let document = YouTubeTranscriptDocument(
+            videoID: "video1234567",
+            input: "video1234567",
+            title: "Long Video",
+            language: "en",
+            trackName: "English",
+            totalSegmentCount: 3,
+            transcript: "",
+            segments: [
+                YouTubeTranscriptSegment(startSeconds: 5, durationSeconds: 1, text: "Alpha"),
+                YouTubeTranscriptSegment(startSeconds: 6, durationSeconds: 1, text: "Beta"),
+                YouTubeTranscriptSegment(startSeconds: 7, durationSeconds: 1, text: "Gamma"),
+            ],
+            message: ""
+        )
+
+        let pages = YouTubeTranscriptService.makeVisibleSegmentsPages(
+            from: document,
+            maxPayloadChars: 110,
+            preferredBodyChars: 60,
+            reservedHeaderChars: 40
+        )
+
+        XCTAssertEqual(pages.count, 2)
+        XCTAssertEqual(pages[0].startSegmentIndex, 0)
+        XCTAssertEqual(pages[0].returnedSegmentCount, 2)
+        XCTAssertTrue(pages[0].body.contains("1. [5.00s +1.00s] Alpha"))
+        XCTAssertTrue(pages[0].body.contains("2. [6.00s +1.00s] Beta"))
+        XCTAssertEqual(pages[1].startSegmentIndex, 2)
+        XCTAssertEqual(pages[1].returnedSegmentCount, 1)
+        XCTAssertTrue(pages[1].body.contains("3. [7.00s +1.00s] Gamma"))
+    }
+
+    func testVisibleTranscriptPagesCreateStablePageSequence() {
+        let document = YouTubeTranscriptDocument(
+            videoID: "video1234567",
+            input: "video1234567",
+            title: "Long Video",
+            language: "zh-Hans",
+            trackName: "Chinese",
+            totalSegmentCount: 3,
+            transcript: "",
+            segments: [
+                YouTubeTranscriptSegment(startSeconds: 20, durationSeconds: 1, text: "AAAA"),
+                YouTubeTranscriptSegment(startSeconds: 21, durationSeconds: 1, text: "BBBB"),
+                YouTubeTranscriptSegment(startSeconds: 22, durationSeconds: 1, text: "CCCC"),
+            ],
+            message: ""
+        )
+
+        let pages = YouTubeTranscriptService.makeVisibleTranscriptPages(
+            from: document,
+            maxPayloadChars: 80,
+            preferredBodyChars: 10,
+            reservedHeaderChars: 40
+        )
+
+        XCTAssertEqual(pages.count, 2)
+        XCTAssertEqual(pages[0].startSegmentIndex, 0)
+        XCTAssertEqual(pages[0].returnedSegmentCount, 2)
+        XCTAssertEqual(pages[0].body, "AAAA\nBBBB")
+        XCTAssertEqual(pages[1].startSegmentIndex, 2)
+        XCTAssertEqual(pages[1].returnedSegmentCount, 1)
+        XCTAssertEqual(pages[1].body, "CCCC")
+    }
+
+    func testToolDefinitionExposesPageParameterInsteadOfSizeParameters() throws {
+        let definitions = YouTubeTranscriptService().toolDefinitions()
+        let definition = try XCTUnwrap(definitions.first { $0.functionName == "youtube_transcript" })
+        let schema = try XCTUnwrap(definition.parametersSchema.value as? [String: Any])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        let page = try XCTUnwrap(properties["page"] as? [String: Any])
+
+        XCTAssertEqual(page["type"] as? String, "integer")
+        XCTAssertEqual(page["minimum"] as? Int, 1)
+        XCTAssertNil(properties["startIndex"])
+        XCTAssertNil(properties["maxSegments"])
+    }
 }

@@ -32,13 +32,13 @@ struct YouTubeTranscriptSegment: Codable {
     let text: String
 }
 
-struct YouTubeTranscriptResult: Codable {
+struct YouTubeTranscriptDocument: Codable {
     let videoID: String
     let input: String
     let title: String?
     let language: String
     let trackName: String
-    let segmentCount: Int
+    let totalSegmentCount: Int
     let transcript: String
     let segments: [YouTubeTranscriptSegment]
     let message: String
@@ -145,7 +145,10 @@ actor YouTubeTranscriptService {
         session = URLSession(configuration: config)
     }
 
-    func fetchTranscript(input: String, preferredLanguage: String?, maxSegments: Int = 500) async throws -> YouTubeTranscriptResult {
+    func fetchTranscriptDocument(
+        input: String,
+        preferredLanguage: String?
+    ) async throws -> YouTubeTranscriptDocument {
         let normalizedInput = Self.normalizeWhitespace(input)
         guard !normalizedInput.isEmpty else {
             throw YouTubeTranscriptServiceError.invalidInput
@@ -206,21 +209,19 @@ actor YouTubeTranscriptService {
             throw YouTubeTranscriptServiceError.transcriptParseFailed
         }
 
-        let resolvedMaxSegments = max(1, min(maxSegments, 2000))
-        let segments = Array(parsedSegments.prefix(resolvedMaxSegments))
-        let transcript = segments.map(\.text).joined(separator: "\n")
+        let transcript = parsedSegments.map(\.text).joined(separator: "\n")
         let title = playerResponse.videoDetails?.title
-        let message = "Loaded \(segments.count) transcript segments for video \(videoID)."
+        let message = "Loaded \(parsedSegments.count) transcript segments for video \(videoID)."
 
-        return YouTubeTranscriptResult(
+        return YouTubeTranscriptDocument(
             videoID: playerResponse.videoDetails?.videoId ?? videoID,
             input: normalizedInput,
             title: title,
             language: selectedTrack.languageCode,
             trackName: selectedTrack.name.textValue,
-            segmentCount: segments.count,
+            totalSegmentCount: parsedSegments.count,
             transcript: transcript,
-            segments: segments,
+            segments: parsedSegments,
             message: message
         )
     }
