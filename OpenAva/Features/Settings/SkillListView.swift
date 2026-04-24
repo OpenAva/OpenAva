@@ -749,6 +749,7 @@ private struct SkillEditorSheet: View {
     @State private var name: String
     @State private var description: String
     @State private var emoji: String
+    @State private var isEmojiPickerPresented = false
     @State private var content: String
     @State private var errorText: String?
 
@@ -804,6 +805,20 @@ private struct SkillEditorSheet: View {
             #endif
         }
         .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+        .sheet(isPresented: $isEmojiPickerPresented) {
+            NavigationStack {
+                emojiPickerSheetContent
+                    .navigationTitle(L10n.tr("agent.creation.emojiPicker.title"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.tr("common.done")) {
+                                isEmojiPickerPresented = false
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     private var formContent: some View {
@@ -847,10 +862,7 @@ private struct SkillEditorSheet: View {
                         }
 
                         labeledField(L10n.tr("settings.skills.editor.emoji")) {
-                            TextField("", text: $emoji)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .settingsInputFieldStyle()
+                            editableEmojiField
                         }
                     }
                 } else {
@@ -938,6 +950,53 @@ private struct SkillEditorSheet: View {
             }
         }
     #endif
+
+    private var editableEmojiField: some View {
+        HStack(spacing: 10) {
+            Button {
+                isEmojiPickerPresented = true
+            } label: {
+                HStack(spacing: 10) {
+                    Text(emoji.isEmpty ? L10n.tr("agent.creation.emojiPicker.title") : emoji)
+                        .font(.system(size: emoji.isEmpty ? 15 : 24))
+                        .foregroundStyle(
+                            emoji.isEmpty
+                                ? Color(uiColor: ChatUIDesign.Color.black50)
+                                : Color(uiColor: ChatUIDesign.Color.offBlack)
+                        )
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .settingsInputFieldStyle()
+
+            if !emoji.isEmpty {
+                Button {
+                    emoji = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("common.delete"))
+            }
+        }
+    }
+
+    private var emojiPickerSheetContent: some View {
+        EmojiPickerGrid(emojis: EmojiPickerCatalog.candidates) { selectedEmoji in
+            emoji = selectedEmoji
+            isEmojiPickerPresented = false
+        }
+        .background(Color(uiColor: ChatUIDesign.Color.warmCream))
+    }
 
     private struct CustomSection<Content: View, Footer: View>: View {
         let title: String?
