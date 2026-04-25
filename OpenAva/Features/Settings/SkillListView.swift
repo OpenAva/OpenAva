@@ -1476,11 +1476,21 @@ private struct SkillRow: View {
 
     private var skillSummary: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(skill.displayName)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
+                    .layoutPriority(1)
+
+                Text(skill.name)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .tracking(0.2)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 0)
 
                 if !skill.isWorkspace {
                     StatusBadge(
@@ -1501,30 +1511,22 @@ private struct SkillRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(skill.name)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .tracking(0.2)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
-                    .lineLimit(1)
+            if !skill.isAvailable || !isEnabled {
+                HStack(spacing: 6) {
+                    if !skill.isAvailable {
+                        StatusBadge(
+                            title: L10n.tr("settings.skills.unavailable"),
+                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
+                        )
+                    }
 
-                if !skill.isAvailable || !isEnabled {
-                    HStack(spacing: 6) {
-                        if !skill.isAvailable {
-                            StatusBadge(
-                                title: L10n.tr("settings.skills.unavailable"),
-                                foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                                background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
-                            )
-                        }
-
-                        if !isEnabled {
-                            StatusBadge(
-                                title: L10n.tr("settings.skills.disabled"),
-                                foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                                background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
-                            )
-                        }
+                    if !isEnabled {
+                        StatusBadge(
+                            title: L10n.tr("settings.skills.disabled"),
+                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
+                        )
                     }
                 }
             }
