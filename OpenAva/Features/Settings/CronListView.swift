@@ -8,6 +8,7 @@ struct CronListView: View {
     @State private var jobs: [CronJobPayload] = []
     @State private var isLoading = false
     @State private var isShowingAddSheet = false
+    @State private var jobToEdit: CronJobPayload?
     @State private var jobToRemove: CronJobPayload?
     @State private var errorMessage: String?
     @State private var isShowingNotificationDeniedAlert = false
@@ -42,6 +43,23 @@ struct CronListView: View {
                     }, onCancel: {
                         isShowingAddSheet = false
                     })
+                }
+                #if targetEnvironment(macCatalyst)
+                .frame(width: 640, height: 600)
+                #endif
+            }
+            .sheet(item: $jobToEdit) { job in
+                NavigationStack {
+                    CronAddJobSheet(
+                        initialJob: job,
+                        onCreate: { draft in
+                            Task {
+                                await updateJob(oldJobID: job.id, draft: draft)
+                            }
+                        }, onCancel: {
+                            jobToEdit = nil
+                        }
+                    )
                 }
                 #if targetEnvironment(macCatalyst)
                 .frame(width: 640, height: 600)
@@ -104,10 +122,12 @@ struct CronListView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    Text(scheduledFooterText)
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                        .padding(.horizontal, 16)
+                    if let text = scheduledFooterText {
+                        Text(text)
+                            .font(.footnote)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .padding(.horizontal, 16)
+                    }
                 }
             }
             .padding(.vertical, 24)
@@ -127,21 +147,35 @@ struct CronListView: View {
                 .padding(.vertical, 16)
         } else {
             ForEach(jobs, id: \.id) { job in
-                CronJobRow(job: job, agentName: resolvedAgentName(for: job))
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            jobToRemove = job
-                        } label: {
-                            Label(L10n.tr("common.delete"), systemImage: "trash")
-                        }
+                CronJobRow(
+                    job: job,
+                    agentName: resolvedAgentName(for: job),
+                    onEdit: { jobToEdit = job },
+                    onDelete: { jobToRemove = job }
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    jobToEdit = job
+                }
+                .contextMenu {
+                    Button {
+                        jobToEdit = job
+                    } label: {
+                        Label(L10n.tr("common.edit"), systemImage: "pencil")
                     }
+                    Button(role: .destructive) {
+                        jobToRemove = job
+                    } label: {
+                        Label(L10n.tr("common.delete"), systemImage: "trash")
+                    }
+                }
             }
         }
     }
 
-    private var scheduledFooterText: String {
+    private var scheduledFooterText: String? {
         #if targetEnvironment(macCatalyst)
-            L10n.tr("settings.cron.scheduled.footer.mac")
+            nil
         #else
             L10n.tr("settings.cron.scheduled.footer")
         #endif
@@ -210,9 +244,27 @@ struct CronListView: View {
                 kind: draft.kind,
                 agentID: draft.agentID
             )
-            #if targetEnvironment(macCatalyst)
-                isShowingAddSheet = false
-            #endif
+            isShowingAddSheet = false
+            await refreshJobs(force: true)
+        } catch {
+            showError(error)
+        }
+    }
+
+    @MainActor
+    private func updateJob(oldJobID: String, draft: CronCreateDraft) async {
+        do {
+            try await ensureNotificationAuthorization()
+            let atISO = draft.atDate.map { Self.isoFormatter.string(from: $0) }
+            _ = try await cronService.remove(id: oldJobID)
+            _ = try await cronService.add(
+                message: draft.message,
+                atISO: atISO,
+                everySeconds: draft.everySeconds,
+                kind: draft.kind,
+                agentID: draft.agentID
+            )
+            jobToEdit = nil
             await refreshJobs(force: true)
         } catch {
             showError(error)
@@ -339,18 +391,43 @@ private struct CronAddJobSheet: View {
     @State private var atDate = Date().addingTimeInterval(300)
     @State private var everyMinutesText = "5"
 
+    let initialJob: CronJobPayload?
     let onCreate: (CronCreateDraft) -> Void
     let onCancel: (() -> Void)?
     let presentationStyle: PresentationStyle
 
     init(
+        initialJob: CronJobPayload? = nil,
         onCreate: @escaping (CronCreateDraft) -> Void,
         onCancel: (() -> Void)? = nil,
         presentationStyle: PresentationStyle = .modal
     ) {
+        self.initialJob = initialJob
         self.onCreate = onCreate
         self.onCancel = onCancel
         self.presentationStyle = presentationStyle
+
+        if let initialJob {
+            _message = State(initialValue: initialJob.message)
+            _jobKind = State(initialValue: initialJob.kind == .heartbeat ? .heartbeat : .notify)
+            _selectedAgentID = State(initialValue: initialJob.agentID ?? "")
+
+            if let every = initialJob.everySeconds {
+                _mode = State(initialValue: .every)
+                _everyMinutesText = State(initialValue: "\(every / 60)")
+            } else if let atISO = initialJob.at, let date = Self.parseISO(atISO) {
+                _mode = State(initialValue: .at)
+                _atDate = State(initialValue: date)
+            }
+        }
+    }
+
+    private static func parseISO(_ iso: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = formatter.date(from: iso) { return d }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: iso)
     }
 
     var body: some View {
@@ -362,7 +439,7 @@ private struct CronAddJobSheet: View {
                 }
             #else
                 formContent
-                    .navigationTitle(L10n.tr("settings.cron.addJob"))
+                    .navigationTitle(initialJob == nil ? L10n.tr("settings.cron.addJob") : L10n.tr("common.edit"))
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -501,7 +578,7 @@ private struct CronAddJobSheet: View {
         private func sheetTopBar() -> some View {
             VStack(spacing: 0) {
                 ZStack {
-                    Text(L10n.tr("settings.cron.addJob"))
+                    Text(initialJob == nil ? L10n.tr("settings.cron.addJob") : L10n.tr("common.edit"))
                         .font(.system(size: 18, weight: .regular))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
@@ -715,6 +792,10 @@ private extension View {
 private struct CronJobRow: View {
     let job: CronJobPayload
     let agentName: String?
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isHovering = false
 
     private static let parseWithFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -783,33 +864,60 @@ private struct CronJobRow: View {
 
             Spacer(minLength: 12)
 
-            VStack(alignment: .trailing, spacing: 6) {
-                if job.kind == .heartbeat, let agentID = job.agentID {
-                    let isRegistered = HeartbeatRuntimeRegistry.shared.isRuntimeRegistered(for: agentID)
-                    if isRegistered {
-                        Button {
-                            Task {
-                                await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
+            HStack(spacing: 16) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    if job.kind == .heartbeat, let agentID = job.agentID {
+                        let isRegistered = HeartbeatRuntimeRegistry.shared.isRuntimeRegistered(for: agentID)
+                        if isRegistered {
+                            Button {
+                                Task {
+                                    await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
+                                }
+                            } label: {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                                    .padding(8)
+                                    .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                                    )
                             }
-                        } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                                .padding(8)
-                                .background(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                                )
+                            .buttonStyle(PhysicalRowButtonStyle())
+                        } else {
+                            nextRunView
                         }
-                        .buttonStyle(PhysicalRowButtonStyle())
                     } else {
                         nextRunView
                     }
-                } else {
-                    nextRunView
                 }
+
+                #if targetEnvironment(macCatalyst)
+                    HStack(spacing: 8) {
+                        Button(action: onEdit) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                                .frame(width: 28, height: 28)
+                                .background(Color(uiColor: ChatUIDesign.Color.black80).opacity(0.04))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Color.red.opacity(0.7))
+                                .frame(width: 28, height: 28)
+                                .background(Color.red.opacity(0.05))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .opacity(isHovering ? 1 : 0)
+                #endif
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -823,6 +931,11 @@ private struct CronJobRow: View {
             RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
                 .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
         )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
     }
 
     @ViewBuilder

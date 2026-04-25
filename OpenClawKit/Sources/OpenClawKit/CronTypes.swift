@@ -8,7 +8,7 @@ public enum CronJobKind: String, Codable, Sendable, Equatable {
 }
 
 /// Payload representing a scheduled cron job
-public struct CronJobPayload: Codable, Sendable, Equatable {
+public struct CronJobPayload: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
     public var message: String
