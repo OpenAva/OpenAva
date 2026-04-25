@@ -730,11 +730,7 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerLeadingButton(_: ChatViewController, button: UIButton) {
-            let image = standardizedMenuIcon(
-                UIImage.chatInputIcon(named: "users"),
-                canvasSize: CGSize(width: 20, height: 20),
-                targetSize: CGSize(width: 17, height: 17)
-            )
+            let image = UIImage(systemName: ChatTopBar.leadingMenuSystemImage)
             if #available(iOS 15.0, *) {
                 var configuration = button.configuration ?? .plain()
                 configuration.image = image

@@ -267,15 +267,6 @@ open class ChatViewController: UIViewController {
 
     private lazy var titleBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: self, action: #selector(handleTitleTap))
 
-    private static func toolbarIcon(_ name: String, fallback: String) -> UIImage? {
-        let base = UIImage.chatInputIcon(named: name) ?? UIImage(systemName: fallback)
-        let targetSize = CGSize(width: 18, height: 18)
-        guard let base, base.size.width > targetSize.width else { return base }
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        return renderer.image { _ in base.draw(in: CGRect(origin: .zero, size: targetSize)) }
-            .withRenderingMode(.alwaysTemplate)
-    }
-
     #if targetEnvironment(macCatalyst)
         private lazy var catalystTitlebarToolbarCoordinator = CatalystTitlebarToolbarCoordinator(
             titleBarButtonItem: titleBarButtonItem
@@ -615,7 +606,7 @@ open class ChatViewController: UIViewController {
     private func configureNavigationItems() {
         configureLeadingMenuButton()
 
-        let trailingImage = Self.toolbarIcon("menu", fallback: "ellipsis")
+        let trailingImage = UIImage(systemName: ChatTopBar.trailingMenuSystemImage)
         let trailingMenu = menuDelegate?.chatViewControllerMenu(self)
         let trailingNavigationItem = UIBarButtonItem(image: trailingImage, style: .plain, target: nil, action: nil)
         trailingNavigationItem.menu = trailingMenu
@@ -861,7 +852,7 @@ open class ChatViewController: UIViewController {
             catalystTitlebarToolbarCoordinator.update(
                 leadingImage: resolvedButtonImage(from: avatarButton),
                 leadingMenu: avatarButton.menu,
-                trailingImage: Self.toolbarIcon("menu", fallback: "ellipsis"),
+                trailingImage: UIImage(systemName: ChatTopBar.trailingMenuSystemImage),
                 trailingMenu: menuDelegate?.chatViewControllerMenu(self)
             )
             guard let titlebar = view.window?.windowScene?.titlebar else { return }
@@ -875,7 +866,7 @@ open class ChatViewController: UIViewController {
 
     private func configureLeadingMenuButton() {
         avatarButton.menu = nil
-        let image = UIImage.chatInputIcon(named: "users") ?? UIImage(systemName: "person.2")
+        let image = UIImage(systemName: ChatTopBar.leadingMenuSystemImage)
         if #available(iOS 15.0, *) {
             var configuration = avatarButton.configuration ?? .plain()
             configuration.image = image

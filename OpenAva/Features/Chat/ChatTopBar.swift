@@ -1,6 +1,9 @@
 import Foundation
 
 enum ChatTopBar {
+    static let leadingMenuSystemImage = "person.2"
+    static let trailingMenuSystemImage = "ellipsis"
+
     struct Title: Equatable {
         let agentName: String
         let agentEmoji: String

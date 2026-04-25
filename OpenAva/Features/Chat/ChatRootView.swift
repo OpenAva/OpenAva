@@ -520,7 +520,7 @@ private struct ChatScreen: View {
                 Menu {
                     agentMenuContent
                 } label: {
-                    Image(systemName: "person.2")
+                    Image(systemName: ChatTopBar.leadingMenuSystemImage)
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
             }
@@ -541,7 +541,7 @@ private struct ChatScreen: View {
                 Menu {
                     configurationMenuContent
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Image(systemName: ChatTopBar.trailingMenuSystemImage)
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 }
             }
