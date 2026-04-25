@@ -46,6 +46,7 @@ public struct ModelUsageRecord: Sendable, Equatable {
 /// Aggregated snapshot of all tracked usage.
 public struct UsageSnapshot: Sendable, Equatable {
     public var byModel: [String: ModelUsageRecord]
+    public var dailyUsage: [String: Int] // Format: "yyyy-MM-dd" -> Total Tokens
 
     public var totalInputTokens: Int {
         byModel.values.reduce(0) { $0 + $1.inputTokens }
@@ -76,8 +77,9 @@ public struct UsageSnapshot: Sendable, Equatable {
         byModel.values.sorted { $0.totalTokens > $1.totalTokens }
     }
 
-    public init(byModel: [String: ModelUsageRecord] = [:]) {
+    public init(byModel: [String: ModelUsageRecord] = [:], dailyUsage: [String: Int] = [:]) {
         self.byModel = byModel
+        self.dailyUsage = dailyUsage
     }
 }
 
@@ -95,6 +97,7 @@ private extension UsageSnapshot {
         }
 
         var records: [Record]
+        var dailyUsage: [String: Int]?
     }
 
     static func load(from url: URL) -> UsageSnapshot {
@@ -113,7 +116,7 @@ private extension UsageSnapshot {
                 costUSD: r.costUSD
             )
         }
-        return UsageSnapshot(byModel: byModel)
+        return UsageSnapshot(byModel: byModel, dailyUsage: coded.dailyUsage ?? [:])
     }
 
     func save(to url: URL) {
@@ -127,7 +130,7 @@ private extension UsageSnapshot {
                 costUSD: r.costUSD
             )
         }
-        let coded = Coded(records: records)
+        let coded = Coded(records: records, dailyUsage: dailyUsage)
         guard let data = try? JSONEncoder().encode(coded) else { return }
         try? data.write(to: url, options: .atomic)
     }
@@ -173,6 +176,12 @@ public actor LLMUsageTracker {
         var record = snapshot.byModel[key] ?? ModelUsageRecord(model: key)
         record.add(usage)
         snapshot.byModel[key] = record
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let today = dateFormatter.string(from: Date())
+        snapshot.dailyUsage[today, default: 0] += usage.totalTokens
+
         snapshot.save(to: persistURL)
         subject.send(snapshot)
     }

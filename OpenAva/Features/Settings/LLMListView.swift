@@ -153,23 +153,15 @@ struct LLMListView: View {
             ForEach(models) { model in
                 ModelRow(
                     model: model,
-                    isSelected: model.id == selectedModelID,
                     usageRecord: usageRecord(for: model),
-                    onSelect: { selectModel(model) },
                     onEdit: { openEditor(for: model) },
                     onDelete: { modelToDelete = model }
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    selectModel(model)
+                    openEditor(for: model)
                 }
                 .contextMenu {
-                    Button {
-                        selectModel(model)
-                    } label: {
-                        Label(L10n.tr("settings.llmList.action.use"), systemImage: "checkmark.circle")
-                    }
-
                     Button {
                         openEditor(for: model)
                     } label: {
@@ -208,55 +200,60 @@ struct LLMListView: View {
     @ViewBuilder
     private var usageSummarySection: some View {
         let snapshot = containerStore.usageSnapshot
-        if !snapshot.byModel.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(L10n.tr("settings.usage.navigationTitle"))
-                    .font(.system(size: 20, weight: .regular))
-                    .tracking(-0.2)
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.tr("settings.usage.navigationTitle"))
+                .font(.system(size: 20, weight: .regular))
+                .tracking(-0.2)
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
 
-                VStack(spacing: 12) {
+            VStack(spacing: 12) {
+                HStack {
+                    Text(L10n.tr("settings.usage.totalTokens"))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    Spacer()
+                    Text(formatUsageTokens(snapshot.totalTokens))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .monospacedDigit()
+                }
+                if snapshot.totalCostUSD > 0 {
+                    Rectangle().fill(Color(uiColor: ChatUIDesign.Color.warmSand)).frame(height: 1)
                     HStack {
-                        Text(L10n.tr("settings.usage.totalTokens"))
+                        Text(L10n.tr("settings.usage.totalCost"))
                             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                         Spacer()
-                        Text(formatUsageTokens(snapshot.totalTokens))
+                        Text(formatUsageCost(snapshot.totalCostUSD))
                             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                             .monospacedDigit()
                     }
-                    if snapshot.totalCostUSD > 0 {
-                        Rectangle().fill(Color(uiColor: ChatUIDesign.Color.warmSand)).frame(height: 1)
-                        HStack {
-                            Text(L10n.tr("settings.usage.totalCost"))
-                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                            Spacer()
-                            Text(formatUsageCost(snapshot.totalCostUSD))
-                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                                .monospacedDigit()
-                        }
-                    }
-                    Rectangle().fill(Color(uiColor: ChatUIDesign.Color.warmSand)).frame(height: 1)
-                    Button {
-                        showResetUsageConfirmation = true
-                    } label: {
-                        Text(L10n.tr("settings.usage.reset"))
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                )
+
+                Rectangle().fill(Color(uiColor: ChatUIDesign.Color.warmSand)).frame(height: 1)
+
+                TokenUsageHeatmapView(dailyUsage: snapshot.dailyUsage)
+                    .padding(.vertical, 8)
+
+                Rectangle().fill(Color(uiColor: ChatUIDesign.Color.warmSand)).frame(height: 1)
+
+                Button {
+                    showResetUsageConfirmation = true
+                } label: {
+                    Text(L10n.tr("settings.usage.reset"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
         }
     }
 
@@ -336,9 +333,7 @@ private struct EmptyModelsView: View {
 
 private struct ModelRow: View {
     let model: AppConfig.LLMModel
-    let isSelected: Bool
     let usageRecord: ModelUsageRecord?
-    let onSelect: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -348,20 +343,12 @@ private struct ModelRow: View {
         HStack(alignment: .center, spacing: 16) {
             // Icon
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    isSelected
-                        ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.10)
-                        : Color(uiColor: ChatUIDesign.Color.black80).opacity(0.05)
-                )
+                .fill(Color(uiColor: ChatUIDesign.Color.black80).opacity(0.05))
                 .frame(width: 40, height: 40)
                 .overlay(
                     Image(systemName: "cpu")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(
-                            isSelected
-                                ? Color(uiColor: ChatUIDesign.Color.brandOrange)
-                                : Color(uiColor: ChatUIDesign.Color.black60)
-                        )
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                 )
 
             // Info
@@ -374,8 +361,6 @@ private struct ModelRow: View {
 
                     if !model.isConfigured {
                         CompactTag(text: L10n.tr("settings.llmList.status.incomplete"), tone: .warning)
-                    } else if isSelected {
-                        CompactTag(text: L10n.tr("settings.llmList.status.active"), tone: .accent)
                     }
                 }
 
@@ -401,7 +386,7 @@ private struct ModelRow: View {
 
             Spacer(minLength: 16)
 
-            // Trailing actions and selected indicator
+            // Trailing actions
             HStack(spacing: 16) {
                 // Actions (Edit / Delete) - Only show on hover for Mac, always hidden for iOS (use swipe/context menu)
                 #if targetEnvironment(macCatalyst)
@@ -428,28 +413,18 @@ private struct ModelRow: View {
                     }
                     .opacity(isHovering ? 1 : 0)
                 #endif
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
-                } else {
-                    Image(systemName: "circle")
-                        .font(.system(size: 20, weight: .light))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black80).opacity(0.1))
-                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color(uiColor: ChatUIDesign.Color.pureWhite) : Color(uiColor: ChatUIDesign.Color.pureWhite).opacity(0.6))
+                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
-                    isSelected ? Color(uiColor: ChatUIDesign.Color.brandOrange).opacity(0.5) : Color(uiColor: ChatUIDesign.Color.oatBorder),
+                    Color(uiColor: ChatUIDesign.Color.oatBorder),
                     lineWidth: 1
                 )
         )
@@ -568,5 +543,170 @@ struct CompactTag: View {
             .padding(.vertical, 2)
             .background(tone.background)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+}
+
+struct TokenUsageHeatmapView: View {
+    let dailyUsage: [String: Int]
+
+    private let columns = 52
+    private let rows = 7
+
+    // Start week on Monday or Sunday? GitHub usually starts on Sunday. Let's assume Sunday (index 0).
+    // Or we can use Calendar's firstWeekday.
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                ScrollViewReader { proxy in
+                    HStack(alignment: .top, spacing: 4) {
+                        // Weekday labels
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("").frame(height: 12) // Top row for months
+                            ForEach(0 ..< rows, id: \.self) { row in
+                                if row == 1 {
+                                    Text("Mon").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50)).frame(height: 12)
+                                } else if row == 3 {
+                                    Text("Wed").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50)).frame(height: 12)
+                                } else if row == 5 {
+                                    Text("Fri").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50)).frame(height: 12)
+                                } else {
+                                    Text("").frame(height: 12)
+                                }
+                            }
+                        }
+
+                        // Grid
+                        HStack(spacing: 4) {
+                            ForEach(0 ..< columns, id: \.self) { col in
+                                VStack(spacing: 4) {
+                                    // Month label
+                                    if isFirstWeekOfMonth(col: col) {
+                                        Color.clear
+                                            .frame(width: 12, height: 12)
+                                            .overlay(
+                                                Text(monthName(for: col))
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                                                    .fixedSize(),
+                                                alignment: .leading
+                                            )
+                                    } else {
+                                        Text("").frame(height: 12)
+                                    }
+
+                                    // Days
+                                    ForEach(0 ..< rows, id: \.self) { row in
+                                        if let date = dateFor(col: col, row: row), date <= Date() {
+                                            let tokens = dailyUsage[dateFormatter.string(from: date)] ?? 0
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(colorFor(tokens: tokens))
+                                                .frame(width: 12, height: 12)
+                                        } else {
+                                            Color.clear.frame(width: 12, height: 12)
+                                        }
+                                    }
+                                }
+                                .id(col)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 4)
+                    .onAppear {
+                        proxy.scrollTo(columns - 1, anchor: .trailing)
+                    }
+                }
+            }
+
+            // Legend
+            HStack {
+                Spacer()
+                Text("Less").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2).fill(colorFor(tokens: 0)).frame(width: 12, height: 12)
+                    RoundedRectangle(cornerRadius: 2).fill(colorLevel1).frame(width: 12, height: 12)
+                    RoundedRectangle(cornerRadius: 2).fill(colorLevel2).frame(width: 12, height: 12)
+                    RoundedRectangle(cornerRadius: 2).fill(colorLevel3).frame(width: 12, height: 12)
+                    RoundedRectangle(cornerRadius: 2).fill(colorLevel4).frame(width: 12, height: 12)
+                }
+                Text("More").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private let calendar = Calendar.current
+    private let dateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        return df
+    }()
+
+    private func dateFor(col: Int, row: Int) -> Date? {
+        let today = Date()
+        let currentWeekday = calendar.component(.weekday, from: today) // 1=Sun, 7=Sat
+
+        let daysToSubtract = (columns - 1 - col) * 7 + (currentWeekday - 1 - row)
+        // If it's the future in the current week, return nil
+        if daysToSubtract < 0 {
+            return nil
+        }
+        return calendar.date(byAdding: .day, value: -daysToSubtract, to: today)
+    }
+
+    private func isFirstWeekOfMonth(col: Int) -> Bool {
+        guard let sun = dateFor(col: col, row: 0) else { return false }
+        let day = calendar.component(.day, from: sun)
+        return day <= 7
+    }
+
+    private func monthName(for col: Int) -> String {
+        guard let sun = dateFor(col: col, row: 0) else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "MMM"
+        return f.string(from: sun)
+    }
+
+    private var maxTokens: Int {
+        dailyUsage.values.max() ?? 1
+    }
+
+    private var colorEmpty: Color {
+        Color(uiColor: ChatUIDesign.Color.black50).opacity(0.1)
+    }
+
+    private var colorLevel1: Color {
+        Color(red: 0.05, green: 0.27, blue: 0.16)
+    } // GitHub dark mode level 1 #0e4429
+    private var colorLevel2: Color {
+        Color(red: 0.00, green: 0.43, blue: 0.20)
+    } // #006d32
+    private var colorLevel3: Color {
+        Color(red: 0.15, green: 0.65, blue: 0.26)
+    } // #26a641
+    private var colorLevel4: Color {
+        Color(red: 0.22, green: 0.83, blue: 0.33)
+    } // #39d353
+
+    // Or we should use a generic green that adapts to dark/light mode. GitHub's light mode:
+    // Level 1: #9be9a8, Level 2: #40c463, Level 3: #30a14e, Level 4: #216e39
+
+    private func colorFor(tokens: Int) -> Color {
+        if tokens == 0 {
+            return colorEmpty
+        }
+        let maxT = max(maxTokens, 1)
+        let ratio = Double(tokens) / Double(maxT)
+
+        if ratio < 0.25 {
+            return Color(red: 0.61, green: 0.91, blue: 0.66) // #9be9a8
+        } else if ratio < 0.5 {
+            return Color(red: 0.25, green: 0.77, blue: 0.39) // #40c463
+        } else if ratio < 0.75 {
+            return Color(red: 0.19, green: 0.63, blue: 0.31) // #30a14e
+        } else {
+            return Color(red: 0.13, green: 0.43, blue: 0.22) // #216e39
+        }
     }
 }
