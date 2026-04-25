@@ -28,6 +28,11 @@ private extension MessageListView {
 }
 
 extension MessageListView: ListViewAdapter {
+    private struct ToolResultSectionMetrics {
+        let titleHeight: CGFloat
+        let codeHeight: CGFloat
+    }
+
     private func compactConversationMenu(messageID: String) -> UIMenu {
         let upToTitle = String.localized("Compact Up to Here")
         let fromTitle = String.localized("Compact From Here")
@@ -123,21 +128,39 @@ extension MessageListView: ListViewAdapter {
         let contentHeight: CGFloat = {
             switch entry {
             case let .userContent(_, message):
+                let availableWidth = UserMessageView.availableTextWidth(for: containerWidth)
+                let cacheKey = NSString(string: "user-\(message.messageID)|\(Int(availableWidth.rounded()))")
+                if let cached = userContentHeightCache.object(forKey: cacheKey) {
+                    return CGFloat(cached.floatValue) + UserMessageView.textPadding * 2
+                }
+
                 let attributedContent = NSAttributedString(string: message.content, attributes: [
                     .font: theme.fonts.body,
                     .foregroundColor: theme.colors.body,
                 ])
-                let availableWidth = UserMessageView.availableTextWidth(for: containerWidth)
-                return boundingSize(with: availableWidth, for: attributedContent).height + UserMessageView.textPadding * 2
+                let height = boundingSize(with: availableWidth, for: attributedContent).height
+                userContentHeightCache.setObject(NSNumber(value: Double(height)), forKey: cacheKey)
+                return height + UserMessageView.textPadding * 2
             case .userAttachment:
                 return AttachmentsBar.itemHeight
             case let .reasoningContent(_, message):
-                let attributedContent = NSAttributedString(string: message.content, attributes: [
-                    .font: theme.fonts.footnote,
-                    .paragraphStyle: ReasoningContentView.paragraphStyle,
-                ])
                 if message.isRevealed {
-                    return boundingSize(with: containerWidth - 16, for: attributedContent).height
+                    let availableWidth = containerWidth - 16
+                    let cacheKey = NSString(string: "reasoning-\(message.id)|\(Int(availableWidth.rounded()))")
+
+                    let textHeight: CGFloat
+                    if let cached = userContentHeightCache.object(forKey: cacheKey) {
+                        textHeight = CGFloat(cached.floatValue)
+                    } else {
+                        let attributedContent = NSAttributedString(string: message.content, attributes: [
+                            .font: theme.fonts.footnote,
+                            .paragraphStyle: ReasoningContentView.paragraphStyle,
+                        ])
+                        textHeight = boundingSize(with: availableWidth, for: attributedContent).height
+                        userContentHeightCache.setObject(NSNumber(value: Double(textHeight)), forKey: cacheKey)
+                    }
+
+                    return textHeight
                         + ReasoningContentView.spacing
                         + ReasoningContentView.revealedTileHeight
                         + 2
@@ -159,36 +182,31 @@ extension MessageListView: ListViewAdapter {
                 return SubAgentTaskCardView.contentHeight(for: task, theme: theme, maxWidth: containerWidth)
             case let .toolResultContent(_, toolResult):
                 let textWidth = max(0, containerWidth - 14)
-
                 var totalHeight: CGFloat = 0
-                let titleFont = theme.fonts.footnote.bold
-                let codeFont = theme.fonts.code
-
-                let titleAttributes: [NSAttributedString.Key: Any] = [.font: titleFont]
-
-                let paragraphStyle = NSMutableParagraphStyle()
-                paragraphStyle.lineSpacing = 4
-                paragraphStyle.lineBreakMode = .byCharWrapping
-                let codeAttributes: [NSAttributedString.Key: Any] = [
-                    .font: codeFont,
-                    .paragraphStyle: paragraphStyle,
-                ]
-
-                let contentWidth = max(0, textWidth - 16)
 
                 if toolResult.hasParameters {
-                    let titleHeight = ceil(NSAttributedString(string: String.localized("Tool Arguments"), attributes: titleAttributes).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
-                    let codeHeight = ceil(NSAttributedString(string: toolResult.formattedParameters, attributes: codeAttributes).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
-                    totalHeight += titleHeight + 8 // spacing to block
-                    totalHeight += codeHeight + 16 // 8pt padding top/bottom
+                    let metrics = toolResultSectionMetrics(
+                        entryID: entry.id,
+                        title: String.localized("Tool Arguments"),
+                        content: toolResult.formattedParameters,
+                        textWidth: textWidth,
+                        theme: theme
+                    )
+                    totalHeight += metrics.titleHeight + 8
+                    totalHeight += metrics.codeHeight + 16
                 }
 
                 if toolResult.hasResult {
                     if totalHeight > 0 { totalHeight += 16 } // stack view spacing
-                    let titleHeight = ceil(NSAttributedString(string: String.localized("Tool Result"), attributes: titleAttributes).boundingRect(with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
-                    let codeHeight = ceil(NSAttributedString(string: toolResult.formattedResult, attributes: codeAttributes).boundingRect(with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
-                    totalHeight += titleHeight + 8
-                    totalHeight += codeHeight + 16
+                    let metrics = toolResultSectionMetrics(
+                        entryID: entry.id,
+                        title: String.localized("Tool Result"),
+                        content: toolResult.formattedResult,
+                        textWidth: textWidth,
+                        theme: theme
+                    )
+                    totalHeight += metrics.titleHeight + 8
+                    totalHeight += metrics.codeHeight + 16
                 }
 
                 return min(totalHeight, 360)
@@ -419,5 +437,55 @@ extension MessageListView: ListViewAdapter {
         labelForSizeCalculation.attributedText = attributedString
         let contentSize = labelForSizeCalculation.intrinsicContentSize
         return .init(width: ceil(contentSize.width), height: ceil(contentSize.height))
+    }
+
+    private func toolResultSectionMetrics(
+        entryID: String,
+        title: String,
+        content: String,
+        textWidth: CGFloat,
+        theme: MarkdownTheme
+    ) -> ToolResultSectionMetrics {
+        let cacheKey = NSString(string: "\(entryID)|\(title)|\(Int(textWidth.rounded()))")
+        if let cached = toolResultSectionMetricsCache.object(forKey: cacheKey) {
+            let size = cached.cgSizeValue
+            return .init(titleHeight: size.width, codeHeight: size.height)
+        }
+
+        // For list view height calculation, we only care up to a certain maximum cell height (360).
+        // A 5000 character string will easily exceed the max cell height, so we truncate to speed up the bounding rect.
+        let calculationContent = content.count > 5000 ? String(content.prefix(5000)) : content
+
+        let titleHeight = ceil(
+            NSAttributedString(
+                string: title,
+                attributes: [.font: theme.fonts.footnote.bold]
+            ).boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            ).height
+        )
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        paragraphStyle.lineBreakMode = .byCharWrapping
+        let codeHeight = ceil(
+            NSAttributedString(
+                string: calculationContent,
+                attributes: [
+                    .font: theme.fonts.code,
+                    .paragraphStyle: paragraphStyle,
+                ]
+            ).boundingRect(
+                with: CGSize(width: max(0, textWidth - 16), height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            ).height
+        )
+
+        let metrics = ToolResultSectionMetrics(titleHeight: titleHeight, codeHeight: codeHeight)
+        toolResultSectionMetricsCache.setObject(NSValue(cgSize: CGSize(width: titleHeight, height: codeHeight)), forKey: cacheKey)
+        return metrics
     }
 }

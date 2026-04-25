@@ -24,6 +24,17 @@ public final class MessageListView: UIView {
     }
 
     lazy var dataSource: ListViewDiffableDataSource<Entry> = .init(listView: listView)
+    let toolResultSectionMetricsCache: NSCache<NSString, NSValue> = {
+        let cache = NSCache<NSString, NSValue>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    let userContentHeightCache: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>()
+        cache.countLimit = 256
+        return cache
+    }()
 
     private var entryCount = 0
     private var isFirstLoad: Bool = true
@@ -60,7 +71,11 @@ public final class MessageListView: UIView {
     static let listRowInsets: UIEdgeInsets = .init(top: 0, left: 20, bottom: 16, right: 20)
 
     public var theme: MarkdownTheme = .default {
-        didSet { listView.reloadData() }
+        didSet {
+            toolResultSectionMetricsCache.removeAllObjects()
+            userContentHeightCache.removeAllObjects()
+            listView.reloadData()
+        }
     }
 
     public var emptyStateTitle: String? {

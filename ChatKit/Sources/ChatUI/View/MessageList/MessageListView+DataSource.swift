@@ -33,35 +33,47 @@ extension MessageListView {
     }
 
     struct ToolResultRepresentation: Hashable {
-        let parameters: String
-        let result: String
+        let formattedParameters: String
+        let formattedResult: String
+        let hasParameters: Bool
+        let hasResult: Bool
 
-        private func formatJSON(_ text: String) -> String {
+        init(parameters: String, result: String) {
+            let (fmtParams, hasParams) = Self.formatJSONAndCheck(parameters)
+            formattedParameters = fmtParams
+            hasParameters = hasParams
+
+            let (fmtRes, hasRes) = Self.formatJSONAndCheck(result)
+            formattedResult = fmtRes
+            hasResult = hasRes
+        }
+
+        private static func formatJSONAndCheck(_ text: String) -> (String, Bool) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return (trimmed, false)
+            }
             guard let data = trimmed.data(using: .utf8),
-                  let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-                  let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .withoutEscapingSlashes]),
+                  let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [])
+            else {
+                return (trimmed, true)
+            }
+
+            let hasContent: Bool
+            if let dict = jsonObject as? [String: Any] {
+                hasContent = !dict.isEmpty
+            } else if let array = jsonObject as? [Any] {
+                hasContent = !array.isEmpty
+            } else {
+                hasContent = true
+            }
+
+            guard let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .withoutEscapingSlashes]),
                   let prettyString = String(data: prettyData, encoding: .utf8)
             else {
-                return trimmed
+                return (trimmed, hasContent)
             }
-            return prettyString
-        }
-
-        var formattedParameters: String {
-            formatJSON(parameters)
-        }
-
-        var formattedResult: String {
-            formatJSON(result)
-        }
-
-        var hasParameters: Bool {
-            !parameters.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-
-        var hasResult: Bool {
-            !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return (prettyString, hasContent)
         }
 
         var isEmpty: Bool {
