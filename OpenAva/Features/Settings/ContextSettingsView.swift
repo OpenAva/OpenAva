@@ -66,17 +66,21 @@ private struct ContextDocumentRow: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(uiColor: ChatUIDesign.Color.black60).opacity(0.05))
+                    .fill(Color.clear)
                     .frame(width: 32, height: 32)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
 
-                Image(systemName: "doc.text")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                Image(systemName: kind.iconName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(kind.iconColor)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(kind.fileName)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .lineLimit(1)
 
@@ -95,6 +99,32 @@ private struct ContextDocumentRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+}
+
+private extension AgentContextDocumentKind {
+    var iconName: String {
+        switch self {
+        case .agents: return "slider.horizontal.3"
+        case .heartbeat: return "waveform.path.ecg"
+        case .soul: return "sparkles"
+        case .tools: return "hammer.fill"
+        case .identity: return "person.text.rectangle.fill"
+        case .user: return "person.fill"
+        }
+    }
+
+    var iconColor: Color {
+        // Based on DESIGN.md: prefer warm neutrals, brand orange for AI/brand emphasis.
+        // We use the design system's offBlack and pureWhite for high contrast, and brandOrange for "soul" (core AI personality)
+        switch self {
+        case .agents: return Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .heartbeat: return Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .soul: return Color(uiColor: ChatUIDesign.Color.brandOrange)
+        case .tools: return Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .identity: return Color(uiColor: ChatUIDesign.Color.offBlack)
+        case .user: return Color(uiColor: ChatUIDesign.Color.offBlack)
+        }
     }
 }
 
