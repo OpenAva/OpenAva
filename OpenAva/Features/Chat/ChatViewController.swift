@@ -172,8 +172,8 @@ open class ChatViewController: UIViewController {
     }
 
     public private(set) var sessionID: String
-    public let conversationModels: ConversationSession.Models
-    public let sessionConfiguration: ConversationSession.Configuration
+    public private(set) var conversationModels: ConversationSession.Models
+    public private(set) var sessionConfiguration: ConversationSession.Configuration
     public var configuration: Configuration
 
     public var inputConfiguration: ChatInputConfiguration {
@@ -619,6 +619,9 @@ open class ChatViewController: UIViewController {
         let trailingNavigationItem = UIBarButtonItem(image: trailingImage, style: .plain, target: nil, action: nil)
         trailingNavigationItem.menu = trailingMenu
 
+        chatInputView.modelButtonMenu = menuDelegate?.chatViewControllerModelMenu(self)
+        chatInputView.selectedModelName = headerState.modelName
+
         let item = navigationItem
         item.leftBarButtonItem = UIBarButtonItem(customView: avatarButton)
         item.rightBarButtonItem = trailingNavigationItem
@@ -678,6 +681,23 @@ open class ChatViewController: UIViewController {
     }
 
     @MainActor
+    public func updateConversationRuntime(
+        sessionID: String,
+        providedSession: ConversationSession?,
+        models: ConversationSession.Models,
+        sessionConfiguration: ConversationSession.Configuration
+    ) {
+        let previousSessionID = self.sessionID
+        self.providedSession = providedSession
+        conversationModels = models
+        self.sessionConfiguration = sessionConfiguration
+        configureSession(for: sessionID, resetMessageList: false)
+        if previousSessionID != sessionID {
+            chatInputView.bind(sessionID: sessionID)
+        }
+    }
+
+    @MainActor
     public func currentContextUsageSnapshot() async -> ContextUsageSnapshot? {
         guard let session = currentSession, let model = session.models.chat else {
             return nil
@@ -710,13 +730,15 @@ open class ChatViewController: UIViewController {
         chatInputView.quickSettingButton(forCommand: command)
     }
 
-    private func configureSession(for id: String) {
+    private func configureSession(for id: String, resetMessageList: Bool = true) {
         sessionID = id
         let session = providedSession ?? ConversationSessionManager.shared.session(for: id, configuration: sessionConfiguration)
         applyConversationModels(conversationModels, to: session)
         currentSession = session
         setPromptInputExecuting(session.isQueryActive)
-        messageListView.prepareForNewSession()
+        if resetMessageList {
+            messageListView.prepareForNewSession()
+        }
         messageListView.onToggleReasoningCollapse = { [weak self] messageID in
             self?.currentSession?.toggleReasoningCollapse(for: messageID)
         }
@@ -801,6 +823,7 @@ open class ChatViewController: UIViewController {
         guard headerState != state else { return }
         headerState = state
         applyHeaderStateToNavigationTitle()
+        chatInputView.selectedModelName = headerState.modelName
     }
 
     public func refreshNavigationMenus() {

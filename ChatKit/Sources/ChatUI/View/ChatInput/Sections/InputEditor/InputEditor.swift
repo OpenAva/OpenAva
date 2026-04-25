@@ -17,15 +17,29 @@ final class InputEditor: EditorSectionView {
 
     let bossButton = IconButton(icon: "plus")
     let contextButton = IconButton(icon: "gauge")
-    let appsButton: UIButton = {
+    let modelButton: UIButton = {
         let button = UIButton(type: .custom)
         #if targetEnvironment(macCatalyst)
             if #available(macCatalyst 15.0, *) {
                 button.preferredBehavioralStyle = .pad
             }
         #endif
-        let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
-        button.setImage(UIImage(systemName: "square.grid.2x2", withConfiguration: config), for: .normal)
+        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let chevronImage = UIImage(systemName: "chevron.down", withConfiguration: config)
+        button.setImage(chevronImage, for: .normal)
+
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+
+        if #available(iOS 15.0, *) {
+            var configuration = UIButton.Configuration.plain()
+            configuration.imagePlacement = .trailing
+            configuration.imagePadding = 4
+            configuration.contentInsets = .zero
+            button.configuration = configuration
+        } else {
+            button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        }
+
         button.showsMenuAsPrimaryAction = true
         return button
     }()
@@ -33,8 +47,8 @@ final class InputEditor: EditorSectionView {
     let textView = TextEditorView()
     let placeholderLabel = UILabel()
     let voiceButton = IconButton(icon: "mic")
-    let stopVoiceButton = IconButton(icon: "stop.circle.fill")
-    let cancelVoiceButton = IconButton(icon: "xmark.circle")
+    let stopVoiceButton = IconButton(icon: "stop.fill")
+    let cancelVoiceButton = IconButton(icon: "xmark")
     let voiceActivityIndicator = VoiceWaveIndicatorView()
     let moreButton = IconButton(icon: "plus.circle") // Can remove moreButton later, or use bossButton
     let sendButton = IconButton(icon: "arrow.up.circle.fill")
@@ -98,13 +112,30 @@ final class InputEditor: EditorSectionView {
             self?.delegate?.onInputEditorContextButtonTapped()
         }
         elementClipper.addSubview(contextButton)
-        elementClipper.addSubview(appsButton)
+        elementClipper.addSubview(modelButton)
 
         let secondaryColor = ChatUIDesign.Color.black60
         bossButton.imageView.tintColor = secondaryColor
         contextButton.imageView.tintColor = secondaryColor
-        appsButton.tintColor = secondaryColor
+        modelButton.tintColor = secondaryColor
         voiceButton.imageView.tintColor = secondaryColor
+
+        for item in [cancelVoiceButton, stopVoiceButton] {
+            item.backgroundColor = ChatUIDesign.Color.offBlack
+            item.layer.cornerRadius = sendButtonSize.height / 2
+            item.layer.cornerCurve = .continuous
+            item.clipsToBounds = true
+            item.imageInsets = .init(top: 10, left: 10, bottom: 10, right: 10)
+            item.imageView.tintColor = ChatUIDesign.Color.pureWhite
+        }
+        cancelVoiceButton.imageView.image = UIImage(
+            systemName: "xmark",
+            withConfiguration: primaryActionSymbolConfiguration
+        )?.withRenderingMode(.alwaysTemplate)
+        stopVoiceButton.imageView.image = UIImage(
+            systemName: "stop.fill",
+            withConfiguration: primaryActionSymbolConfiguration
+        )?.withRenderingMode(.alwaysTemplate)
 
         sendButton.backgroundColor = ChatUIDesign.Color.offBlack
         sendButton.layer.cornerRadius = sendButtonSize.height / 2
@@ -386,12 +417,20 @@ private extension NSRange {
 }
 
 final class VoiceWaveIndicatorView: UIView {
-    private let bars: [UIView] = (0 ..< 5).map { _ in
+    private let barCount = 7
+    private let bars: [UIView] = (0 ..< 7).map { _ in
         let bar = UIView()
-        bar.layer.cornerRadius = 2
+        bar.layer.cornerRadius = 1.5
         bar.layer.cornerCurve = .continuous
+        bar.layer.shadowOffset = .zero
+        bar.layer.shadowOpacity = 0.16
+        bar.layer.shadowRadius = 1.5
         return bar
     }
+
+    private let baseHeights: [CGFloat] = [6, 10, 14, 18, 14, 10, 6]
+    private let amplitudes: [Double] = [0.82, 1.08, 1.28, 1.56, 1.28, 1.08, 0.82]
+    private let delays: [CFTimeInterval] = [0.24, 0.16, 0.08, 0.0, 0.08, 0.16, 0.24]
 
     private var isAnimating = false
 
@@ -399,6 +438,7 @@ final class VoiceWaveIndicatorView: UIView {
         didSet {
             for bar in bars {
                 bar.backgroundColor = tintColor
+                bar.layer.shadowColor = tintColor.cgColor
             }
         }
     }
@@ -406,6 +446,7 @@ final class VoiceWaveIndicatorView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
+
         for bar in bars {
             bar.backgroundColor = .secondaryLabel
             addSubview(bar)
@@ -420,23 +461,20 @@ final class VoiceWaveIndicatorView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Center the 5 bars horizontally.
-        let barCount = CGFloat(bars.count)
         let barWidth: CGFloat = 3
-        let spacing: CGFloat = 4
-        let contentWidth = barWidth * barCount + spacing * (barCount - 1)
-        let startX = (bounds.width - contentWidth) / 2
-
-        // Define base static heights for the 5 bars to create a natural wave shape
-        let minHeight: CGFloat = 6
-        let midHeight: CGFloat = 12
-        let maxHeight: CGFloat = 18
-        let heights: [CGFloat] = [minHeight, midHeight, maxHeight, midHeight, minHeight]
+        let spacing: CGFloat = 5
+        let totalWidth = (barWidth * CGFloat(barCount)) + (spacing * CGFloat(barCount - 1))
+        let startX = (bounds.width - totalWidth) / 2
 
         for (index, bar) in bars.enumerated() {
+            let height = baseHeights[index]
             let x = startX + CGFloat(index) * (barWidth + spacing)
-            let height = heights[index]
-            bar.frame = CGRect(x: x, y: (bounds.height - height) / 2, width: barWidth, height: height)
+            bar.frame = CGRect(
+                x: x,
+                y: (bounds.height - height) / 2,
+                width: barWidth,
+                height: height
+            )
         }
     }
 
@@ -446,15 +484,27 @@ final class VoiceWaveIndicatorView: UIView {
         alpha = 1
 
         for (index, bar) in bars.enumerated() {
-            let animation = CABasicAnimation(keyPath: "transform.scale.y")
-            animation.fromValue = 0.3
-            animation.toValue = 1.0
-            animation.duration = 0.45
-            animation.autoreverses = true
-            animation.repeatCount = .infinity
-            animation.beginTime = CACurrentMediaTime() + Double(index) * 0.12
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            bar.layer.add(animation, forKey: "voice.wave")
+            let scaleAnim = CABasicAnimation(keyPath: "transform.scale.y")
+            scaleAnim.fromValue = NSNumber(value: 0.72)
+            scaleAnim.toValue = NSNumber(value: amplitudes[index])
+
+            let alphaAnim = CABasicAnimation(keyPath: "opacity")
+            alphaAnim.fromValue = NSNumber(value: 0.42)
+            alphaAnim.toValue = NSNumber(value: min(1.0, 0.72 + amplitudes[index] * 0.18))
+
+            let glowAnim = CABasicAnimation(keyPath: "shadowOpacity")
+            glowAnim.fromValue = NSNumber(value: 0.08)
+            glowAnim.toValue = NSNumber(value: 0.22)
+
+            let group = CAAnimationGroup()
+            group.animations = [scaleAnim, alphaAnim, glowAnim]
+            group.duration = 0.58
+            group.autoreverses = true
+            group.repeatCount = .infinity
+            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            group.beginTime = CACurrentMediaTime() + delays[index]
+
+            bar.layer.add(group, forKey: "voice.track")
         }
     }
 
@@ -462,7 +512,7 @@ final class VoiceWaveIndicatorView: UIView {
         guard isAnimating else { return }
         isAnimating = false
         for bar in bars {
-            bar.layer.removeAnimation(forKey: "voice.wave")
+            bar.layer.removeAnimation(forKey: "voice.track")
         }
         alpha = 0
     }

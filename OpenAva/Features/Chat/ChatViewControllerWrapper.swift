@@ -235,6 +235,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((MenuAction) -> Void)?
     let onAgentSwitch: ((UUID) -> Void)?
+    let onModelSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
     let onRenameCurrentAgent: ((String) -> Bool)?
@@ -254,6 +255,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             selectedProviderName: selectedProviderName,
             autoCompactEnabled: autoCompactEnabled,
             onAgentSwitch: onAgentSwitch,
+            onModelSwitch: onModelSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
@@ -261,13 +263,18 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         )
     }
 
-    func makeUIViewController(context: Context) -> UIViewController {
-        let agentCount = max(agents.count, 1)
+    private func resolveSessionContext(agentCount: Int) -> (
+        sessionConfiguration: ConversationSession.Configuration,
+        models: ConversationSession.Models,
+        providedSession: ConversationSession?,
+        serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?
+    ) {
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
         let providedSession: ConversationSession?
         let models: ConversationSession.Models
         var serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?
+
         if let runtimeRootURL, activeAgentID != nil {
             if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
                 let invocationSessionID = "\(activeAgentID!.uuidString)::\(sessionID)"
@@ -305,14 +312,12 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                 models = fallbackModels
             }
         } else {
-            // New install / no active agent: avoid touching any runtime-root based agent pipeline.
             storageProvider = DisposableStorageProvider.shared
             sessionDelegate = nil
             providedSession = nil
             models = .init()
         }
 
-        // Create session configuration
         let sessionConfiguration = ConversationSession.Configuration(
             storage: storageProvider,
             tools: toolProvider,
@@ -327,6 +332,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             collapseReasoningWhenComplete: true
         )
 
+        return (sessionConfiguration, models, providedSession, serializedExecutionContext)
+    }
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let agentCount = max(agents.count, 1)
+        let sessionContext = resolveSessionContext(agentCount: agentCount)
+
         // Create and configure ChatViewController
         let inputConfiguration = ChatInputConfiguration(
             quickSettingItems: buildQuickSettingItems()
@@ -339,19 +351,19 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         #if targetEnvironment(macCatalyst)
             let catalystController: CatalystChatViewController
-            if let providedSession {
+            if let providedSession = sessionContext.providedSession {
                 catalystController = CatalystChatViewController(
                     session: providedSession,
                     sessionID: sessionID,
-                    models: models,
-                    sessionConfiguration: sessionConfiguration,
+                    models: sessionContext.models,
+                    sessionConfiguration: sessionContext.sessionConfiguration,
                     configuration: viewConfiguration
                 )
             } else {
                 catalystController = CatalystChatViewController(
                     sessionID: sessionID,
-                    models: models,
-                    sessionConfiguration: sessionConfiguration,
+                    models: sessionContext.models,
+                    sessionConfiguration: sessionContext.sessionConfiguration,
                     configuration: viewConfiguration
                 )
             }
@@ -360,19 +372,19 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             }
             chatViewController = catalystController
         #else
-            if let providedSession {
+            if let providedSession = sessionContext.providedSession {
                 chatViewController = ChatViewController(
                     session: providedSession,
                     sessionID: sessionID,
-                    models: models,
-                    sessionConfiguration: sessionConfiguration,
+                    models: sessionContext.models,
+                    sessionConfiguration: sessionContext.sessionConfiguration,
                     configuration: viewConfiguration
                 )
             } else {
                 chatViewController = ChatViewController(
                     sessionID: sessionID,
-                    models: models,
-                    sessionConfiguration: sessionConfiguration,
+                    models: sessionContext.models,
+                    sessionConfiguration: sessionContext.sessionConfiguration,
                     configuration: viewConfiguration
                 )
             }
@@ -388,7 +400,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
-        if let serializedExecutionContext {
+        if let serializedExecutionContext = sessionContext.serializedExecutionContext {
             chatViewController.promptSubmissionHandler = { _, _, prompt in
                 do {
                     return try await AgentMainSessionRegistry.shared.submitToMainSession(
@@ -474,6 +486,46 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.activeAgentEmoji = activeAgentEmoji
         context.coordinator.selectedModelName = selectedModelName
         context.coordinator.selectedProviderName = selectedProviderName
+        context.coordinator.onModelSwitch = onModelSwitch
+
+        let agentCount = max(agents.count, 1)
+        let sessionContext = resolveSessionContext(agentCount: agentCount)
+        chatViewController.updateConversationRuntime(
+            sessionID: sessionID,
+            providedSession: sessionContext.providedSession,
+            models: sessionContext.models,
+            sessionConfiguration: sessionContext.sessionConfiguration
+        )
+        if let agentID = activeAgentID {
+            chatViewController.draftPersistenceKey = agentID.uuidString
+        } else {
+            chatViewController.draftPersistenceKey = nil
+        }
+        if let serializedExecutionContext = sessionContext.serializedExecutionContext {
+            chatViewController.promptSubmissionHandler = { _, _, prompt in
+                do {
+                    return try await AgentMainSessionRegistry.shared.submitToMainSession(
+                        for: serializedExecutionContext.agent,
+                        modelConfig: serializedExecutionContext.modelConfig,
+                        invocationSessionID: serializedExecutionContext.invocationSessionID,
+                        agentCount: agentCount
+                    ) { resources in
+                        guard let model = resources.session.models.chat else {
+                            return false
+                        }
+                        return resources.session.submitPromptWithoutWaiting(
+                            model: model,
+                            prompt: prompt,
+                            usingExistingReservation: true
+                        )
+                    }
+                } catch {
+                    return false
+                }
+            }
+        } else {
+            chatViewController.promptSubmissionHandler = nil
+        }
 
         // Auto-send on behalf of the intent if this is a new request.
         if let id = pendingAutoSendID,
@@ -488,6 +540,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         }
 
         context.coordinator.onAgentSwitch = onAgentSwitch
+        context.coordinator.onModelSwitch = onModelSwitch
         context.coordinator.onCreateLocalAgent = onCreateLocalAgent
         context.coordinator.onDeleteCurrentAgent = onDeleteCurrentAgent
         context.coordinator.onRenameCurrentAgent = onRenameCurrentAgent
@@ -528,6 +581,7 @@ extension ChatViewControllerWrapper {
         var selectedModelName: String
         var selectedProviderName: String
         var onAgentSwitch: ((UUID) -> Void)?
+        var onModelSwitch: ((UUID) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
         var onRenameCurrentAgent: ((String) -> Bool)?
@@ -545,6 +599,7 @@ extension ChatViewControllerWrapper {
             selectedProviderName: String,
             autoCompactEnabled: Bool,
             onAgentSwitch: ((UUID) -> Void)?,
+            onModelSwitch: ((UUID) -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
             onRenameCurrentAgent: ((String) -> Bool)?,
@@ -559,11 +614,41 @@ extension ChatViewControllerWrapper {
             self.selectedProviderName = selectedProviderName
             self.autoCompactEnabled = autoCompactEnabled
             self.onAgentSwitch = onAgentSwitch
+            self.onModelSwitch = onModelSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
             self.onRenameCurrentAgent = onRenameCurrentAgent
             self.onToggleAutoCompact = onToggleAutoCompact
             super.init()
+        }
+
+        func chatViewControllerModelMenu(_: ChatViewController) -> UIMenu? {
+            let collection = LLMConfigStore.loadCollection()
+            let models = collection.models
+
+            var actions: [UIMenuElement] = []
+
+            for model in models {
+                let isSelected = model.name == self.selectedModelName
+                let action = UIAction(title: model.name, state: isSelected ? .on : .off) { [weak self] _ in
+                    self?.onModelSwitch?(model.id)
+                }
+                actions.append(action)
+            }
+
+            if actions.isEmpty {
+                let emptyAction = UIAction(title: L10n.tr("settings.llmList.empty.title"), attributes: .disabled) { _ in }
+                actions.append(emptyAction)
+            }
+
+            let addModelAction = UIAction(title: L10n.tr("settings.llmList.addModel"), image: UIImage(systemName: "plus")) { [weak self] _ in
+                self?.onMenuAction?(.openLLM)
+            }
+
+            let section1 = UIMenu(options: .displayInline, children: actions)
+            let section2 = UIMenu(options: .displayInline, children: [addModelAction])
+
+            return UIMenu(children: [section1, section2])
         }
 
         func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
@@ -670,7 +755,7 @@ extension ChatViewControllerWrapper {
 
         func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
             _ = controller
-            onMenuAction?(.openLLM)
+            onMenuAction?(.openContext)
         }
 
         func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool {

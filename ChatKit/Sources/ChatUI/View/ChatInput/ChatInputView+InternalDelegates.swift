@@ -80,6 +80,17 @@ extension ChatInputView: InputEditor.Delegate {
     func onInputEditorTextChanged(text: String) {
         dropColorView.alpha = 0
         publishNewEditorStatus()
+
+        if text.hasSuffix("/"), text.count == 1 || text.dropLast().last?.isWhitespace == true {
+            if text != lastTextForSkillList {
+                lastTextForSkillList = text
+                presentSkillList()
+            }
+        } else {
+            lastTextForSkillList = nil
+            dismissSkillListIfNeeded()
+        }
+
         guard text.isEmpty else { return }
         controlPanel.close()
     }

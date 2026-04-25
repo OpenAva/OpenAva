@@ -1,826 +1,904 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    "%@ (%@)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@ (%2$@)"
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$@)"
           }
         }
       }
     },
-    "Ask a question, run a skill, or call an Agent.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "您可以提问、运行技能，或唤起 Agent。"
+    "↵" : {
+
+    },
+    "Ask a question, run a skill, or call an Agent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您可以提问、运行技能，或唤起 Agent。"
           }
         }
       }
     },
-    "Attached %lld Documents": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已附加 %1$lld 个文档"
+    "Ask anything or type / for skills" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送任意问题，或输入 / 唤起技能"
           }
         }
       }
     },
-    "Audio": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音频"
+    "Attached %lld Documents" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已附加 %1$lld 个文档"
           }
         }
       }
     },
-    "Automatic compact boundary": {},
-    "Automatic compaction boundary": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动压缩边界"
+    "Audio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音频"
           }
         }
       }
     },
-    "Calculating context window...": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在计算上下文窗口..."
+    "Automatic compact boundary" : {
+
+    },
+    "Automatic compaction boundary" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动压缩边界"
           }
         }
       }
     },
-    "Camera": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "相机"
+    "Calculating context window..." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算上下文窗口..."
           }
         }
       }
     },
-    "Camera is not available, please grant camera permission": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "相机不可用，请授予相机权限"
+    "Camera" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机"
           }
         }
       }
     },
-    "Cancel": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
+    "Camera is not available, please grant camera permission" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机不可用，请授予相机权限"
           }
         }
       }
     },
-    "Cancelled": {},
-    "Chat": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "聊天"
+    "Cancel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
           }
         }
       }
     },
-    "Compact Conversation": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "压缩对话"
+    "Cancelled" : {
+
+    },
+    "Chat" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天"
           }
         }
       }
     },
-    "Compact From Here": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从此处开始压缩"
+    "Compact Conversation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩对话"
           }
         }
       }
     },
-    "Compact Up to Here": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "压缩至此处"
+    "Compact From Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从此处开始压缩"
           }
         }
       }
     },
-    "Compacted %lld earlier messages": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "压缩范围：%1$lld 条较早消息"
+    "Compact Up to Here" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩至此处"
           }
         }
       }
     },
-    "Completed": {},
-    "Context --%": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上下文 --%"
+    "Compacted %lld earlier messages" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压缩范围：%1$lld 条较早消息"
           }
         }
       }
     },
-    "Context %lld%%": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上下文 %1$lld%%"
+    "Completed" : {
+
+    },
+    "Context --%" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文 --%"
           }
         }
       }
     },
-    "Conversation compact boundary": {},
-    "Conversation compaction boundary": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历史压缩边界"
+    "Context %lld%%" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文 %1$lld%%"
           }
         }
       }
     },
-    "Convert to Images": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "转换为图片"
+    "Conversation compact boundary" : {
+
+    },
+    "Conversation compaction boundary" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史压缩边界"
           }
         }
       }
     },
-    "Copy": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制"
+    "Convert to Images" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转换为图片"
           }
         }
       }
     },
-    "Document": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文档"
+    "Copy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制"
           }
         }
       }
     },
-    "Error": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "错误"
+    "Copy %@" : {
+
+    },
+    "Document" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文档"
           }
         }
       }
     },
-    "Failed": {},
-    "Failed to load PDF file.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加载 PDF 文件失败。"
+    "Error" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "错误"
           }
         }
       }
     },
-    "Failed to process audio file.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "处理音频文件失败。"
+    "Failed" : {
+
+    },
+    "Failed to load PDF file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载 PDF 文件失败。"
           }
         }
       }
     },
-    "Failed to process image.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "处理图片失败。"
+    "Failed to process audio file." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理音频文件失败。"
           }
         }
       }
     },
-    "Failed to save text.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存文本失败。"
+    "Failed to process image." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理图片失败。"
           }
         }
       }
     },
-    "File": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文件"
+    "Failed to save text." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存文本失败。"
           }
         }
       }
     },
-    "Generating…": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在生成…"
+    "File" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件"
           }
         }
       }
     },
-    "Ask anything or type / for skills": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送任意问题，或输入 / 唤起技能"
+    "Generating…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成…"
           }
         }
       }
     },
-    "Image": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "图片"
+    "Image" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片"
           }
         }
       }
     },
-    "Image unavailable": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "图片不可用"
+    "Image unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片不可用"
           }
         }
       }
     },
-    "Import PDF": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入 PDF"
+    "Import PDF" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入 PDF"
           }
         }
       }
     },
-    "Import Text": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入文本"
+    "Import Text" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入文本"
           }
         }
       }
     },
-    "Inference was cancelled.": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "推理已取消。"
+    "Inference was cancelled." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推理已取消。"
           }
         }
       }
     },
-    "Insert New Line": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "插入新行"
+    "Insert New Line" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "插入新行"
           }
         }
       }
     },
-    "Item": {},
-    "Loading image...": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载图片…"
+    "Item" : {
+
+    },
+    "Loading image..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载图片…"
           }
         }
       }
     },
-    "Manual compact boundary": {},
-    "Manual compaction boundary": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手动压缩边界"
+    "Manual compact boundary" : {
+
+    },
+    "Manual compaction boundary" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动压缩边界"
           }
         }
       }
     },
-    "Microphone is not authorized.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "麦克风未获授权。"
+    "Microphone is not authorized." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "麦克风未获授权。"
           }
         }
       }
     },
-    "Microphone is not authorized. Please enable OpenAva in System Settings > Privacy & Security > Microphone.": {},
-    "More": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更多"
+    "Microphone is not authorized. Please enable OpenAva in System Settings > Privacy & Security > Microphone." : {
+
+    },
+    "More" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多"
           }
         }
       }
     },
-    "No response from model.": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型没有返回内容。"
+    "No response from model." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型没有返回内容。"
           }
         }
       }
     },
-    "OK": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "确定"
+    "OK" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确定"
           }
         }
       }
     },
-    "Open": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开"
+    "Open" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开"
           }
         }
       }
     },
-    "Output truncated.": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "输出被截断。"
+    "Output truncated." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输出被截断。"
           }
         }
       }
     },
-    "Paste as Attachment": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作为附件粘贴"
+    "Paste as Attachment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作为附件粘贴"
           }
         }
       }
     },
-    "Pasteboard": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "剪贴板"
+    "Pasteboard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剪贴板"
           }
         }
       }
     },
-    "PDF file is empty.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PDF 文件为空。"
+    "PDF file is empty." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF 文件为空。"
           }
         }
       }
     },
-    "Photo": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "照片"
+    "Photo" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片"
           }
         }
       }
     },
-    "Preparing Transcript...": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在准备转写..."
+    "Preparing Transcript..." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在准备转写..."
           }
         }
       }
     },
-    "Range": {},
-    "Ready for Tasks": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "随时准备就绪"
+    "Range" : {
+
+    },
+    "Ready for Tasks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随时准备就绪"
           }
         }
       }
     },
-    "Recent activity": {},
-    "Result": {},
-    "Rollback": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回退"
+    "Recent activity" : {
+
+    },
+    "Result" : {
+
+    },
+    "Retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试"
           }
         }
       }
     },
-    "Rule": {},
-    "Running": {},
-    "Select All": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全选"
+    "Retrying..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试中..."
           }
         }
       }
     },
-    "Selected Rule": {},
-    "Selected X End": {},
-    "Selected X Start": {},
-    "Selected Y End": {},
-    "Selected Y Start": {},
-    "Selection": {},
-    "Selection X": {},
-    "Selection Y": {},
-    "Series": {},
-    "Some messages have been removed to fit the model context length.": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "为适应模型上下文长度，部分消息已被移除。"
+    "Rollback" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回退"
           }
         }
       }
     },
-    "Speech recognizer is not authorized.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语音识别未获授权。"
+    "Rule" : {
+
+    },
+    "Running" : {
+
+    },
+    "Select All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全选"
           }
         }
       }
     },
-    "Speech recognizer is not authorized. Please enable OpenAva in System Settings > Privacy & Security > Speech Recognition.": {},
-    "Speech recognizer is not available.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语音识别不可用。"
+    "Selected Rule" : {
+
+    },
+    "Selected X End" : {
+
+    },
+    "Selected X Start" : {
+
+    },
+    "Selected Y End" : {
+
+    },
+    "Selected Y Start" : {
+
+    },
+    "Selection" : {
+
+    },
+    "Selection X" : {
+
+    },
+    "Selection Y" : {
+
+    },
+    "Series" : {
+
+    },
+    "Some messages have been removed to fit the model context length." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为适应模型上下文长度，部分消息已被移除。"
           }
         }
       }
     },
-    "Stop Transcript": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止转写"
+    "Speech recognizer is not authorized." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音识别未获授权。"
           }
         }
       }
     },
-    "Text Editor": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文本编辑器"
+    "Speech recognizer is not authorized. Please enable OpenAva in System Settings > Privacy & Security > Speech Recognition." : {
+
+    },
+    "Speech recognizer is not available." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语音识别不可用。"
           }
         }
       }
     },
-    "Text too long.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文本过长。"
+    "Stop Transcript" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止转写"
           }
         }
       }
     },
-    "Text Viewer": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文本查看器"
+    "Task execution interrupted, please retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务已中断，点击重试可重新发起"
           }
         }
       }
     },
-    "This PDF has %lld page(s). Import as text or convert to images?": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个 PDF 有 %1$lld 页。要导入为文本还是转换为图片？"
+    "Text Editor" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本编辑器"
           }
         }
       }
     },
-    "Thought for %lld seconds": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已思考 %1$lld 秒"
+    "Text too long." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本过长。"
           }
         }
       }
     },
-    "Tool %@ failed: %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Tool %1$@ failed: %2$@"
+    "Text Viewer" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本查看器"
+          }
+        }
+      }
+    },
+    "This PDF has %lld page(s). Import as text or convert to images?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个 PDF 有 %1$lld 页。要导入为文本还是转换为图片？"
+          }
+        }
+      }
+    },
+    "Thought for %lld seconds" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已思考 %1$lld 秒"
+          }
+        }
+      }
+    },
+    "Tool %@ failed: %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Tool %1$@ failed: %2$@"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具 %1$@ 执行失败：%2$@"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具 %1$@ 执行失败：%2$@"
           }
         }
       }
     },
-    "Tool Arguments": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具参数"
+    "Tool Arguments" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具参数"
           }
         }
       }
     },
-    "Tool call for %@ completed.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具 %1$@ 调用已完成。"
+    "Tool call for %@ completed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具 %1$@ 调用已完成。"
           }
         }
       }
     },
-    "Tool call for %@ failed.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具 %1$@ 调用失败。"
+    "Tool call for %@ failed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具 %1$@ 调用失败。"
           }
         }
       }
     },
-    "Tool call for %@ running": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具 %1$@ 调用进行中"
+    "Tool call for %@ running" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具 %1$@ 调用进行中"
           }
         }
       }
     },
-    "Tool executed successfully with no output": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具执行成功，但没有输出。"
+    "Tool executed successfully with no output" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具执行成功，但没有输出。"
           }
         }
       }
     },
-    "Tool execution failed: %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具执行失败：%1$@"
+    "Tool execution failed: %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具执行失败：%1$@"
           }
         }
       }
     },
-    "Tool Result": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工具返回"
+    "Tool Result" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工具返回"
           }
         }
       }
     },
-    "Transcript Stopped": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "转写已停止"
+    "Transcript Stopped" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转写已停止"
           }
         }
       }
     },
-    "Type something...": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "输入点什么..."
+    "Type something..." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入点什么..."
           }
         }
       }
     },
-    "Unable to find tool: %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "找不到工具：%1$@"
+    "Unable to find tool: %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到工具：%1$@"
           }
         }
       }
     },
-    "Unsupported format.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不支持的格式。"
+    "Unsupported format." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持的格式。"
           }
         }
       }
     },
-    "Utilizing tool call": {
-      "extractionState": "stale",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在调用工具"
+    "Utilizing tool call" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在调用工具"
           }
         }
       }
     },
-    "Value": {},
-    "Video unavailable": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "视频不可用"
+    "Value" : {
+
+    },
+    "Video unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频不可用"
           }
         }
       }
     },
-    "X": {},
-    "X End": {},
-    "X Start": {},
-    "Y": {},
-    "Y End": {},
-    "Y Start": {},
-    "Retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        }
-      }
+    "X" : {
+
     },
-    "Retrying...": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试中..."
-          }
-        }
-      }
+    "X End" : {
+
     },
-    "Task execution interrupted, please retry.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任务已中断，点击重试可重新发起"
-          }
-        }
-      }
+    "X Start" : {
+
+    },
+    "Y" : {
+
+    },
+    "Y End" : {
+
+    },
+    "Y Start" : {
+
+    },
+    "可立即使用" : {
+
+    },
+    "搜索技能" : {
+
+    },
+    "未找到匹配的技能" : {
+
+    },
+    "试试其他关键词" : {
+
     }
   },
-  "version": "1.1"
+  "version" : "1.1"
 }

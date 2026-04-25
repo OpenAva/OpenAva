@@ -20,6 +20,9 @@ public protocol ChatViewControllerMenuDelegate: AnyObject {
     /// Called when ChatUI receives a local slash command that the host may want to handle.
     /// Return true when handled and ChatUI should stop further processing.
     func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool
+
+    /// Return the menu for the model selection button in the input editor. Return nil to hide or disable.
+    func chatViewControllerModelMenu(_ controller: ChatViewController) -> UIMenu?
 }
 
 public extension ChatViewControllerMenuDelegate {
@@ -40,5 +43,10 @@ public extension ChatViewControllerMenuDelegate {
     func chatViewControllerHandleCommand(_ controller: ChatViewController, command _: String) -> Bool {
         _ = controller
         return false
+    }
+
+    func chatViewControllerModelMenu(_ controller: ChatViewController) -> UIMenu? {
+        _ = controller
+        return nil
     }
 }

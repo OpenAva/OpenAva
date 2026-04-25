@@ -28,6 +28,7 @@ public final class ConversationSessionManager: @unchecked Sendable {
             storageID: ObjectIdentifier(configuration.storage)
         )
         if let existing = sessions[key] {
+            existing.reconfigure(with: configuration)
             return existing
         }
         let session = ConversationSession(id: sessionID, configuration: configuration)

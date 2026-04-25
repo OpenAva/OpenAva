@@ -51,9 +51,50 @@ open class ChatInputView: EditorSectionView {
     let dropColorView = UIView()
     let attachmentSeprator = UIView()
     let controlPanelSeparator = UIView()
+    public var selectedModelName: String? {
+        didSet {
+            guard let selectedModelName else {
+                inputEditor.modelButton.setTitle(nil, for: .normal)
+                if #available(iOS 15.0, *) {
+                    var configuration = inputEditor.modelButton.configuration ?? .plain()
+                    configuration.title = nil
+                    inputEditor.modelButton.configuration = configuration
+                }
+                inputEditor.setNeedsLayout()
+                return
+            }
+
+            // On iOS/macCatalyst, button size changes require explicit layout passes
+            UIView.performWithoutAnimation {
+                inputEditor.modelButton.setTitle(selectedModelName, for: .normal)
+                if #available(iOS 15.0, *) {
+                    var configuration = inputEditor.modelButton.configuration ?? .plain()
+                    configuration.title = selectedModelName
+                    inputEditor.modelButton.configuration = configuration
+                }
+
+                // Force size to update immediately
+                inputEditor.modelButton.sizeToFit()
+                inputEditor.setNeedsLayout()
+                inputEditor.layoutIfNeeded()
+            }
+        }
+    }
+
+    public var modelButtonMenu: UIMenu? {
+        get { inputEditor.modelButton.menu }
+        set { inputEditor.modelButton.menu = newValue }
+    }
+
+    public var isModelButtonHidden: Bool {
+        get { inputEditor.modelButton.isHidden }
+        set { inputEditor.modelButton.isHidden = newValue }
+    }
+
     var voiceRecognitionSession: SpeechRecognitionSession?
 
     private var glassEffectView: UIVisualEffectView?
+
     private var useGlassEffect: Bool {
         if #available(iOS 26, *) { return true }
         return false
@@ -80,6 +121,7 @@ open class ChatInputView: EditorSectionView {
     public weak var delegate: ChatInputDelegate?
     var objectTransactionInProgress = false
     var heightContraints: NSLayoutConstraint = .init()
+    var lastTextForSkillList: String?
 
     var handlerColor: UIColor = .init {
         switch $0.userInterfaceStyle {
@@ -340,44 +382,86 @@ open class ChatInputView: EditorSectionView {
         inputEditor.configuration = configuration
         quickSettingBar.configure(with: configuration.quickSettingItems)
         controlPanel.configure(with: configuration.controlPanelItems)
-        updateAppsMenu()
     }
 
-    private func updateAppsMenu() {
-        var actions: [UIMenuElement] = []
+    func dismissSkillListIfNeeded() {
+        guard let parent = parentViewController else { return }
+        if let presented = parent.presentedViewController as? SkillListPopoverController {
+            presented.dismiss(animated: false)
+        }
+    }
+
+    func presentSkillList() {
+        guard let parent = parentViewController else { return }
+        if parent.presentedViewController is SkillListPopoverController { return }
+
+        var validItems: [QuickSettingItem] = []
         for item in configuration.quickSettingItems {
             switch item {
-            case let .skill(_, title, icon, prompt, autoSubmit):
-                let action = UIAction(
-                    title: title,
-                    image: UIImage.chatInputIcon(named: icon)
-                ) { [weak self] _ in
-                    guard let self else { return }
+            case .skill:
+                validItems.append(item)
+            case let .command(_, _, _, command):
+                if command != "/context" {
+                    validItems.append(item)
+                }
+            default: break
+            }
+        }
+
+        guard !validItems.isEmpty else { return }
+
+        let listVC = SkillListPopoverController(
+            items: validItems,
+            onSelect: { [weak self] selectedItem in
+                guard let self else { return }
+                switch selectedItem {
+                case let .skill(_, _, _, prompt, autoSubmit):
                     self.delegate?.chatInputDidTriggerSkill(self, prompt: prompt, autoSubmit: autoSubmit)
                     if autoSubmit {
                         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
                         self.refill(withText: trimmed, attachments: [])
                         self.submitValues()
+                    } else {
+                        self.inputEditor.set(text: prompt + " ")
+                        self.inputEditor.textView.becomeFirstResponder()
+                    }
+                case let .command(_, _, _, command):
+                    self.delegate?.chatInputDidTriggerCommand(self, command: command)
+                default: break
+                }
+            },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+
+                // When the popover is dismissed (e.g. by pressing ESC or clicking outside),
+                // we want to return focus to the text view if it's not currently focused.
+                // This ensures the user can press Backspace to delete the "/".
+                DispatchQueue.main.async {
+                    if !self.inputEditor.textView.isFirstResponder {
+                        self.inputEditor.textView.becomeFirstResponder()
                     }
                 }
-                actions.append(action)
-            case let .command(_, title, icon, command):
-                // Filter out context command as it's mapped to contextButton
-                if command == "/context" { continue }
-                let action = UIAction(
-                    title: title,
-                    image: UIImage.chatInputIcon(named: icon)
-                ) { [weak self] _ in
-                    guard let self else { return }
-                    self.delegate?.chatInputDidTriggerCommand(self, command: command)
-                }
-                actions.append(action)
-            default:
-                break
             }
+        )
+
+        let estimatedRowHeight: CGFloat = 60
+        let chromeHeight: CGFloat = 46
+        let estimatedHeight = CGFloat(validItems.count) * estimatedRowHeight + chromeHeight
+        listVC.preferredContentSize = CGSize(width: 420, height: min(max(estimatedHeight, 240), 460))
+
+        if let popover = listVC.popoverPresentationController {
+            popover.sourceView = inputEditor.textView
+            if let selectedRange = inputEditor.textView.selectedTextRange {
+                let caretRect = inputEditor.textView.caretRect(for: selectedRange.start)
+                popover.sourceRect = caretRect
+            } else {
+                popover.sourceRect = inputEditor.textView.bounds
+            }
+            popover.permittedArrowDirections = [.down, .up]
         }
-        inputEditor.appsButton.menu = UIMenu(title: "", children: actions)
+
+        parent.present(listVC, animated: true)
     }
 
     @objc private func applicationWillResignActive() {

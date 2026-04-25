@@ -89,11 +89,11 @@ public final class ConversationSession: Identifiable, Sendable {
 
     // MARK: - Providers
 
-    let storageProvider: StorageProvider
-    let toolProvider: ToolProvider?
-    let sessionDelegate: SessionDelegate?
-    let systemPromptProvider: SystemPromptProvider
-    let collapseReasoningWhenComplete: Bool
+    var storageProvider: StorageProvider
+    var toolProvider: ToolProvider?
+    var sessionDelegate: SessionDelegate?
+    var systemPromptProvider: SystemPromptProvider
+    var collapseReasoningWhenComplete: Bool
 
     // MARK: - Reactive
 
@@ -170,6 +170,15 @@ public final class ConversationSession: Identifiable, Sendable {
         collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
         models = .init()
         refreshContentsFromDatabase()
+        showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
+    }
+
+    func reconfigure(with configuration: Configuration) {
+        storageProvider = configuration.storage
+        toolProvider = configuration.tools
+        sessionDelegate = configuration.delegate
+        systemPromptProvider = configuration.systemPromptProvider
+        collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
         showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
     }
 

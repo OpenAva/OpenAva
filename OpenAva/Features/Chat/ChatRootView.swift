@@ -147,6 +147,7 @@ struct ChatRootView: View {
             onConsumePendingAutoSend: consumePendingAutoSend,
             onMenuAction: handleMenuAction,
             onAgentSwitch: handleAgentSwitch,
+            onModelSwitch: handleModelSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
             onRenameCurrentAgent: handleRenameCurrentAgent,
@@ -161,28 +162,10 @@ struct ChatRootView: View {
         #endif
     }
 
-    /// Recreate the chat screen when runtime config changes.
+    /// Recreate the chat screen only when switching to another agent.
     private var containerAgent: String {
-        let selectedModel = containerStore.container.config.selectedLLMModel
         let agent = containerStore.container.config.agent
-
-        // Keep this split to avoid Swift type-checking timeouts.
-        let modelKey = [
-            selectedModel?.id.uuidString ?? "",
-            selectedModel?.endpoint?.absoluteString ?? "",
-            selectedModel?.model ?? "",
-            selectedModel?.provider ?? "",
-            String(selectedModel?.requestTimeoutMs ?? 0),
-        ].joined(separator: "|")
-
-        let agentKey = [
-            agent.id ?? "",
-            agent.name,
-            agent.emoji,
-            agent.workspaceRootURL?.path ?? "",
-        ].joined(separator: "|")
-
-        return [modelKey, agentKey].joined(separator: "|")
+        return agent.id ?? ""
     }
 
     private var resolvedDefaultSessionKey: String {
@@ -224,6 +207,10 @@ struct ChatRootView: View {
         // Keep existing sessions alive so in-flight tasks can keep running
         // when users switch to another agent.
         guard containerStore.setActiveAgent(agentID) else { return }
+    }
+
+    private func handleModelSwitch(_ modelID: UUID) {
+        containerStore.selectLLMModel(id: modelID)
     }
 
     private func handleDeleteCurrentAgent() {
@@ -447,6 +434,7 @@ private struct ChatScreen: View {
     private let onConsumePendingAutoSend: ((String) -> Void)?
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     private let onAgentSwitch: ((UUID) -> Void)?
+    private let onModelSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
     private let onRenameCurrentAgent: ((String) -> Bool)?
@@ -472,6 +460,7 @@ private struct ChatScreen: View {
         onConsumePendingAutoSend: ((String) -> Void)? = nil,
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
         onAgentSwitch: ((UUID) -> Void)? = nil,
+        onModelSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
         onRenameCurrentAgent: ((String) -> Bool)? = nil,
@@ -493,6 +482,7 @@ private struct ChatScreen: View {
         self.onConsumePendingAutoSend = onConsumePendingAutoSend
         self.onMenuAction = onMenuAction
         self.onAgentSwitch = onAgentSwitch
+        self.onModelSwitch = onModelSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
         self.onRenameCurrentAgent = onRenameCurrentAgent
@@ -705,6 +695,7 @@ private struct ChatScreen: View {
             onConsumePendingAutoSend: onConsumePendingAutoSend,
             onMenuAction: onMenuAction,
             onAgentSwitch: onAgentSwitch,
+            onModelSwitch: onModelSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,

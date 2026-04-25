@@ -95,11 +95,12 @@ extension InputEditor {
             height: iconSize.height
         )
 
-        appsButton.frame = CGRect(
+        let modelButtonSize = modelButton.sizeThatFits(CGSize(width: bounds.width, height: iconSize.height))
+        modelButton.frame = CGRect(
             x: contextButton.frame.maxX + iconSpacing,
-            y: iconBottomY,
-            width: iconSize.width,
-            height: iconSize.height
+            y: iconBottomY - (modelButtonSize.height - iconSize.height) / 2,
+            width: modelButtonSize.width,
+            height: modelButtonSize.height
         )
 
         sendButton.frame = CGRect(
@@ -140,7 +141,7 @@ extension InputEditor {
         voiceButton.alpha = 1
         bossButton.alpha = 1
         contextButton.alpha = 1
-        appsButton.alpha = 1
+        modelButton.alpha = 1
         moreButton.alpha = 0
         textView.alpha = 1
         placeholderLabel.alpha = 0
@@ -156,7 +157,7 @@ extension InputEditor {
         voiceButton.alpha = 1
         bossButton.alpha = 1
         contextButton.alpha = 1
-        appsButton.alpha = 1
+        modelButton.alpha = 1
         moreButton.alpha = 0
         textView.alpha = 1
         placeholderLabel.alpha = 1
@@ -172,7 +173,7 @@ extension InputEditor {
         voiceButton.alpha = 1
         bossButton.alpha = 1
         contextButton.alpha = 1
-        appsButton.alpha = 1
+        modelButton.alpha = 1
         moreButton.alpha = 0
         textView.alpha = 1
         placeholderLabel.alpha = 1
@@ -184,23 +185,23 @@ extension InputEditor {
         cancelVoiceButton.alpha = 1
         voiceActivityIndicator.alpha = 1
 
-        let sendBottomY = bounds.height - inset.bottom - sendButtonSize.height
-        let iconBottomY = bounds.height - inset.bottom - iconSize.height - (sendButtonSize.height - iconSize.height) / 2
+        let recordingButtonY = bounds.height - inset.bottom - sendButtonSize.height
+        let indicatorY = recordingButtonY + (sendButtonSize.height - iconSize.height) / 2
 
         // Cancel button on the far left
         cancelVoiceButton.frame = CGRect(
             x: inset.left,
-            y: iconBottomY,
-            width: iconSize.width,
-            height: iconSize.height
+            y: recordingButtonY,
+            width: sendButtonSize.width,
+            height: sendButtonSize.height
         )
 
         // Stop button on the far right
         stopVoiceButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: iconBottomY,
-            width: iconSize.width,
-            height: iconSize.height
+            x: bounds.width - inset.right - sendButtonSize.width,
+            y: recordingButtonY,
+            width: sendButtonSize.width,
+            height: sendButtonSize.height
         )
 
         // Voice activity indicator fills the space between cancel and stop buttons
@@ -208,7 +209,7 @@ extension InputEditor {
         let indicatorWidth = stopVoiceButton.frame.minX - indicatorX - iconSpacing
         voiceActivityIndicator.frame = CGRect(
             x: indicatorX,
-            y: iconBottomY,
+            y: indicatorY,
             width: indicatorWidth,
             height: iconSize.height
         )
@@ -217,7 +218,7 @@ extension InputEditor {
         voiceButton.alpha = 0
         bossButton.alpha = 0
         contextButton.alpha = 0
-        appsButton.alpha = 0
+        modelButton.alpha = 0
         moreButton.alpha = 0
         textView.alpha = 1
         placeholderLabel.alpha = 0
@@ -233,7 +234,7 @@ extension InputEditor {
         voiceButton.alpha = 0.3
         bossButton.alpha = 0.3
         contextButton.alpha = 0.3
-        appsButton.alpha = 0.3
+        modelButton.alpha = 0.3
         moreButton.alpha = 0
         textView.alpha = 1
         placeholderLabel.alpha = 0

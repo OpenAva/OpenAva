@@ -25,7 +25,7 @@ enum ChatTopBar {
         }
 
         var principalTitleText: String {
-            "\(principalAgentText) · \(resolvedModelName)"
+            principalAgentText
         }
     }
 
@@ -157,13 +157,6 @@ enum ChatTopBar {
                     systemImage: "doc.text",
                     isDestructive: false
                 ),
-                ConfigurationItem(
-                    id: "open-cron",
-                    kind: .destination(.cron),
-                    title: L10n.tr("settings.cron.navigationTitle"),
-                    systemImage: "calendar.badge.clock",
-                    isDestructive: false
-                ),
             ]
         )
 
@@ -185,6 +178,13 @@ enum ChatTopBar {
                 kind: .autoCompact(enabled: autoCompactEnabled),
                 title: L10n.tr("chat.menu.autoCompact"),
                 systemImage: "rectangle.compress.vertical",
+                isDestructive: false
+            ),
+            ConfigurationItem(
+                id: "open-cron",
+                kind: .destination(.cron),
+                title: L10n.tr("settings.cron.navigationTitle"),
+                systemImage: "calendar.badge.clock",
                 isDestructive: false
             ),
             ConfigurationItem(
