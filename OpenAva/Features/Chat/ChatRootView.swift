@@ -706,14 +706,13 @@ private struct ChatScreen: View {
         )
         .id(scopedSessionID)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea()
         #if targetEnvironment(macCatalyst)
             .toolbar(.hidden, for: .navigationBar)
         #else
             .toolbar(showsSystemTopBar ? .visible : .hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
         #endif
     }
 }
