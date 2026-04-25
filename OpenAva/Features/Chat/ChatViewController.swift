@@ -400,7 +400,8 @@ open class ChatViewController: UIViewController {
         let safeArea = view.safeAreaInsets
         let inputHeight = chatInputView.heightPublisher.value
         let bottomPadding = max(safeArea.bottom, 0)
-        let inputExtension = bottomPadding
+        let idleBottomSpacingReduction = keyboardHeight == 0 ? min(chatInputView.idleBottomSpacingReduction, bottomPadding) : 0
+        let inputExtension = bottomPadding - idleBottomSpacingReduction
         let totalInputHeight = inputHeight + inputExtension
 
         chatInputView.bottomBackgroundExtension = inputExtension

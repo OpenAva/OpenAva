@@ -118,6 +118,17 @@ open class ChatInputView: EditorSectionView {
         }
     }
 
+    public var idleBottomSpacingReduction: CGFloat {
+        #if targetEnvironment(macCatalyst)
+            0
+        #else
+            let hasContent = !collectObject().hasEmptyContent
+            let isIdle = !inputEditor.textView.isFirstResponder && !inputEditor.isExecuting && !inputEditor.isVoiceRecording
+            let isControlPanelClosed = !controlPanel.isPanelOpen.value
+            return !hasContent && isIdle && isControlPanelClosed ? spacing : 0
+        #endif
+    }
+
     public weak var delegate: ChatInputDelegate?
     var objectTransactionInProgress = false
     var heightContraints: NSLayoutConstraint = .init()
