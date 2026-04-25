@@ -207,4 +207,57 @@ final class YouTubeTranscriptServiceTests: XCTestCase {
         XCTAssertNil(properties["startIndex"])
         XCTAssertNil(properties["maxSegments"])
     }
+
+    func testRenderedTranscriptPageTextNeverExceedsMaxPayloadChars() {
+        let document = YouTubeTranscriptDocument(
+            videoID: "video1234567",
+            input: "video1234567",
+            title: String(repeating: "Very Long Title ", count: 10),
+            language: "en",
+            trackName: String(repeating: "English Track ", count: 6),
+            totalSegmentCount: 2,
+            transcript: "",
+            segments: [
+                YouTubeTranscriptSegment(startSeconds: 5, durationSeconds: 1, text: String(repeating: "A", count: 32)),
+                YouTubeTranscriptSegment(startSeconds: 6, durationSeconds: 1, text: String(repeating: "B", count: 32)),
+            ],
+            message: ""
+        )
+
+        let text = YouTubeTranscriptService.renderVisibleTranscriptPageText(
+            from: document,
+            requestedPage: 1,
+            maxPayloadChars: 120,
+            preferredBodyChars: 70,
+            reservedHeaderChars: 45
+        )
+
+        XCTAssertLessThanOrEqual(text.count, 120)
+    }
+
+    func testRenderedSegmentsPageTextNeverExceedsMaxPayloadChars() {
+        let document = YouTubeTranscriptDocument(
+            videoID: "video1234567",
+            input: "video1234567",
+            title: String(repeating: "Segmented Video ", count: 8),
+            language: "zh-Hans",
+            trackName: String(repeating: "Auto Caption ", count: 6),
+            totalSegmentCount: 1,
+            transcript: "",
+            segments: [
+                YouTubeTranscriptSegment(startSeconds: 12.34, durationSeconds: 5.67, text: String(repeating: "字幕", count: 30)),
+            ],
+            message: ""
+        )
+
+        let text = YouTubeTranscriptService.renderVisibleSegmentsPageText(
+            from: document,
+            requestedPage: 1,
+            maxPayloadChars: 110,
+            preferredBodyChars: 80,
+            reservedHeaderChars: 40
+        )
+
+        XCTAssertLessThanOrEqual(text.count, 110)
+    }
 }

@@ -15,6 +15,7 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
     private static let preferredTranscriptBodyChars = 24 * 1024
     private static let preferredSegmentsBodyChars = 24 * 1024
     private static let headerReserveChars = 1024
+    private static let transcriptSectionHeading = "### Transcript\n"
 
     nonisolated func toolDefinitions() -> [ToolDefinition] {
         [
@@ -84,53 +85,77 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
         let text: String
         switch params.format ?? "transcript" {
         case "segments":
-            let pages = Self.makeVisibleSegmentsPages(from: document)
-            let page = Self.resolvePage(pages, requestedPage: requestedPage)
-            let header = Self.makeHeader(
-                document: document,
-                requestedPage: requestedPage,
-                resolvedPage: page.pageNumber,
-                totalPages: page.totalPages,
-                returnedSegmentCount: page.renderedPage.returnedSegmentCount,
-                nextPage: page.nextPage,
-                hasMore: page.hasMore,
-                summary: Self.makeSummary(
-                    requestedPage: requestedPage,
-                    resolvedPage: page.pageNumber,
-                    totalPages: page.totalPages,
-                    returnedSegmentCount: page.renderedPage.returnedSegmentCount,
-                    totalSegmentCount: document.totalSegmentCount,
-                    nextPage: page.nextPage,
-                    outOfRange: page.outOfRange
-                )
+            text = Self.renderVisibleSegmentsPageText(
+                from: document,
+                requestedPage: requestedPage
             )
-            let body = page.renderedPage.body.isEmpty ? "- (empty)" : page.renderedPage.body
-            text = "\(header)\n\n\(body)"
         default: // "transcript"
-            let pages = Self.makeVisibleTranscriptPages(from: document)
-            let page = Self.resolvePage(pages, requestedPage: requestedPage)
-            let header = Self.makeHeader(
-                document: document,
-                requestedPage: requestedPage,
-                resolvedPage: page.pageNumber,
-                totalPages: page.totalPages,
-                returnedSegmentCount: page.renderedPage.returnedSegmentCount,
-                nextPage: page.nextPage,
-                hasMore: page.hasMore,
-                summary: Self.makeSummary(
-                    requestedPage: requestedPage,
-                    resolvedPage: page.pageNumber,
-                    totalPages: page.totalPages,
-                    returnedSegmentCount: page.renderedPage.returnedSegmentCount,
-                    totalSegmentCount: document.totalSegmentCount,
-                    nextPage: page.nextPage,
-                    outOfRange: page.outOfRange
-                )
+            text = Self.renderVisibleTranscriptPageText(
+                from: document,
+                requestedPage: requestedPage
             )
-            let transcriptBody = page.renderedPage.body.isEmpty ? "- (empty)" : page.renderedPage.body
-            text = "\(header)\n\n### Transcript\n\(transcriptBody)"
         }
         return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+    }
+
+    static func renderVisibleTranscriptPageText(
+        from document: YouTubeTranscriptDocument,
+        requestedPage: Int,
+        maxPayloadChars: Int = maxToolPayloadChars,
+        preferredBodyChars: Int = preferredTranscriptBodyChars,
+        reservedHeaderChars: Int = headerReserveChars
+    ) -> String {
+        let effectiveReservedHeaderChars = max(reservedHeaderChars, 2 + transcriptSectionHeading.count)
+        let pages = makeVisibleTranscriptPages(
+            from: document,
+            maxPayloadChars: maxPayloadChars,
+            preferredBodyChars: preferredBodyChars,
+            reservedHeaderChars: effectiveReservedHeaderChars
+        )
+        let page = resolvePage(pages, requestedPage: requestedPage)
+        return renderVisiblePageText(
+            document: document,
+            requestedPage: requestedPage,
+            pageNumber: page.pageNumber,
+            totalPages: page.totalPages,
+            returnedSegmentCount: page.renderedPage.returnedSegmentCount,
+            nextPage: page.nextPage,
+            hasMore: page.hasMore,
+            outOfRange: page.outOfRange,
+            body: page.renderedPage.body,
+            bodyPrefix: transcriptSectionHeading,
+            maxHeaderChars: max(0, effectiveReservedHeaderChars - 2 - transcriptSectionHeading.count)
+        )
+    }
+
+    static func renderVisibleSegmentsPageText(
+        from document: YouTubeTranscriptDocument,
+        requestedPage: Int,
+        maxPayloadChars: Int = maxToolPayloadChars,
+        preferredBodyChars: Int = preferredSegmentsBodyChars,
+        reservedHeaderChars: Int = headerReserveChars
+    ) -> String {
+        let effectiveReservedHeaderChars = max(reservedHeaderChars, 2)
+        let pages = makeVisibleSegmentsPages(
+            from: document,
+            maxPayloadChars: maxPayloadChars,
+            preferredBodyChars: preferredBodyChars,
+            reservedHeaderChars: effectiveReservedHeaderChars
+        )
+        let page = resolvePage(pages, requestedPage: requestedPage)
+        return renderVisiblePageText(
+            document: document,
+            requestedPage: requestedPage,
+            pageNumber: page.pageNumber,
+            totalPages: page.totalPages,
+            returnedSegmentCount: page.renderedPage.returnedSegmentCount,
+            nextPage: page.nextPage,
+            hasMore: page.hasMore,
+            outOfRange: page.outOfRange,
+            body: page.renderedPage.body,
+            bodyPrefix: "",
+            maxHeaderChars: max(0, effectiveReservedHeaderChars - 2)
+        )
     }
 
     static func makeVisibleTranscriptPages(
@@ -173,7 +198,7 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
         reservedHeaderChars: Int,
         renderItem: (Int, YouTubeTranscriptSegment) -> String
     ) -> [YouTubeTranscriptRenderedPage] {
-        let bodyBudget = max(1, min(preferredBodyChars, maxPayloadChars - reservedHeaderChars))
+        let bodyBudget = max(0, min(preferredBodyChars, maxPayloadChars - reservedHeaderChars))
         guard !document.segments.isEmpty else {
             return [YouTubeTranscriptRenderedPage(startSegmentIndex: 0, returnedSegmentCount: 0, body: "")]
         }
@@ -235,6 +260,46 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
         return pages.isEmpty ? [YouTubeTranscriptRenderedPage(startSegmentIndex: 0, returnedSegmentCount: 0, body: "")] : pages
     }
 
+    private static func renderVisiblePageText(
+        document: YouTubeTranscriptDocument,
+        requestedPage: Int,
+        pageNumber: Int,
+        totalPages: Int,
+        returnedSegmentCount: Int,
+        nextPage: Int?,
+        hasMore: Bool,
+        outOfRange: Bool,
+        body: String,
+        bodyPrefix: String,
+        maxHeaderChars: Int
+    ) -> String {
+        let summary = makeSummary(
+            requestedPage: requestedPage,
+            resolvedPage: pageNumber,
+            totalPages: totalPages,
+            returnedSegmentCount: returnedSegmentCount,
+            totalSegmentCount: document.totalSegmentCount,
+            nextPage: nextPage,
+            outOfRange: outOfRange
+        )
+        let header = makeHeader(
+            document: document,
+            requestedPage: requestedPage,
+            resolvedPage: pageNumber,
+            totalPages: totalPages,
+            returnedSegmentCount: returnedSegmentCount,
+            nextPage: nextPage,
+            hasMore: hasMore,
+            summary: summary,
+            maxChars: maxHeaderChars
+        )
+
+        if bodyPrefix.isEmpty {
+            return "\(header)\n\n\(body)"
+        }
+        return "\(header)\n\n\(bodyPrefix)\(body)"
+    }
+
     private static func resolvePage(
         _ pages: [YouTubeTranscriptRenderedPage],
         requestedPage: Int
@@ -273,9 +338,13 @@ extension YouTubeTranscriptService: ToolDefinitionProvider {
         returnedSegmentCount: Int,
         nextPage: Int?,
         hasMore: Bool,
-        summary: String
+        summary: String,
+        maxChars: Int
     ) -> String {
-        "## YouTube Transcript\n- video_id: \(document.videoID)\n- title: \(document.title ?? "")\n- language: \(document.language)\n- track: \(document.trackName)\n- requested_page: \(requestedPage)\n- page: \(resolvedPage)\n- total_pages: \(totalPages)\n- returned_segments: \(returnedSegmentCount)\n- total_segments: \(document.totalSegmentCount)\n- next_page: \(nextPage.map(String.init) ?? "none")\n- has_more: \(hasMore)\n- summary: \(summary)"
+        guard maxChars > 0 else { return "" }
+
+        let header = "## YouTube Transcript\n- video_id: \(document.videoID)\n- title: \(document.title ?? "")\n- language: \(document.language)\n- track: \(document.trackName)\n- requested_page: \(requestedPage)\n- page: \(resolvedPage)\n- total_pages: \(totalPages)\n- returned_segments: \(returnedSegmentCount)\n- total_segments: \(document.totalSegmentCount)\n- next_page: \(nextPage.map(String.init) ?? "none")\n- has_more: \(hasMore)\n- summary: \(summary)"
+        return truncateInline(header, limit: maxChars)
     }
 
     private static func makeSummary(
