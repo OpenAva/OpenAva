@@ -204,12 +204,11 @@ struct CronListView: View {
     }
 
     private func resolvedAgentName(for job: CronJobPayload) -> String? {
-        guard job.kind == .heartbeat else { return nil }
         guard let rawAgentID = AppConfig.nonEmpty(job.agentID),
               let agentUUID = UUID(uuidString: rawAgentID),
               let agent = containerStore.agents.first(where: { $0.id == agentUUID })
         else {
-            return L10n.tr("settings.cron.agent.unknown")
+            return AppConfig.nonEmpty(job.agentID) == nil ? nil : L10n.tr("settings.cron.agent.unknown")
         }
 
         return agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)"
@@ -499,10 +498,13 @@ private struct CronAddJobSheet: View {
                     .padding(.horizontal, 20)
                 }
 
-                if jobKind == .heartbeat {
+                if !containerStore.agents.isEmpty {
                     CustomSection {
                         labeledField(L10n.tr("settings.cron.agent.field")) {
                             Picker(selection: $selectedAgentID) {
+                                if jobKind == .notify {
+                                    Text("—").tag("")
+                                }
                                 ForEach(containerStore.agents, id: \.id) { agent in
                                     Text(agent.emoji.isEmpty ? agent.name : "\(agent.emoji) \(agent.name)")
                                         .tag(agent.id.uuidString)
@@ -734,7 +736,15 @@ private struct CronAddJobSheet: View {
     }
 
     private func ensureSelectedAgent() {
-        guard jobKind == .heartbeat else { return }
+        if jobKind == .notify {
+            if let selected = resolvedSelectedAgentID,
+               containerStore.agents.contains(where: { $0.id.uuidString == selected })
+            {
+                return
+            }
+            selectedAgentID = ""
+            return
+        }
         if let selected = resolvedSelectedAgentID,
            containerStore.agents.contains(where: { $0.id.uuidString == selected })
         {

@@ -29,6 +29,7 @@ struct CronNotificationMetadata {
     let jobID: String
     let kind: CronJobKind
     let agentID: String?
+    let schedule: String?
 
     init?(request: UNNotificationRequest) {
         let userInfo = request.content.userInfo
@@ -39,6 +40,7 @@ struct CronNotificationMetadata {
         jobID = request.identifier
         kind = Self.kind(from: userInfo)
         agentID = Self.agentID(from: userInfo)
+        schedule = Self.schedule(from: userInfo)
     }
 
     static func kind(from userInfo: [AnyHashable: Any]) -> CronJobKind {
@@ -52,6 +54,14 @@ struct CronNotificationMetadata {
 
     static func agentID(from userInfo: [AnyHashable: Any]) -> String? {
         guard let rawValue = userInfo[CronNotificationMetadataKey.agentID] as? String else {
+            return nil
+        }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func schedule(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let rawValue = userInfo[CronNotificationMetadataKey.schedule] as? String else {
             return nil
         }
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
