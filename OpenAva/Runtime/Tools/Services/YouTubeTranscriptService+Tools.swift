@@ -11,10 +11,10 @@ struct YouTubeTranscriptRenderedPage {
 // MARK: - Tools
 
 extension YouTubeTranscriptService: ToolDefinitionProvider {
-    private static let maxToolPayloadChars = 32 * 1024
-    private static let preferredTranscriptBodyChars = 24 * 1024
-    private static let preferredSegmentsBodyChars = 24 * 1024
-    private static let headerReserveChars = 1024
+    private static let maxToolPayloadChars = 64 * 1024
+    private static let preferredTranscriptBodyChars = 60 * 1024
+    private static let preferredSegmentsBodyChars = 60 * 1024
+    private static let headerReserveChars = 2048
     private static let transcriptSectionHeading = "### Transcript\n"
 
     nonisolated func toolDefinitions() -> [ToolDefinition] {

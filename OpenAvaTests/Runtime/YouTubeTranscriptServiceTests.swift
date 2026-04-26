@@ -195,6 +195,32 @@ final class YouTubeTranscriptServiceTests: XCTestCase {
         XCTAssertEqual(pages[1].body, "CCCC")
     }
 
+    func testDefaultTranscriptPagingFitsLargerTranscriptInSinglePage() {
+        let repeated = String(repeating: "字", count: 14_000)
+        let document = YouTubeTranscriptDocument(
+            videoID: "video1234567",
+            input: "video1234567",
+            title: "Long Video",
+            language: "zh-Hans",
+            trackName: "Chinese",
+            totalSegmentCount: 4,
+            transcript: "",
+            segments: [
+                YouTubeTranscriptSegment(startSeconds: 20, durationSeconds: 1, text: repeated),
+                YouTubeTranscriptSegment(startSeconds: 21, durationSeconds: 1, text: repeated),
+                YouTubeTranscriptSegment(startSeconds: 22, durationSeconds: 1, text: repeated),
+                YouTubeTranscriptSegment(startSeconds: 23, durationSeconds: 1, text: repeated),
+            ],
+            message: ""
+        )
+
+        let pages = YouTubeTranscriptService.makeVisibleTranscriptPages(from: document)
+
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertEqual(pages[0].startSegmentIndex, 0)
+        XCTAssertEqual(pages[0].returnedSegmentCount, 4)
+    }
+
     func testToolDefinitionExposesPageParameterInsteadOfSizeParameters() throws {
         let definitions = YouTubeTranscriptService().toolDefinitions()
         let definition = try XCTUnwrap(definitions.first { $0.functionName == "youtube_transcript" })
@@ -206,6 +232,7 @@ final class YouTubeTranscriptServiceTests: XCTestCase {
         XCTAssertEqual(page["minimum"] as? Int, 1)
         XCTAssertNil(properties["startIndex"])
         XCTAssertNil(properties["maxSegments"])
+        XCTAssertEqual(definition.maxResultSizeChars, 64 * 1024)
     }
 
     func testRenderedTranscriptPageTextNeverExceedsMaxPayloadChars() {
