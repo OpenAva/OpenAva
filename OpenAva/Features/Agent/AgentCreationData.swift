@@ -18,6 +18,9 @@ struct AgentCreationData {
     /// Agent emoji signature.
     var agentEmoji: String = "🦞"
 
+    /// Optional uploaded avatar image data.
+    var agentAvatarData: Data?
+
     /// Agent vibe description.
     var agentVibe: String = ""
 

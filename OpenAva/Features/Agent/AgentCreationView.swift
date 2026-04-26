@@ -1,5 +1,7 @@
 import ChatUI
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Reusable Input Components
 
@@ -64,6 +66,7 @@ struct AgentCreationView: View {
     @Environment(\.appContainerStore) private var containerStore
     @State private var viewModel: AgentCreationViewModel
     @State private var isEmojiPickerPresented = false
+    @State private var isAvatarImporterPresented = false
     @State private var isAdvancedExpanded = false
     let onComplete: () -> Void
 
@@ -126,6 +129,12 @@ struct AgentCreationView: View {
         #if !targetEnvironment(macCatalyst)
             .scrollDismissesKeyboard(.interactively)
         #endif
+            .fileImporter(
+                isPresented: $isAvatarImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: false,
+                onCompletion: handleAvatarImport
+            )
             .sheet(isPresented: $isEmojiPickerPresented) {
                 NavigationStack {
                     emojiPickerSheetContent
@@ -222,20 +231,24 @@ struct AgentCreationView: View {
     @ViewBuilder
     private var singleAgentSections: some View {
         CustomSection(title: L10n.tr("agent.creation.identity.header")) {
-            nameEmojiRow(
-                name: $viewModel.data.agentName,
-                namePlaceholder: L10n.tr("agent.creation.agentName.placeholder"),
-                emoji: viewModel.data.agentEmoji,
-                onPick: {
-                    isEmojiPickerPresented = true
-                },
-                onEmojiShuffle: {
-                    viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
-                },
-                onNameShuffle: {
-                    viewModel.randomizeAgentName(avoiding: usedAgentNames)
-                }
-            )
+            VStack(alignment: .leading, spacing: 16) {
+                avatarUploadField
+
+                nameEmojiRow(
+                    name: $viewModel.data.agentName,
+                    namePlaceholder: L10n.tr("agent.creation.agentName.placeholder"),
+                    emoji: viewModel.data.agentEmoji,
+                    onPick: {
+                        isEmojiPickerPresented = true
+                    },
+                    onEmojiShuffle: {
+                        viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
+                    },
+                    onNameShuffle: {
+                        viewModel.randomizeAgentName(avoiding: usedAgentNames)
+                    }
+                )
+            }
             .padding(.horizontal, 20)
         }
 
@@ -445,6 +458,108 @@ struct AgentCreationView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private var avatarUploadField: some View {
+        labeledField(L10n.tr("agent.creation.avatar.header")) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    avatarPreview
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(L10n.tr("agent.creation.avatar.hint"))
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 8) {
+                            actionButton(
+                                title: viewModel.data.agentAvatarData == nil
+                                    ? L10n.tr("agent.creation.avatar.upload")
+                                    : L10n.tr("agent.creation.avatar.change"),
+                                role: .secondary,
+                                action: { isAvatarImporterPresented = true }
+                            )
+
+                            if viewModel.data.agentAvatarData != nil {
+                                actionButton(
+                                    title: L10n.tr("agent.creation.avatar.remove"),
+                                    role: .secondary,
+                                    action: { viewModel.clearAgentAvatar() }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(14)
+                .background(
+                    Color(uiColor: ChatUIDesign.Color.pureWhite),
+                    in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                        .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private var avatarPreview: some View {
+        ZStack {
+            Circle()
+                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
+
+            if let avatarImage = avatarPreviewImage {
+                Image(uiImage: avatarImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Text(viewModel.data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "🤖" : viewModel.data.agentEmoji)
+                    .font(.system(size: 28))
+            }
+        }
+        .frame(width: 68, height: 68)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        )
+    }
+
+    private var avatarPreviewImage: UIImage? {
+        guard let data = viewModel.data.agentAvatarData else { return nil }
+        return UIImage(data: data)
+    }
+
+    private func handleAvatarImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first else { return }
+            let accessingSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessingSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            do {
+                let imageData = try Data(contentsOf: url)
+                guard viewModel.setAgentAvatarData(imageData) else {
+                    viewModel.errorText = L10n.tr("agent.creation.avatar.invalid")
+                    return
+                }
+            } catch {
+                viewModel.errorText = error.localizedDescription
+            }
+        case let .failure(error):
+            let nsError = error as NSError
+            guard nsError.domain != NSCocoaErrorDomain || nsError.code != NSUserCancelledError else {
+                return
+            }
+            viewModel.errorText = error.localizedDescription
+        }
     }
 
     // MARK: - Reusable Components

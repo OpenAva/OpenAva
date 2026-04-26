@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor @Observable
 final class AgentCreationViewModel {
@@ -112,6 +113,21 @@ final class AgentCreationViewModel {
         emojiNoticeText = nil
     }
 
+    @discardableResult
+    func setAgentAvatarData(_ imageData: Data) -> Bool {
+        guard !imageData.isEmpty, UIImage(data: imageData) != nil else {
+            return false
+        }
+        data.agentAvatarData = imageData
+        errorText = nil
+        return true
+    }
+
+    func clearAgentAvatar() {
+        data.agentAvatarData = nil
+        errorText = nil
+    }
+
     func applyVibeOption(_ option: String) {
         data.agentVibe = option
     }
@@ -190,6 +206,10 @@ final class AgentCreationViewModel {
             name: data.agentName,
             emoji: data.agentEmoji
         )
+
+        if let avatarData = data.agentAvatarData {
+            try avatarData.write(to: profile.avatarURL, options: [.atomic])
+        }
 
         try AgentTemplateWriter.writeUserFile(
             at: profile.workspaceURL,

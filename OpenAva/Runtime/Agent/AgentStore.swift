@@ -1,6 +1,8 @@
 import Foundation
 
 struct AgentProfile: Equatable, Identifiable {
+    static let avatarFileName = ".avatar"
+
     var id: UUID
     var name: String
     var emoji: String
@@ -18,6 +20,10 @@ struct AgentProfile: Equatable, Identifiable {
 
     var runtimeURL: URL {
         AgentProfile.resolveSandboxPath(localRuntimePath, isDirectory: true)
+    }
+
+    var avatarURL: URL {
+        workspaceURL.appendingPathComponent(Self.avatarFileName, isDirectory: false)
     }
 
     /// Rebases a persisted sandbox-absolute path onto the current iOS app container.

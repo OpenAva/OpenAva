@@ -730,7 +730,7 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerLeadingButton(_: ChatViewController, button: UIButton) {
-            let image = UIImage(systemName: ChatTopBar.leadingMenuSystemImage)
+            let image = makeActiveAgentButtonImage() ?? UIImage(systemName: ChatTopBar.leadingMenuSystemImage)
             if #available(iOS 15.0, *) {
                 var configuration = button.configuration ?? .plain()
                 configuration.image = image
@@ -983,9 +983,70 @@ extension ChatViewControllerWrapper {
             )
         }
 
+        private func loadAgentAvatarImage(for profile: AgentProfile) -> UIImage? {
+            guard let data = try? Data(contentsOf: profile.avatarURL), let image = UIImage(data: data) else {
+                return nil
+            }
+            return image
+        }
+
+        private func makeActiveAgentButtonImage() -> UIImage? {
+            guard let activeAgentID,
+                  let profile = agents.first(where: { $0.id == activeAgentID }),
+                  let avatarImage = loadAgentAvatarImage(for: profile)
+            else {
+                return nil
+            }
+
+            let canvasSize = CGSize(width: 24, height: 24)
+            let renderer = UIGraphicsImageRenderer(size: canvasSize)
+            return renderer.image { _ in
+                let rect = CGRect(origin: .zero, size: canvasSize)
+                UIBezierPath(ovalIn: rect).addClip()
+                avatarImage.draw(in: rect)
+            }.withRenderingMode(.alwaysOriginal)
+        }
+
+        private func makeAvatarMenuImage(for profile: AgentProfile, showsRunningIndicator: Bool) -> UIImage? {
+            guard let avatarImage = loadAgentAvatarImage(for: profile) else {
+                return nil
+            }
+
+            let size = CGSize(width: 17, height: 17)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let image = renderer.image { context in
+                let rect = CGRect(origin: .zero, size: size)
+                UIBezierPath(roundedRect: rect, cornerRadius: 4).addClip()
+                avatarImage.draw(in: rect)
+
+                if showsRunningIndicator {
+                    let dotDiameter: CGFloat = 5.5
+                    let dotRect = CGRect(
+                        x: size.width - dotDiameter - 1,
+                        y: size.height - dotDiameter - 1,
+                        width: dotDiameter,
+                        height: dotDiameter
+                    )
+                    context.cgContext.setFillColor(UIColor.systemGreen.cgColor)
+                    context.cgContext.fillEllipse(in: dotRect)
+
+                    context.cgContext.setStrokeColor(ChatUIDesign.Color.warmCream.cgColor)
+                    context.cgContext.setLineWidth(1)
+                    context.cgContext.strokeEllipse(in: dotRect.insetBy(dx: 0.5, dy: 0.5))
+                }
+            }
+
+            return image.withRenderingMode(.alwaysOriginal)
+        }
+
         private func makeAgentMenuImage(for agentID: UUID, fallbackEmoji: String) -> UIImage? {
             let prefix = "agent:\(agentID.uuidString)::"
             let isRunning = ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
+            if let profile = agents.first(where: { $0.id == agentID }),
+               let avatarImage = makeAvatarMenuImage(for: profile, showsRunningIndicator: isRunning)
+            {
+                return avatarImage
+            }
             return makeEmojiMenuImage(from: fallbackEmoji, showsRunningIndicator: isRunning)
         }
 
