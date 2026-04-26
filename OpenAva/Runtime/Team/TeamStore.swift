@@ -176,10 +176,24 @@ enum TeamStore {
         OpenAvaStateFile.persist(payload, fileManager: fileManager)
     }
 
-    static func storageDirectoryURL(fileManager: FileManager = .default, createDirectoryIfNeeded: Bool = false) -> URL? {
-        guard let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: fileManager) else {
-            return nil
+    static func storageDirectoryURL(
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil,
+        createDirectoryIfNeeded: Bool = false
+    ) -> URL? {
+        let rootURL: URL
+        if let workspaceRootURL {
+            rootURL = workspaceRootURL.standardizedFileURL
+            if createDirectoryIfNeeded {
+                try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+            }
+        } else {
+            guard let resolvedRootURL = try? AgentStore.workspaceRootDirectory(fileManager: fileManager) else {
+                return nil
+            }
+            rootURL = resolvedRootURL
         }
+
         let directoryURL = rootURL.appendingPathComponent(Storage.directoryName, isDirectory: true)
         if createDirectoryIfNeeded {
             try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -187,8 +201,16 @@ enum TeamStore {
         return directoryURL
     }
 
-    static func runtimeDirectoryURL(fileManager: FileManager = .default, createDirectoryIfNeeded: Bool = false) -> URL? {
-        guard let storageURL = storageDirectoryURL(fileManager: fileManager, createDirectoryIfNeeded: createDirectoryIfNeeded) else {
+    static func runtimeDirectoryURL(
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil,
+        createDirectoryIfNeeded: Bool = false
+    ) -> URL? {
+        guard let storageURL = storageDirectoryURL(
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL,
+            createDirectoryIfNeeded: createDirectoryIfNeeded
+        ) else {
             return nil
         }
         let runtimeURL = storageURL.appendingPathComponent(Storage.runtimeDirectoryName, isDirectory: true)

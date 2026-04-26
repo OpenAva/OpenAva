@@ -462,6 +462,469 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertTrue(snapshot.agents.contains(where: { $0.id == agent.id }))
     }
 
+    @MainActor
+    func testUpdateTaskAutoAssignsOwnerWhenTeammateStartsWork() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
+
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 2,
+            tasks: [
+                TeamSwarmCoordinator.TeamTask(
+                    id: 1,
+                    title: "Investigate failing test",
+                    detail: nil,
+                    status: .pending,
+                    owner: nil,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                ),
+            ],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.reload()
+
+        let updated = try coordinator.updateTask(
+            id: 1,
+            title: nil,
+            detail: nil,
+            status: .inProgress,
+            owner: nil,
+            context: .init(sessionID: "\(agent.id.uuidString)::main", senderMemberID: agent.id.uuidString)
+        )
+
+        XCTAssertEqual(updated.status, .inProgress)
+        XCTAssertEqual(updated.owner, agent.name)
+    }
+
+    @MainActor
+    func testUpdateTaskDoesNotOverrideExplicitOwnerWhenTeammateStartsWork() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
+
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 2,
+            tasks: [
+                TeamSwarmCoordinator.TeamTask(
+                    id: 1,
+                    title: "Investigate failing test",
+                    detail: nil,
+                    status: .pending,
+                    owner: nil,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                ),
+            ],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.reload()
+
+        let updated = try coordinator.updateTask(
+            id: 1,
+            title: nil,
+            detail: nil,
+            status: .inProgress,
+            owner: peer.name,
+            context: .init(sessionID: "\(agent.id.uuidString)::main", senderMemberID: agent.id.uuidString)
+        )
+
+        XCTAssertEqual(updated.status, .inProgress)
+        XCTAssertEqual(updated.owner, peer.name)
+    }
+
+    @MainActor
+    func testFinishMemberIdleCompletesOwnedInProgressTasks() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
+
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 4,
+            tasks: [
+                TeamSwarmCoordinator.TeamTask(
+                    id: 1,
+                    title: "Owned active task",
+                    detail: nil,
+                    status: .inProgress,
+                    owner: agent.name,
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+                TeamSwarmCoordinator.TeamTask(
+                    id: 2,
+                    title: "Peer active task",
+                    detail: nil,
+                    status: .inProgress,
+                    owner: peer.name,
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+                TeamSwarmCoordinator.TeamTask(
+                    id: 3,
+                    title: "Owned blocked task",
+                    detail: nil,
+                    status: .blocked,
+                    owner: agent.name,
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+            ],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.busy.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.busy.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.reload()
+
+        let finished = try coordinator.test_finishMember(
+            memberID: agent.id.uuidString,
+            status: .idle,
+            result: "Done.",
+            error: nil
+        )
+
+        XCTAssertEqual(finished.member.status, .idle)
+        XCTAssertEqual(finished.member.lastIdleSummary, "Done.")
+        XCTAssertEqual(finished.tasksByID[1]?.status, .completed)
+        XCTAssertEqual(finished.tasksByID[2]?.status, .inProgress)
+        XCTAssertEqual(finished.tasksByID[3]?.status, .blocked)
+
+        let coordinatorMessages = TeamMailbox.readMessages(
+            teamDirectoryURL: teamDirectoryURL,
+            recipientName: TeamSwarmCoordinator.coordinatorName
+        )
+        XCTAssertEqual(coordinatorMessages.count, 1)
+        XCTAssertEqual(coordinatorMessages.first?.from, agent.name)
+        XCTAssertEqual(coordinatorMessages.first?.messageType, "teammate_idle")
+        XCTAssertEqual(coordinatorMessages.first?.summary, "Done.")
+        XCTAssertEqual(
+            coordinatorMessages.first?.text,
+            "Teammate \(agent.name) is now idle.\nSummary: Done."
+        )
+    }
+
+    @MainActor
+    func testFinishMemberFailedDoesNotCompleteOwnedInProgressTasks() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
+
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 2,
+            tasks: [
+                TeamSwarmCoordinator.TeamTask(
+                    id: 1,
+                    title: "Owned active task",
+                    detail: nil,
+                    status: .inProgress,
+                    owner: agent.name,
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+            ],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.busy.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.reload()
+
+        let finished = try coordinator.test_finishMember(
+            memberID: agent.id.uuidString,
+            status: .failed,
+            result: nil,
+            error: "boom"
+        )
+
+        XCTAssertEqual(finished.member.status, .failed)
+        XCTAssertEqual(finished.tasksByID[1]?.status, .inProgress)
+
+        let coordinatorMessages = TeamMailbox.readMessages(
+            teamDirectoryURL: teamDirectoryURL,
+            recipientName: TeamSwarmCoordinator.coordinatorName
+        )
+        XCTAssertTrue(coordinatorMessages.isEmpty)
+    }
+
+    @MainActor
+    func testUpdateTaskAddBlockedByMarksTaskBlockedAndCompletingDependencyUnblocksIt() throws {
+        let agent = try AgentStore.createAgent(
+            name: "Worker-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        let peer = try AgentStore.createAgent(
+            name: "Peer-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default
+        )
+        defer { _ = AgentStore.deleteAgent(agent.id, fileManager: .default) }
+        defer { _ = AgentStore.deleteAgent(peer.id, fileManager: .default) }
+
+        let teamDirectoryURL = try XCTUnwrap(swarmDirectoryURL())
+        try FileManager.default.createDirectory(at: teamDirectoryURL, withIntermediateDirectories: true)
+
+        let persistedTeam = TeamManifest(
+            createdAt: Date(),
+            updatedAt: Date(),
+            coordinatorId: TeamSwarmCoordinator.coordinatorName,
+            coordinatorSessionId: TeamSwarmCoordinator.mainSessionID,
+            hiddenPaneIds: [],
+            teamAllowedPaths: [],
+            nextTaskID: 3,
+            tasks: [
+                TeamSwarmCoordinator.TeamTask(
+                    id: 1,
+                    title: "Implement API",
+                    detail: nil,
+                    status: .pending,
+                    owner: nil,
+                    blockedBy: [],
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+                TeamSwarmCoordinator.TeamTask(
+                    id: 2,
+                    title: "Wire UI",
+                    detail: nil,
+                    status: .pending,
+                    owner: nil,
+                    blockedBy: [],
+                    createdAt: Date(),
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                ),
+            ],
+            members: [
+                TeamManifestMember(
+                    agentId: agent.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(agent.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+                TeamManifestMember(
+                    agentId: peer.id.uuidString,
+                    agentType: SubAgentRegistry.generalPurpose.agentType,
+                    input: nil,
+                    planModeRequired: false,
+                    sessionId: "\(peer.id.uuidString)::main",
+                    mode: nil,
+                    lastStatus: TeamSwarmCoordinator.MemberStatus.idle.rawValue,
+                    pendingPlanRequestID: nil
+                ),
+            ]
+        )
+        let persistedData = try JSONEncoder().encode(persistedTeam)
+        try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.reload()
+
+        let blockedTask = try coordinator.updateTask(
+            id: 2,
+            title: nil,
+            detail: nil,
+            status: nil,
+            owner: nil,
+            addBlockedBy: [1],
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        XCTAssertEqual(blockedTask.status, .blocked)
+        XCTAssertEqual(blockedTask.blockedBy, [1])
+
+        let completedDependency = try coordinator.updateTask(
+            id: 1,
+            title: nil,
+            detail: nil,
+            status: .completed,
+            owner: nil,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        XCTAssertEqual(completedDependency.status, .completed)
+
+        let unblockedTask = try coordinator.getTask(id: 2, context: .init(sessionID: nil, senderMemberID: nil))
+        XCTAssertEqual(unblockedTask.status, .pending)
+        XCTAssertTrue(unblockedTask.blockedBy.isEmpty)
+    }
+
     private func makeTemporaryTeamDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

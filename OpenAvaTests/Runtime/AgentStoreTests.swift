@@ -161,6 +161,33 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.workspaceURL.appendingPathComponent("marker.txt").path))
     }
 
+    func testRenameAgentKeepsAvatarInRenamedWorkspace() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Atlas",
+            emoji: "🤖",
+            workspaceRootURL: workspaceRootURL
+        )
+        let avatarData = try XCTUnwrap(
+            Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5EYAAAAASUVORK5CYII=")
+        )
+        try avatarData.write(to: profile.avatarURL, options: [.atomic])
+
+        guard let renamed = AgentStore.renameAgent(
+            agentID: profile.id,
+            name: "Nova",
+            workspaceRootURL: workspaceRootURL
+        ) else {
+            XCTFail("Expected rename to succeed")
+            return
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: profile.avatarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.avatarURL.path))
+    }
+
     func testLoadRepairsMissingActiveAgentByFallingBackToFirstAgent() throws {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }

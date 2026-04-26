@@ -68,6 +68,7 @@ extension TeamTools {
             let detail: String?
             let owner: String?
             let status: String?
+            let addBlockedBy: [Int]?
 
             enum CodingKeys: String, CodingKey {
                 case taskID = "task_id"
@@ -75,6 +76,7 @@ extension TeamTools {
                 case detail
                 case owner
                 case status
+                case addBlockedBy = "add_blocked_by"
             }
         }
 
@@ -121,7 +123,8 @@ extension TeamTools {
         case "team.task.list":
             _ = try ToolInvocationHelpers.decodeParams(EmptyParams.self, from: request.paramsJSON)
             let tasks = try TeamSwarmCoordinator.shared.listTasks(context: context)
-            let lines = tasks.map { renderTaskLine($0) }
+            let completedTaskIDs = Set(tasks.filter { $0.status == .completed }.map(\.id))
+            let lines = tasks.map { renderTaskLine($0, completedTaskIDs: completedTaskIDs) }
             let payload = (["## Team Tasks"] + (lines.isEmpty ? ["No tasks."] : lines)).joined(separator: "\n")
             return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
 
@@ -133,15 +136,21 @@ extension TeamTools {
         case "team.task.update":
             let params = try ToolInvocationHelpers.decodeParams(TaskUpdateParams.self, from: request.paramsJSON)
             let status = params.status.flatMap { TeamSwarmCoordinator.TaskStatus(rawValue: $0) }
+            let wasTeammateInvocation = context.senderMemberID != nil
             let task = try TeamSwarmCoordinator.shared.updateTask(
                 id: params.taskID,
                 title: params.title,
                 detail: params.detail,
                 status: status,
                 owner: params.owner,
+                addBlockedBy: params.addBlockedBy ?? [],
                 context: context
             )
-            return BridgeInvokeResponse(id: request.id, ok: true, payload: renderTask(task, heading: "Task Updated"))
+            var payload = renderTask(task, heading: "Task Updated")
+            if status == .completed, wasTeammateInvocation {
+                payload += "\n\nTask completed. Call team_task_list now to find your next available task or see if your work unblocked others."
+            }
+            return BridgeInvokeResponse(id: request.id, ok: true, payload: payload)
 
         default:
             return BridgeInvokeResponse(
@@ -196,7 +205,8 @@ extension TeamTools {
             lines.append("- none")
         } else {
             lines.append(contentsOf: team.tasks.sorted { $0.id < $1.id }.map { task in
-                var line = renderTaskLine(task)
+                let completedTaskIDs = Set(team.tasks.filter { $0.status == .completed }.map(\.id))
+                var line = renderTaskLine(task, completedTaskIDs: completedTaskIDs)
                 if let detail = task.detail, !detail.isEmpty {
                     line += " | detail=\(detail)"
                 }
@@ -207,18 +217,34 @@ extension TeamTools {
     }
 
     private static func renderTask(_ task: TeamSwarmCoordinator.TeamTask, heading: String) -> String {
-        [
+        let unresolvedBlockedBy = unresolvedBlockedBy(task, completedTaskIDs: [])
+        return [
             "## \(heading)",
             "- id: \(task.id)",
             "- title: \(task.title)",
             task.detail.map { "- detail: \($0)" },
             "- status: \(task.status.rawValue)",
             "- owner: \(task.owner ?? "unassigned")",
+            unresolvedBlockedBy.isEmpty ? nil : "- blocked_by: \(unresolvedBlockedBy.map(String.init).joined(separator: ", "))",
         ].compactMap { $0 }.joined(separator: "\n")
     }
 
-    private static func renderTaskLine(_ task: TeamSwarmCoordinator.TeamTask) -> String {
-        "- [#\(task.id)] \(task.status.rawValue) | owner=\(task.owner ?? "unassigned") | \(task.title)"
+    private static func renderTaskLine(
+        _ task: TeamSwarmCoordinator.TeamTask,
+        completedTaskIDs: Set<Int>
+    ) -> String {
+        let unresolvedBlockedBy = unresolvedBlockedBy(task, completedTaskIDs: completedTaskIDs)
+        let blockedSuffix = unresolvedBlockedBy.isEmpty
+            ? ""
+            : " | blocked_by=\(unresolvedBlockedBy.map(String.init).joined(separator: ","))"
+        return "- [#\(task.id)] \(task.status.rawValue) | owner=\(task.owner ?? "unassigned")\(blockedSuffix) | \(task.title)"
+    }
+
+    private static func unresolvedBlockedBy(
+        _ task: TeamSwarmCoordinator.TeamTask,
+        completedTaskIDs: Set<Int>
+    ) -> [Int] {
+        task.blockedBy.filter { !completedTaskIDs.contains($0) }
     }
 
     private static func iso8601(_ date: Date) -> String {

@@ -1,4 +1,5 @@
 import ChatClient
+import OpenClawKit
 import XCTest
 @testable import OpenAva
 
@@ -147,6 +148,154 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         let snapshot = try XCTUnwrap(coordinator.snapshot(context: .init(sessionID: "\(first.id.uuidString)::main")))
 
         XCTAssertEqual(Set(snapshot.team.members.map(\.id)), Set([first.id.uuidString, second.id.uuidString]))
+    }
+
+    @MainActor
+    func testTeamTaskUpdateForCompletedTeammateTaskAddsNextTaskNudge() async throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let first = try AgentStore.createAgent(
+            name: "WorkerA-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default,
+            workspaceRootURL: workspaceRootURL
+        )
+        let second = try AgentStore.createAgent(
+            name: "WorkerB-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default,
+            workspaceRootURL: workspaceRootURL
+        )
+        defer {
+            _ = AgentStore.deleteAgent(first.id, fileManager: .default, workspaceRootURL: workspaceRootURL)
+            _ = AgentStore.deleteAgent(second.id, fileManager: .default, workspaceRootURL: workspaceRootURL)
+        }
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.reload()
+        _ = try coordinator.createTask(
+            title: "Finish refactor",
+            detail: nil,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        let teamTools = TeamTools()
+        var handlers: [String: ToolHandler] = [:]
+        teamTools.registerHandlers(
+            into: &handlers,
+            context: .init(
+                workspaceRootURL: workspaceRootURL,
+                teamToolContextProvider: {
+                    TeamSwarmCoordinator.ToolContext(
+                        sessionID: "\(first.id.uuidString)::main",
+                        senderMemberID: first.id.uuidString
+                    )
+                }
+            )
+        )
+
+        let handler = try XCTUnwrap(handlers["team.task.update"])
+        let response = try await handler(
+            BridgeInvokeRequest(
+                id: "team-task-update-complete",
+                command: "team.task.update",
+                paramsJSON: #"{"task_id":1,"status":"completed"}"#
+            )
+        )
+
+        XCTAssertTrue(response.ok)
+        let payload = try XCTUnwrap(response.payload)
+        XCTAssertTrue(payload.contains("## Task Updated"))
+        XCTAssertTrue(payload.contains("Task completed. Call team_task_list now to find your next available task"))
+    }
+
+    @MainActor
+    func testTeamTaskListShowsOnlyUnresolvedBlockedByDependencies() async throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let first = try AgentStore.createAgent(
+            name: "WorkerA-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default,
+            workspaceRootURL: workspaceRootURL
+        )
+        let second = try AgentStore.createAgent(
+            name: "WorkerB-\(UUID().uuidString)",
+            emoji: "🧪",
+            fileManager: .default,
+            workspaceRootURL: workspaceRootURL
+        )
+        defer {
+            _ = AgentStore.deleteAgent(first.id, fileManager: .default, workspaceRootURL: workspaceRootURL)
+            _ = AgentStore.deleteAgent(second.id, fileManager: .default, workspaceRootURL: workspaceRootURL)
+        }
+
+        let coordinator = TeamSwarmCoordinator.shared
+        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.reload()
+        _ = try coordinator.createTask(title: "Task A", detail: nil, context: .init(sessionID: nil, senderMemberID: nil))
+        _ = try coordinator.createTask(title: "Task B", detail: nil, context: .init(sessionID: nil, senderMemberID: nil))
+
+        _ = try coordinator.updateTask(
+            id: 2,
+            title: nil,
+            detail: nil,
+            status: nil,
+            owner: nil,
+            addBlockedBy: [1],
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        let teamTools = TeamTools()
+        var handlers: [String: ToolHandler] = [:]
+        teamTools.registerHandlers(
+            into: &handlers,
+            context: .init(
+                workspaceRootURL: workspaceRootURL,
+                teamToolContextProvider: { .init(sessionID: nil, senderMemberID: nil) }
+            )
+        )
+
+        let listHandler = try XCTUnwrap(handlers["team.task.list"])
+        let initialListResponse = try await listHandler(
+            BridgeInvokeRequest(
+                id: "team-task-list-blocked-initial",
+                command: "team.task.list",
+                paramsJSON: #"{}"#
+            )
+        )
+
+        let initialPayload = try XCTUnwrap(initialListResponse.payload)
+        print("initial blocked task payload:\n\(initialPayload)")
+        XCTAssertTrue(initialPayload.contains("[#2] blocked"))
+        XCTAssertTrue(initialPayload.contains("blocked_by=1"))
+        XCTAssertTrue(initialPayload.contains("Task B"))
+
+        _ = try coordinator.updateTask(
+            id: 1,
+            title: nil,
+            detail: nil,
+            status: .completed,
+            owner: nil,
+            context: .init(sessionID: nil, senderMemberID: nil)
+        )
+
+        let resolvedListResponse = try await listHandler(
+            BridgeInvokeRequest(
+                id: "team-task-list-blocked-resolved",
+                command: "team.task.list",
+                paramsJSON: #"{}"#
+            )
+        )
+
+        let resolvedPayload = try XCTUnwrap(resolvedListResponse.payload)
+        print("resolved blocked task payload:\n\(resolvedPayload)")
+        XCTAssertTrue(resolvedPayload.contains("[#2] pending"))
+        XCTAssertTrue(resolvedPayload.contains("Task B"))
+        XCTAssertFalse(resolvedPayload.contains("blocked_by=1"))
     }
 
     private static func functionName(from tool: ChatRequestBody.Tool) -> String? {

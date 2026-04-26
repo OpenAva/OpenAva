@@ -83,6 +83,7 @@ final class ToolRuntime: @unchecked Sendable {
     private lazy var memoryProvider = MemoryTools()
     private lazy var blogWatchProvider = BlogWatchTools()
     private lazy var subAgentProvider = SubAgentTools()
+    private lazy var sessionTodoProvider = SessionTodoTools()
     private lazy var teamProvider = TeamTools()
     private lazy var skillProvider = SkillTools()
 
@@ -314,6 +315,7 @@ final class ToolRuntime: @unchecked Sendable {
             memoryProvider,
             blogWatchProvider,
             subAgentProvider,
+            sessionTodoProvider,
         ]
 
         if configureTeamSwarm {

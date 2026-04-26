@@ -137,6 +137,13 @@ final class TeamTools: ToolDefinitionProvider {
                             "description": "Optional new status",
                             "enum": TeamSwarmCoordinator.TaskStatus.allCases.map(\.rawValue),
                         ],
+                        "add_blocked_by": [
+                            "type": "array",
+                            "description": "Optional task ids that must be completed before this task is available",
+                            "items": [
+                                "type": "integer",
+                            ],
+                        ],
                     ],
                     "required": ["task_id"],
                     "additionalProperties": false,

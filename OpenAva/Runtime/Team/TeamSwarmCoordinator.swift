@@ -7,6 +7,33 @@ extension Notification.Name {
     static let openAvaTeamSwarmDidChange = Notification.Name("openava.teamSwarmDidChange")
 }
 
+#if DEBUG
+    extension TeamSwarmCoordinator {
+        struct FinishMemberTestSnapshot {
+            let member: TeamMember
+            let tasksByID: [Int: TeamTask]
+        }
+
+        func test_finishMember(
+            memberID: String,
+            status: MemberStatus,
+            result: String?,
+            error: String?
+        ) throws -> FinishMemberTestSnapshot {
+            finishMember(memberID: memberID, status: status, result: result, error: error)
+            guard let team = teamRecord,
+                  let member = team.members.first(where: { $0.id == memberID })
+            else {
+                throw TeamError("TEAM_MEMBER_NOT_FOUND: \(memberID)")
+            }
+            return FinishMemberTestSnapshot(
+                member: member,
+                tasksByID: Dictionary(uniqueKeysWithValues: team.tasks.map { ($0.id, $0) })
+            )
+        }
+    }
+#endif
+
 @MainActor
 final class TeamSwarmCoordinator {
     static let shared = TeamSwarmCoordinator()
@@ -46,8 +73,52 @@ final class TeamSwarmCoordinator {
         var detail: String?
         var status: TaskStatus
         var owner: String?
+        var blockedBy: [Int]
         var createdAt: Date
         var updatedAt: Date
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case detail
+            case status
+            case owner
+            case blockedBy
+            case createdAt
+            case updatedAt
+        }
+
+        init(
+            id: Int,
+            title: String,
+            detail: String?,
+            status: TaskStatus,
+            owner: String?,
+            blockedBy: [Int] = [],
+            createdAt: Date,
+            updatedAt: Date
+        ) {
+            self.id = id
+            self.title = title
+            self.detail = detail
+            self.status = status
+            self.owner = owner
+            self.blockedBy = blockedBy
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(Int.self, forKey: .id)
+            title = try container.decode(String.self, forKey: .title)
+            detail = try container.decodeIfPresent(String.self, forKey: .detail)
+            status = try container.decode(TaskStatus.self, forKey: .status)
+            owner = try container.decodeIfPresent(String.self, forKey: .owner)
+            blockedBy = try container.decodeIfPresent([Int].self, forKey: .blockedBy) ?? []
+            createdAt = try container.decode(Date.self, forKey: .createdAt)
+            updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        }
     }
 
     struct TeamMember: Codable, Identifiable, Equatable {
@@ -171,13 +242,11 @@ final class TeamSwarmCoordinator {
         let target = sanitize(rawTarget)
         let senderName = senderName(for: context) ?? Self.coordinatorName
 
-        let formattedBody = formattedDirectMessage(fromName: senderName, text: body)
-
         if target.caseInsensitiveCompare(Self.coordinatorName) == .orderedSame {
             enqueuePendingTeamMessage(
                 recipientName: Self.coordinatorName,
                 fromName: senderName,
-                text: formattedBody,
+                text: formattedDirectMessage(fromName: senderName, text: body),
                 messageType: messageType,
                 summary: summarize(body)
             )
@@ -188,38 +257,33 @@ final class TeamSwarmCoordinator {
             throw TeamError("TEAMMATE_NOT_FOUND: \(target)")
         }
 
-        if member.awaitingPlanApproval, messageType != "approved_execution", messageType != "shutdown_request" {
-            updateMember(memberID: member.id) { member in
-                let merged = [
-                    member.pendingExecutionInput,
-                    "Additional message from \(senderName): \(body)",
-                ].compactMap { $0 }.joined(separator: "\n\n")
-                member.pendingExecutionInput = merged
-                member.lastUpdatedAt = Date()
-            }
-            synchronizeTeamDirectories()
-            notifyChanged()
-            return
+        deliverMessage(
+            body: body,
+            messageType: messageType,
+            senderName: senderName,
+            member: member
+        )
+    }
+
+    @discardableResult
+    func sendScheduledMessage(
+        toAgentID agentID: String,
+        message: String,
+        messageType: String = "scheduled_message"
+    ) -> Bool {
+        guard let member = resolveMember(memberID: agentID),
+              let body = normalized(message)
+        else {
+            return false
         }
 
-        if messageType == "shutdown_request" {
-            markMemberShutdownRequested(memberID: member.id)
-        }
-        enqueuePendingTeamMessage(
-            recipientName: member.name,
-            fromName: senderName,
-            text: formattedBody,
+        deliverMessage(
+            body: body,
             messageType: messageType,
-            summary: summarize(body)
+            senderName: Self.coordinatorName,
+            member: member
         )
-        markMemberBusy(memberID: member.id)
-        let didHaveWorker = memberTasks[member.id] != nil
-        ensureMemberWorker(member: member)
-        if didHaveWorker {
-            memberSignals[member.id]?.yield()
-        }
-        synchronizeTeamDirectories()
-        notifyChanged()
+        return true
     }
 
     func approvePlan(sessionID: String?, memberName: String?, feedback: String?, context: ToolContext) throws -> TeamMember {
@@ -297,6 +361,7 @@ final class TeamSwarmCoordinator {
             detail: normalized(detail),
             status: .pending,
             owner: nil,
+            blockedBy: [],
             createdAt: now,
             updatedAt: now
         )
@@ -331,6 +396,7 @@ final class TeamSwarmCoordinator {
         detail: String?,
         status: TaskStatus?,
         owner: String?,
+        addBlockedBy: [Int] = [],
         context: ToolContext
     ) throws -> TeamTask {
         guard var team = resolvedTeam(context: context),
@@ -350,6 +416,46 @@ final class TeamSwarmCoordinator {
         }
         if let owner {
             task.owner = normalized(owner)
+        } else if status == .inProgress,
+                  task.owner == nil,
+                  let senderMemberID = context.senderMemberID,
+                  let senderName = team.members.first(where: { $0.id == senderMemberID })?.name
+        {
+            task.owner = senderName
+        }
+        if !addBlockedBy.isEmpty {
+            let existingTaskIDs = Set(team.tasks.map(\.id))
+            let filteredBlockedBy = addBlockedBy.filter { blockerID in
+                blockerID != id && existingTaskIDs.contains(blockerID)
+            }
+            if !filteredBlockedBy.isEmpty {
+                let mergedBlockedBy = Set(task.blockedBy).union(filteredBlockedBy)
+                task.blockedBy = mergedBlockedBy.sorted()
+                if task.status == .pending {
+                    task.status = .blocked
+                }
+            }
+        }
+        if status == .completed {
+            task.owner = task.owner ?? normalized(owner)
+            let completedTaskID = task.id
+            for dependentIndex in team.tasks.indices where dependentIndex != index {
+                if team.tasks[dependentIndex].blockedBy.contains(completedTaskID) {
+                    team.tasks[dependentIndex].blockedBy.removeAll { $0 == completedTaskID }
+                    if team.tasks[dependentIndex].blockedBy.isEmpty,
+                       team.tasks[dependentIndex].status == .blocked
+                    {
+                        team.tasks[dependentIndex].status = .pending
+                    }
+                    team.tasks[dependentIndex].updatedAt = Date()
+                }
+            }
+        }
+        if task.status == .pending, !task.blockedBy.isEmpty {
+            task.status = .blocked
+        }
+        if task.status == .blocked, task.blockedBy.isEmpty {
+            task.status = .pending
         }
         task.updatedAt = Date()
         team.tasks[index] = task
@@ -558,20 +664,50 @@ final class TeamSwarmCoordinator {
     }
 
     private func finishMember(memberID: String, status: MemberStatus, result: String?, error: String?) {
+        let memberName = teamRecord?.members.first(where: { $0.id == memberID })?.name
+        let idleSummary = status == .idle ? summarize(result) : nil
         updateMember(memberID: memberID) { member in
             member.status = status
             member.lastResult = result ?? member.lastResult
             member.lastError = error
             member.lastUpdatedAt = Date()
             if status == .idle {
-                member.lastIdleSummary = summarize(result)
+                member.lastIdleSummary = idleSummary
             }
             if status == .stopped {
                 member.shutdownRequested = true
             }
         }
+        if status == .idle, let memberName {
+            completeOwnedInProgressTasks(forMemberNamed: memberName)
+            enqueueTeammateIdleMessage(memberName: memberName, summary: idleSummary)
+        }
         synchronizeTeamDirectories()
         notifyChanged()
+    }
+
+    private func completeOwnedInProgressTasks(forMemberNamed memberName: String) {
+        guard var team = teamRecord else { return }
+
+        let normalizedOwner = memberName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedOwner.isEmpty else { return }
+
+        let now = Date()
+        var didUpdate = false
+        for index in team.tasks.indices {
+            guard team.tasks[index].status == .inProgress,
+                  team.tasks[index].owner?.caseInsensitiveCompare(normalizedOwner) == .orderedSame
+            else {
+                continue
+            }
+            team.tasks[index].status = .completed
+            team.tasks[index].updatedAt = now
+            didUpdate = true
+        }
+
+        guard didUpdate else { return }
+        team.updatedAt = now
+        teamRecord = team
     }
 
     private func markMemberShutdownRequested(memberID: String) {
@@ -600,6 +736,20 @@ final class TeamSwarmCoordinator {
             messageType: messageType
         )
         try? TeamMailbox.append(teamDirectoryURL: teamDirectoryURL, recipientName: recipientName, message: message)
+    }
+
+    private func enqueueTeammateIdleMessage(memberName: String, summary: String?) {
+        let normalizedMemberName = memberName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedMemberName.isEmpty else { return }
+
+        let normalizedSummary = summarize(summary, limit: 280)
+        enqueuePendingTeamMessage(
+            recipientName: Self.coordinatorName,
+            fromName: normalizedMemberName,
+            text: formattedTeammateIdleMessage(memberName: normalizedMemberName, summary: normalizedSummary),
+            messageType: "teammate_idle",
+            summary: normalizedSummary
+        )
     }
 
     private func markMemberBusy(memberID: String) {
@@ -662,6 +812,46 @@ final class TeamSwarmCoordinator {
         team.members[index] = member
         team.updatedAt = Date()
         teamRecord = team
+    }
+
+    private func deliverMessage(
+        body: String,
+        messageType: String,
+        senderName: String,
+        member: TeamMember
+    ) {
+        if member.awaitingPlanApproval, messageType != "approved_execution", messageType != "shutdown_request" {
+            updateMember(memberID: member.id) { member in
+                let merged = [
+                    member.pendingExecutionInput,
+                    "Additional message from \(senderName): \(body)",
+                ].compactMap { $0 }.joined(separator: "\n\n")
+                member.pendingExecutionInput = merged
+                member.lastUpdatedAt = Date()
+            }
+            synchronizeTeamDirectories()
+            notifyChanged()
+            return
+        }
+
+        if messageType == "shutdown_request" {
+            markMemberShutdownRequested(memberID: member.id)
+        }
+        enqueuePendingTeamMessage(
+            recipientName: member.name,
+            fromName: senderName,
+            text: formattedDirectMessage(fromName: senderName, text: body),
+            messageType: messageType,
+            summary: summarize(body)
+        )
+        markMemberBusy(memberID: member.id)
+        let didHaveWorker = memberTasks[member.id] != nil
+        ensureMemberWorker(member: member)
+        if didHaveWorker {
+            memberSignals[member.id]?.yield()
+        }
+        synchronizeTeamDirectories()
+        notifyChanged()
     }
 
     private func ensureMemberWorker(member: TeamMember) {
@@ -912,7 +1102,11 @@ final class TeamSwarmCoordinator {
     }
 
     private var teamsRootURL: URL? {
-        TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)
+        TeamStore.runtimeDirectoryURL(
+            fileManager: .default,
+            workspaceRootURL: agentStoreRootURL,
+            createDirectoryIfNeeded: true
+        )
     }
 
     private func teamDirectoryURL() -> URL? {
@@ -932,6 +1126,13 @@ final class TeamSwarmCoordinator {
 
     private func formattedDirectMessage(fromName: String, text: String) -> String {
         "Message from \(fromName):\n\(text)"
+    }
+
+    private func formattedTeammateIdleMessage(memberName: String, summary: String?) -> String {
+        guard let summary = normalized(summary) else {
+            return "Teammate \(memberName) is now idle."
+        }
+        return "Teammate \(memberName) is now idle.\nSummary: \(summary)"
     }
 
     private func summarize(_ value: String?, limit: Int = 140) -> String? {
