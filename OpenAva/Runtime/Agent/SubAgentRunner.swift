@@ -8,6 +8,8 @@ struct SubAgentRunOutput {
     let totalToolCalls: Int
     let durationMs: Int
     let content: String
+    let requestMessages: [ChatRequestBody.Message]
+    let persistedConversation: [SubAgentTaskStore.PersistedConversationMessage]
 }
 
 @MainActor
@@ -16,37 +18,64 @@ enum SubAgentRunner {
         prompt: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
+        runtimeRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
+        existingMessages: [ChatRequestBody.Message]? = nil,
+        existingConversation: [SubAgentTaskStore.PersistedConversationMessage]? = nil,
+        startingTurnCount: Int = 0,
+        startingToolCallCount: Int = 0,
+        startedAt: Date? = nil,
         executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse,
         onProgress: @escaping @Sendable (SubAgentTaskStore.ProgressSnapshot) async -> Void = { _ in }
     ) async throws -> SubAgentRunOutput {
-        let start = Date()
+        let start = startedAt ?? Date()
         let client = LLMChatClient(modelConfig: modelConfig)
-        let systemPrompt = buildSystemPrompt(definition: definition, workspaceRootURL: workspaceRootURL, modelConfig: modelConfig)
+        let systemPrompt = await buildSystemPrompt(
+            definition: definition,
+            workspaceRootURL: workspaceRootURL,
+            runtimeRootURL: runtimeRootURL,
+            modelConfig: modelConfig
+        )
         let tools = await filteredTools(for: definition)
 
-        var requestMessages: [ChatRequestBody.Message] = [
-            .system(content: .text(systemPrompt)),
-            .user(content: .text(prompt)),
+        var requestMessages = existingMessages ?? [.system(content: .text(systemPrompt))]
+        var persistedConversation = existingConversation ?? [
+            .init(role: .system, text: systemPrompt, toolCalls: nil, reasoning: nil, toolCallID: nil),
         ]
+        if let dynamicMemorySection = await buildDynamicMemorySection(
+            query: prompt,
+            persistedConversation: persistedConversation,
+            runtimeRootURL: runtimeRootURL,
+            modelConfig: modelConfig
+        ) {
+            requestMessages.append(.system(content: .text(dynamicMemorySection)))
+            persistedConversation.append(
+                .init(role: .system, text: dynamicMemorySection, toolCalls: nil, reasoning: nil, toolCallID: nil)
+            )
+        }
+        requestMessages.append(.user(content: .text(prompt)))
+        persistedConversation.append(.init(role: .user, text: prompt, toolCalls: nil, reasoning: nil, toolCallID: nil))
 
         let maxTurns = definition.maxTurns
-        var totalToolCalls = 0
-        var turnCount = 0
+        var totalToolCalls = startingToolCallCount
+        var turnCount = startingTurnCount
         var finalText = ""
 
         await onProgress(
             .init(
                 summary: "Starting sub agent…",
                 recentActivities: [],
-                totalTurns: 0,
-                totalToolCalls: 0,
-                durationMs: 0
+                totalTurns: turnCount,
+                totalToolCalls: totalToolCalls,
+                durationMs: Int(Date().timeIntervalSince(start) * 1000)
             )
         )
 
-        while turnCount < maxTurns {
+        var turnsThisRun = 0
+
+        while turnsThisRun < maxTurns {
             turnCount += 1
+            turnsThisRun += 1
             await onProgress(
                 progressSnapshot(
                     summary: "Thinking on turn \(turnCount)…",
@@ -74,6 +103,17 @@ enum SubAgentRunner {
                 thinkingBlocks: response.thinkingBlocks
             )
             requestMessages.append(assistantMessage)
+            persistedConversation.append(
+                .init(
+                    role: .assistant,
+                    text: finalText.isEmpty ? nil : finalText,
+                    toolCalls: response.tools.map {
+                        .init(id: $0.id, name: $0.name, arguments: $0.arguments)
+                    },
+                    reasoning: response.reasoning.isEmpty ? nil : response.reasoning,
+                    toolCallID: nil
+                )
+            )
 
             guard !response.tools.isEmpty else {
                 let content = AppConfig.nonEmpty(finalText) ?? "Sub agent finished without a text result."
@@ -91,7 +131,9 @@ enum SubAgentRunner {
                     totalTurns: turnCount,
                     totalToolCalls: totalToolCalls,
                     durationMs: Int(Date().timeIntervalSince(start) * 1000),
-                    content: content
+                    content: content,
+                    requestMessages: requestMessages,
+                    persistedConversation: persistedConversation
                 )
             }
 
@@ -113,6 +155,15 @@ enum SubAgentRunner {
                 requestMessages.append(
                     .tool(
                         content: .text(toolResponse.text),
+                        toolCallID: toolRequest.id
+                    )
+                )
+                persistedConversation.append(
+                    .init(
+                        role: .tool,
+                        text: toolResponse.text,
+                        toolCalls: nil,
+                        reasoning: nil,
                         toolCallID: toolRequest.id
                     )
                 )
@@ -146,15 +197,18 @@ enum SubAgentRunner {
             totalTurns: turnCount,
             totalToolCalls: totalToolCalls,
             durationMs: Int(Date().timeIntervalSince(start) * 1000),
-            content: fallback
+            content: fallback,
+            requestMessages: requestMessages,
+            persistedConversation: persistedConversation
         )
     }
 
     private static func buildSystemPrompt(
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
+        runtimeRootURL _: URL?,
         modelConfig: AppConfig.LLMModel
-    ) -> String {
+    ) async -> String {
         let baseParts = [
             AppConfig.nonEmpty(modelConfig.systemPrompt),
             AppConfig.nonEmpty(definition.systemPrompt),
@@ -164,6 +218,45 @@ enum SubAgentRunner {
             baseSystemPrompt: basePrompt,
             workspaceRootURL: workspaceRootURL
         ) ?? basePrompt
+    }
+
+    private static func buildDynamicMemorySection(
+        query: String,
+        persistedConversation: [SubAgentTaskStore.PersistedConversationMessage],
+        runtimeRootURL: URL?,
+        modelConfig: AppConfig.LLMModel
+    ) async -> String? {
+        guard let runtimeRootURL else {
+            return nil
+        }
+
+        let builder = AgentMemoryContextBuilder(
+            runtimeRootURL: runtimeRootURL,
+            modelConfig: modelConfig
+        )
+        return await builder.contextSection(
+            query: query,
+            recentTools: recentToolNames(from: persistedConversation),
+            alreadySurfacedSlugs: AgentMemorySurfacingSupport.surfacedSlugs(from: persistedConversation)
+        )
+    }
+
+    private static func recentToolNames(from persistedConversation: [SubAgentTaskStore.PersistedConversationMessage], limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        var collected: [String] = []
+
+        for message in persistedConversation.reversed() where message.role == .assistant {
+            for toolCall in (message.toolCalls ?? []).reversed() {
+                let name = toolCall.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, seen.insert(name).inserted else { continue }
+                collected.append(name)
+                if collected.count >= limit {
+                    return collected
+                }
+            }
+        }
+
+        return collected
     }
 
     private static func filteredTools(for definition: SubAgentDefinition) async -> [ChatRequestBody.Tool] {

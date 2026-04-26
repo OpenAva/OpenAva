@@ -37,6 +37,26 @@ final class SubAgentTools: ToolDefinitionProvider {
                 ] as [String: Any])
             ),
             ToolDefinition(
+                functionName: "subagent_continue",
+                command: "subagent.continue",
+                description: "Continue an existing background sub agent task by sending follow-up instructions into the same delegated context.",
+                parametersSchema: AnyCodable([
+                    "type": "object",
+                    "properties": [
+                        "task_id": [
+                            "type": "string",
+                            "description": "Background sub agent task id returned by subagent_run",
+                        ],
+                        "prompt": [
+                            "type": "string",
+                            "description": "Follow-up instructions or additional context for the existing sub agent task",
+                        ],
+                    ],
+                    "required": ["task_id", "prompt"],
+                    "additionalProperties": false,
+                ] as [String: Any])
+            ),
+            ToolDefinition(
                 functionName: "subagent_status",
                 command: "subagent.status",
                 description: "Check the latest status of an asynchronously running sub agent task.",

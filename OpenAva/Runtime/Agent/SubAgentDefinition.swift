@@ -9,6 +9,7 @@ struct SubAgentDefinition: Equatable {
 
     static let recursiveToolFunctionNames: Set<String> = [
         "subagent_run",
+        "subagent_continue",
         "subagent_status",
         "subagent_cancel",
     ]

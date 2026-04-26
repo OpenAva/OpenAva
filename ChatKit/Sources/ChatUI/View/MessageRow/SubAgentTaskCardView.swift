@@ -373,6 +373,8 @@ final class SubAgentTaskCardView: MessageListRowView {
         switch status {
         case "running":
             return String.localized("Running")
+        case "waiting":
+            return String.localized("Waiting")
         case "completed":
             return String.localized("Completed")
         case "failed":
@@ -386,6 +388,13 @@ final class SubAgentTaskCardView: MessageListRowView {
 
     private func statusPalette(for status: String) -> (fill: UIColor, border: UIColor, badge: UIColor, foreground: UIColor) {
         switch status {
+        case "waiting":
+            return (
+                UIColor.systemTeal.withAlphaComponent(0.08),
+                UIColor.systemTeal.withAlphaComponent(0.16),
+                UIColor.systemTeal.withAlphaComponent(0.12),
+                .systemTeal
+            )
         case "completed":
             return (
                 UIColor.systemGreen.withAlphaComponent(0.08),

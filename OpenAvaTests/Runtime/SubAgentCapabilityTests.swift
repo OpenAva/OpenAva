@@ -8,11 +8,11 @@ final class SubAgentCapabilityTests: XCTestCase {
         XCTAssertEqual(SubAgentRegistry.plan.maxTurns, 12)
     }
 
-    func testSubAgentToolDefinitionsExposeRunStatusAndCancel() {
+    func testSubAgentToolDefinitionsExposeRunContinueStatusAndCancel() {
         let definitions = SubAgentTools().toolDefinitions()
         let functionNames = Set(definitions.map(\.functionName))
 
-        XCTAssertEqual(functionNames, ["subagent_run", "subagent_status", "subagent_cancel"])
+        XCTAssertEqual(functionNames, ["subagent_run", "subagent_continue", "subagent_status", "subagent_cancel"])
     }
 
     func testExploreSubAgentIsReadOnlyAndBlocksRecursiveLaunch() {
@@ -25,6 +25,7 @@ final class SubAgentCapabilityTests: XCTestCase {
         XCTAssertFalse(definition.allowsTool(functionName: "javascript_execute"))
         XCTAssertFalse(definition.allowsTool(functionName: "memory_upsert"))
         XCTAssertFalse(definition.allowsTool(functionName: "subagent_run"))
+        XCTAssertFalse(definition.allowsTool(functionName: "subagent_continue"))
     }
 
     func testPlanSubAgentDoesNotExposeJavaScriptExecute() {
@@ -44,6 +45,7 @@ final class SubAgentCapabilityTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("## Sub Agents"))
         XCTAssertTrue(prompt.contains("subagent_run"))
+        XCTAssertTrue(prompt.contains("subagent_continue"))
         XCTAssertTrue(prompt.contains("subagent_status"))
         XCTAssertTrue(prompt.contains("must not recursively spawn additional sub agents"))
     }

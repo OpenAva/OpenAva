@@ -109,6 +109,7 @@ extension SkillTools {
                     prompt: forkedSkillPrompt(skill: skill, task: task, body: body),
                     definition: definition,
                     workspaceRootURL: workspaceRootURL,
+                    runtimeRootURL: activeRuntimeRootURLProvider(),
                     modelConfig: modelConfig,
                     executeTool: { nestedRequest in
                         await toolInvoker(nestedRequest, sessionID)

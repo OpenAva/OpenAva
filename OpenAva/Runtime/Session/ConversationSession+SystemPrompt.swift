@@ -3,10 +3,8 @@ import ChatUI
 import Foundation
 
 extension ConversationSession {
-    private enum DynamicMemoryRecallConfig {
-        static let maxQueryCharacters = 320
-        static let maxHits = 3
-        static let maxContentCharacters = 280
+    private enum DynamicMemoryMetadata {
+        static let key = AgentMemorySurfacingSupport.metadataKey
     }
 
     private func latestUserQuery(from requestMessages: [ChatRequestBody.Message]) -> String? {
@@ -17,17 +15,10 @@ extension ConversationSession {
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { continue }
-            return truncated(normalized, limit: DynamicMemoryRecallConfig.maxQueryCharacters)
+            return normalized
         }
 
         return nil
-    }
-
-    private func truncated(_ raw: String, limit: Int) -> String {
-        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.count > limit else { return normalized }
-        let endIndex = normalized.index(normalized.startIndex, offsetBy: limit)
-        return String(normalized[..<endIndex]) + "…"
     }
 
     private func dynamicMemoryRecallSection(for requestMessages: [ChatRequestBody.Message]) async -> String? {
@@ -37,29 +28,75 @@ extension ConversationSession {
             return nil
         }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
-        guard let hits = try? await store.recall(query: query, limit: DynamicMemoryRecallConfig.maxHits),
-              !hits.isEmpty
-        else {
-            return nil
+        let modelConfig = (models.chat?.client as? LLMChatClient)?.modelConfig
+        let builder = AgentMemoryContextBuilder(
+            runtimeRootURL: runtimeRootURL,
+            modelConfig: modelConfig
+        )
+        return await builder.contextSection(
+            query: query,
+            recentTools: recentToolNames(),
+            alreadySurfacedSlugs: alreadySurfacedMemorySlugs()
+        )
+    }
+
+    private func recentToolNames(limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        var collected: [String] = []
+
+        for message in historyMessages().reversed() where message.role == .assistant {
+            for part in message.parts.reversed() {
+                guard case let .toolCall(toolCall) = part else { continue }
+                let name = (toolCall.apiName.isEmpty ? toolCall.toolName : toolCall.apiName)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, seen.insert(name).inserted else { continue }
+                collected.append(name)
+                if collected.count >= limit {
+                    return collected
+                }
+            }
         }
 
-        let lines = hits.map { hit -> String in
-            let excerpt = truncated(hit.content.replacingOccurrences(of: "\n", with: " "), limit: DynamicMemoryRecallConfig.maxContentCharacters)
-            return """
-            - [\(hit.type.rawValue)] \(hit.name) (slug=\(hit.slug), version=\(hit.version))
-              - description: \(hit.description)
-              - content: \(excerpt)
-            """
+        return collected
+    }
+
+    private func alreadySurfacedMemorySlugs() -> Set<String> {
+        AgentMemorySurfacingSupport.surfacedSlugs(from: historyMessages())
+    }
+
+    private func persistSurfacedMemorySlugs(_ slugs: Set<String>, for requestMessages: [ChatRequestBody.Message]) {
+        let metadataValue = AgentMemorySurfacingSupport.encodeMetadataValue(for: slugs)
+        let userTurnText = latestUserQuery(from: requestMessages)
+        guard let targetMessage = latestUserMessage(matching: userTurnText) else {
+            return
         }
 
-        return """
-        ## Dynamic Memory Recall
-        Current request query: \(query)
+        if let metadataValue {
+            targetMessage.metadata[DynamicMemoryMetadata.key] = metadataValue
+        } else {
+            targetMessage.metadata.removeValue(forKey: DynamicMemoryMetadata.key)
+        }
+        recordMessageInTranscript(targetMessage)
+    }
 
-        Relevant active durable memories:
-        \(lines.joined(separator: "\n"))
-        """
+    private func latestUserMessage(matching userText: String?) -> ConversationMessage? {
+        let normalizedTarget = userText?
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let normalizedTarget, !normalizedTarget.isEmpty,
+           let matched = historyMessages().last(where: { message in
+               guard message.role == .user else { return false }
+               let normalizedMessage = message.textContent
+                   .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                   .trimmingCharacters(in: .whitespacesAndNewlines)
+               return normalizedMessage == normalizedTarget
+           })
+        {
+            return matched
+        }
+
+        return historyMessages().last(where: { $0.role == .user })
     }
 
     func buildInstructionRequestMessage(
@@ -67,6 +104,12 @@ extension ConversationSession {
         capabilities: Set<ModelCapability>
     ) async -> ChatRequestBody.Message? {
         let dynamicMemorySection = await dynamicMemoryRecallSection(for: requestMessages)
+        if let dynamicMemorySection {
+            let surfacedSlugs = AgentMemorySurfacingSupport.surfacedSlugs(fromRenderedSection: dynamicMemorySection)
+            if !surfacedSlugs.isEmpty {
+                persistSurfacedMemorySlugs(alreadySurfacedMemorySlugs().union(surfacedSlugs), for: requestMessages)
+            }
+        }
 
         let trimmedBasePrompt = systemPromptProvider()
             .trimmingCharacters(in: .whitespacesAndNewlines)

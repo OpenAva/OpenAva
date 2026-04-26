@@ -143,7 +143,7 @@ enum AgentPromptBuilder {
             title: "## Sub Agents",
             content: """
             Use `subagent_run` to delegate focused work to an isolated sub agent.
-            Check background work with `subagent_status` and stop it with `subagent_cancel`.
+            Continue background delegated work with `subagent_continue`, check progress with `subagent_status`, and stop it with `subagent_cancel`.
             Sub agents must not recursively spawn additional sub agents.
             Use read-only agent types such as Explore or Plan for research, and use full-capability agent types only when the delegated work truly needs execution.
             """

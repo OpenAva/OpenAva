@@ -184,6 +184,90 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
         XCTAssertFalse(promptText.contains("Investigate the catalystHostRefreshToken build failure in ChatRootView and explain the regression."))
     }
 
+    func testBuildInstructionMessagePersistsSurfacedSlugsAndAvoidsRepeatingSameMemory() async throws {
+        let runtimeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
+            try? FileManager.default.removeItem(at: runtimeRoot)
+        }
+
+        let memoryStore = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        _ = try await memoryStore.upsert(
+            name: "Response style",
+            type: .feedback,
+            description: "Primary brevity preference",
+            content: "Prefer concise answers and avoid wrap-up summaries.",
+            slug: "response-style"
+        )
+
+        let delegate = AgentSessionDelegate(
+            sessionID: "session-repeat-memory",
+            runtimeRootURL: runtimeRoot,
+            chatClient: nil,
+            agentName: "Test Agent",
+            agentEmoji: "",
+            shouldExtractDurableMemory: false
+        )
+        let session = ConversationSession(
+            id: "session-repeat-memory",
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                delegate: delegate,
+                systemPromptProvider: {
+                    AgentContextLoader.composeSystemPrompt(
+                        baseSystemPrompt: "You are a helpful assistant.",
+                        workspaceRootURL: runtimeRoot
+                    ) ?? "You are a helpful assistant."
+                }
+            )
+        )
+
+        let firstUser = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Response style"
+        }
+        let firstRequestMessages = await session.buildMessages(capabilities: [])
+        guard case let .system(firstContent, _) = try XCTUnwrap(firstRequestMessages.first) else {
+            XCTFail("Expected injected system prompt at first position")
+            return
+        }
+        let firstPromptText = try extractPromptText(from: firstContent)
+        XCTAssertTrue(firstPromptText.contains("Response style"))
+        XCTAssertEqual(
+            AgentMemorySurfacingSupport.decodeMetadataValue(
+                firstUser.metadata[AgentMemorySurfacingSupport.metadataKey]
+            ),
+            ["response-style"]
+        )
+        XCTAssertEqual(
+            AgentMemorySurfacingSupport.surfacedSlugs(from: session.historyMessages()),
+            ["response-style"]
+        )
+
+        _ = session.appendNewMessage(role: .assistant) { message in
+            message.textContent = "Got it."
+        }
+        let secondUser = session.appendNewMessage(role: .user) { message in
+            message.textContent = "Response style"
+        }
+        let secondRequestMessages = await session.buildMessages(capabilities: [])
+        guard case let .system(secondContent, _) = try XCTUnwrap(secondRequestMessages.first) else {
+            XCTFail("Expected injected system prompt at first position")
+            return
+        }
+        let secondPromptText = try extractPromptText(from: secondContent)
+
+        XCTAssertFalse(secondPromptText.contains("## Dynamic Memory Recall"))
+        XCTAssertFalse(secondPromptText.contains("Response style (slug=response-style"))
+        XCTAssertEqual(
+            AgentMemorySurfacingSupport.decodeMetadataValue(
+                secondUser.metadata[AgentMemorySurfacingSupport.metadataKey]
+            ),
+            []
+        )
+    }
+
     func testBuildMessagesUsesDeveloperRoleForInstructionPrompt() async throws {
         let session = ConversationSession(
             id: "session-developer-role",

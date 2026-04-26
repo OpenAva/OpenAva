@@ -8,12 +8,13 @@ extension SubAgentTools {
         into handlers: inout [String: ToolHandler],
         context: ToolHandlerRegistrationContext
     ) {
-        for command in ["subagent.run", "subagent.status", "subagent.cancel"] {
+        for command in ["subagent.run", "subagent.continue", "subagent.status", "subagent.cancel"] {
             handlers[command] = { request in
                 try await Self.handleSubAgentInvoke(
                     request,
                     workspaceRootURL: context.workspaceRootURL,
                     modelConfig: context.modelConfig,
+                    activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider,
                     toolInvoker: context.toolInvoker
                 )
             }
@@ -24,6 +25,7 @@ extension SubAgentTools {
         _ request: BridgeInvokeRequest,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel?,
+        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
     ) async throws -> BridgeInvokeResponse {
         struct RunParams: Decodable {
@@ -45,6 +47,16 @@ extension SubAgentTools {
 
             enum CodingKeys: String, CodingKey {
                 case taskID = "task_id"
+            }
+        }
+
+        struct ContinueParams: Decodable {
+            let taskID: String
+            let prompt: String
+
+            enum CodingKeys: String, CodingKey {
+                case taskID = "task_id"
+                case prompt
             }
         }
 
@@ -78,39 +90,31 @@ extension SubAgentTools {
             await installTaskMessageIfPossible(taskID: record.id, sessionID: sessionID)
 
             if params.runInBackground == true {
-                let task = Task { @MainActor in
-                    do {
-                        _ = try await executeSubAgentTask(
-                            record: record,
-                            prompt: prompt,
-                            definition: definition,
-                            workspaceRootURL: workspaceRootURL,
-                            modelConfig: modelConfig,
-                            sessionID: sessionID,
-                            executeTool: { nestedRequest in
-                                await toolInvoker(nestedRequest, sessionID)
-                            }
-                        )
-                    } catch {
-                        // State was already recorded for the task card.
-                    }
-                }
-                await SubAgentTaskStore.shared.attach(task: task, for: record.id)
+                await spawnBackgroundWorkerIfNeeded(
+                    taskID: record.id,
+                    definition: definition,
+                    workspaceRootURL: workspaceRootURL,
+                    runtimeRootURL: activeRuntimeRootURLProvider(),
+                    modelConfig: modelConfig,
+                    sessionID: sessionID,
+                    toolInvoker: toolInvoker
+                )
                 let payload = [
                     "## Sub Agent Task",
                     "- task_id: \(record.id)",
                     "- agent: \(record.agentType)",
                     "- description: \(record.description)",
-                    "- status: \(record.status.rawValue)",
+                    "- status: running",
                 ].joined(separator: "\n")
                 return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
             }
 
             let output = try await executeSubAgentTask(
-                record: record,
+                taskID: record.id,
                 prompt: prompt,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
+                runtimeRootURL: activeRuntimeRootURLProvider(),
                 modelConfig: modelConfig,
                 sessionID: sessionID,
                 executeTool: { nestedRequest in
@@ -125,6 +129,56 @@ extension SubAgentTools {
                 "- duration_ms: \(output.durationMs)",
                 "",
                 output.content,
+            ].joined(separator: "\n")
+            return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
+
+        case "subagent.continue":
+            let params = try ToolInvocationHelpers.decodeParams(ContinueParams.self, from: request.paramsJSON)
+            guard let prompt = AppConfig.nonEmpty(params.prompt) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: prompt is required")
+                )
+            }
+            guard let modelConfig else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no configured model for sub agent execution")
+                )
+            }
+            guard let taskRecord = await SubAgentTaskStore.shared.enqueuePrompt(taskID: params.taskID, prompt: prompt) else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "NOT_FOUND: sub agent task not found or prompt invalid")
+                )
+            }
+            guard taskRecord.status != .completed, taskRecord.status != .failed, taskRecord.status != .cancelled else {
+                return BridgeInvokeResponse(
+                    id: request.id,
+                    ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: sub agent task is not resumable")
+                )
+            }
+            let definition = SubAgentRegistry.definition(for: taskRecord.agentType) ?? SubAgentRegistry.generalPurpose
+            await spawnBackgroundWorkerIfNeeded(
+                taskID: taskRecord.id,
+                definition: definition,
+                workspaceRootURL: workspaceRootURL,
+                runtimeRootURL: activeRuntimeRootURLProvider(),
+                modelConfig: modelConfig,
+                sessionID: taskRecord.parentSessionID,
+                toolInvoker: toolInvoker
+            )
+            await syncTaskMessageIfPossible(taskID: taskRecord.id, sessionID: taskRecord.parentSessionID)
+            let payload = [
+                "## Sub Agent Follow-up",
+                "- task_id: \(taskRecord.id)",
+                "- agent: \(taskRecord.agentType)",
+                "- status: running",
+                "- queued_prompt: \(prompt)",
             ].joined(separator: "\n")
             return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
 
@@ -174,50 +228,172 @@ extension SubAgentTools {
         }
     }
 
+    private static func spawnBackgroundWorkerIfNeeded(
+        taskID: String,
+        definition: SubAgentDefinition,
+        workspaceRootURL: URL?,
+        runtimeRootURL: URL?,
+        modelConfig: AppConfig.LLMModel,
+        sessionID: String?,
+        toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
+    ) async {
+        let alreadyRunning = await SubAgentTaskStore.shared.hasAttachedTask(taskID: taskID)
+        guard !alreadyRunning else { return }
+        let task = Task { @MainActor in
+            defer {
+                Task {
+                    await SubAgentTaskStore.shared.detach(taskID: taskID)
+                }
+            }
+            await backgroundWorkerLoop(
+                taskID: taskID,
+                definition: definition,
+                workspaceRootURL: workspaceRootURL,
+                runtimeRootURL: runtimeRootURL,
+                modelConfig: modelConfig,
+                sessionID: sessionID,
+                toolInvoker: toolInvoker
+            )
+        }
+        await SubAgentTaskStore.shared.attach(task: task, for: taskID)
+    }
+
+    private static func backgroundWorkerLoop(
+        taskID: String,
+        definition: SubAgentDefinition,
+        workspaceRootURL: URL?,
+        runtimeRootURL: URL?,
+        modelConfig: AppConfig.LLMModel,
+        sessionID: String?,
+        toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
+    ) async {
+        var currentPrompt: String? = nil
+        if let record = await SubAgentTaskStore.shared.record(taskID: taskID),
+           let restored = await SubAgentTaskStore.shared.restoreConversation(taskID: taskID),
+           restored.isEmpty
+        {
+            currentPrompt = record.prompt
+        }
+
+        while !Task.isCancelled {
+            let prompt: String?
+            if let currentPrompt {
+                prompt = currentPrompt
+            } else {
+                prompt = await SubAgentTaskStore.shared.takeNextPrompt(taskID: taskID)
+            }
+            currentPrompt = nil
+            guard let prompt else {
+                if let snapshot = await SubAgentTaskStore.shared.snapshot(taskID: taskID),
+                   snapshot.record.status == .running,
+                   !snapshot.record.conversation.isEmpty
+                {
+                    await SubAgentTaskStore.shared.markWaiting(
+                        taskID: taskID,
+                        result: snapshot.record.result ?? "",
+                        conversation: snapshot.record.conversation,
+                        summary: snapshot.progress?.summary ?? "Waiting for follow-up",
+                        totalTurns: snapshot.record.totalTurns,
+                        totalToolCalls: snapshot.record.totalToolCalls,
+                        durationMs: snapshot.record.durationMs
+                    )
+                    await syncTaskMessageIfPossible(taskID: taskID, sessionID: sessionID)
+                }
+                break
+            }
+
+            do {
+                _ = try await executeSubAgentTask(
+                    taskID: taskID,
+                    prompt: prompt,
+                    definition: definition,
+                    workspaceRootURL: workspaceRootURL,
+                    runtimeRootURL: runtimeRootURL,
+                    modelConfig: modelConfig,
+                    sessionID: sessionID,
+                    executeTool: { nestedRequest in
+                        await toolInvoker(nestedRequest, sessionID)
+                    },
+                    completeIfNoPendingPrompts: false
+                )
+            } catch {
+                break
+            }
+        }
+    }
+
     private static func executeSubAgentTask(
-        record: SubAgentTaskStore.TaskRecord,
+        taskID: String,
         prompt: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
+        runtimeRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
         sessionID: String?,
-        executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse
+        executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse,
+        completeIfNoPendingPrompts: Bool = true
     ) async throws -> SubAgentRunOutput {
         do {
+            guard let record = await SubAgentTaskStore.shared.record(taskID: taskID) else {
+                throw NSError(domain: "SubAgentTools", code: 404, userInfo: [NSLocalizedDescriptionKey: "Sub agent task not found."])
+            }
+            let restoredConversation = await SubAgentTaskStore.shared.restoreConversation(taskID: taskID)
             let output = try await SubAgentRunner.run(
                 prompt: prompt,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
+                runtimeRootURL: runtimeRootURL,
                 modelConfig: modelConfig,
+                existingMessages: restoredConversation?.isEmpty == false ? restoredConversation : nil,
+                existingConversation: record.conversation.isEmpty ? nil : record.conversation,
+                startingTurnCount: record.totalTurns,
+                startingToolCallCount: record.totalToolCalls,
+                startedAt: record.createdAt,
                 executeTool: executeTool,
                 onProgress: { snapshot in
-                    await SubAgentTaskStore.shared.updateProgress(taskID: record.id, snapshot: snapshot)
-                    await syncTaskMessageIfPossible(taskID: record.id, sessionID: sessionID)
+                    await SubAgentTaskStore.shared.updateProgress(taskID: taskID, snapshot: snapshot)
+                    await syncTaskMessageIfPossible(taskID: taskID, sessionID: sessionID)
                 }
             )
 
-            await SubAgentTaskStore.shared.markCompleted(
-                taskID: record.id,
-                result: output.content,
-                summary: resultPreview(from: output.content),
-                totalTurns: output.totalTurns,
-                totalToolCalls: output.totalToolCalls,
-                durationMs: output.durationMs
-            )
-            await syncTaskMessageIfPossible(taskID: record.id, sessionID: sessionID)
+            let latestRecord = await SubAgentTaskStore.shared.record(taskID: taskID)
+            let hasPendingFollowUps = !(latestRecord?.pendingPrompts.isEmpty ?? true)
+            if completeIfNoPendingPrompts, !hasPendingFollowUps {
+                await SubAgentTaskStore.shared.markCompleted(
+                    taskID: taskID,
+                    result: output.content,
+                    conversation: output.persistedConversation,
+                    summary: resultPreview(from: output.content),
+                    totalTurns: output.totalTurns,
+                    totalToolCalls: output.totalToolCalls,
+                    durationMs: output.durationMs
+                )
+            } else {
+                let summary = hasPendingFollowUps ? "Queued follow-up" : (resultPreview(from: output.content) ?? "Waiting for follow-up")
+                await SubAgentTaskStore.shared.saveCheckpoint(
+                    taskID: taskID,
+                    result: output.content,
+                    conversation: output.persistedConversation,
+                    summary: summary,
+                    totalTurns: output.totalTurns,
+                    totalToolCalls: output.totalToolCalls,
+                    durationMs: output.durationMs
+                )
+            }
+            await syncTaskMessageIfPossible(taskID: taskID, sessionID: sessionID)
             return output
         } catch {
-            let taskSnapshot = await SubAgentTaskStore.shared.snapshot(taskID: record.id)
+            let taskSnapshot = await SubAgentTaskStore.shared.snapshot(taskID: taskID)
             let progress = taskSnapshot?.progress
             await SubAgentTaskStore.shared.markFailed(
-                taskID: record.id,
+                taskID: taskID,
                 errorDescription: error.localizedDescription,
                 summary: progress?.summary ?? "Failed",
                 totalTurns: progress?.totalTurns,
                 totalToolCalls: progress?.totalToolCalls,
                 durationMs: progress?.durationMs
             )
-            await syncTaskMessageIfPossible(taskID: record.id, sessionID: sessionID)
+            await syncTaskMessageIfPossible(taskID: taskID, sessionID: sessionID)
             throw error
         }
     }
@@ -262,6 +438,8 @@ extension SubAgentTools {
                 message.textContent = snapshot.record.result ?? ""
             case .failed:
                 message.textContent = snapshot.record.errorDescription ?? ""
+            case .waiting:
+                message.textContent = snapshot.record.result ?? ""
             case .cancelled, .running:
                 message.textContent = ""
             }
