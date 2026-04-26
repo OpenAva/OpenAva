@@ -609,6 +609,9 @@
     "Series" : {
 
     },
+    "Session todo list" : {
+
+    },
     "Some messages have been removed to fit the model context length." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -868,6 +871,9 @@
           }
         }
       }
+    },
+    "Waiting" : {
+
     },
     "X" : {
 

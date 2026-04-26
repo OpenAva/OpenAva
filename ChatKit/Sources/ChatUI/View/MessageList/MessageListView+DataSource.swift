@@ -113,6 +113,13 @@ extension MessageListView {
         let detail: String?
     }
 
+    struct TodoListRepresentation: Hashable {
+        let id: String
+        let messageID: String
+        let createdAt: Date
+        let metadata: TodoListMetadata
+    }
+
     struct SubAgentTaskRepresentation: Hashable {
         let id: String
         let messageID: String
@@ -151,6 +158,7 @@ extension MessageListView {
         case mapContent(String, MapRepresentation)
         case mediaContent(String, MediaRepresentation)
         case compactBoundary(String, CompactBoundaryRepresentation)
+        case todoList(String, TodoListRepresentation)
         case subAgentTask(String, SubAgentTaskRepresentation)
         case interruptionRetry(String)
         case activityReporting(String)
@@ -168,6 +176,7 @@ extension MessageListView {
             case let .mapContent(id, _): "map-\(id)"
             case let .mediaContent(id, _): "media-\(id)"
             case let .compactBoundary(id, _): "compact-boundary-\(id)"
+            case let .todoList(id, _): "todo-list-\(id)"
             case let .subAgentTask(id, _): "sub-agent-task-\(id)"
             case .interruptionRetry: "interruption-retry"
             case let .activityReporting(msg): "activity-\(msg)"
@@ -190,7 +199,7 @@ extension MessageListView {
             case .user, .assistant, .tool:
                 return true
             case .system:
-                return message.isCompactBoundary || message.isSubAgentTask
+                return message.isCompactBoundary || message.isSubAgentTask || message.isTodoList
             default:
                 return false
             }
@@ -561,6 +570,21 @@ extension MessageListView {
                 entries.append(.toolResultContent(toolResult.id, representation))
 
             case .system:
+                if message.isTodoList, let metadata = message.todoListMetadata {
+                    entries.append(
+                        .todoList(
+                            message.id,
+                            TodoListRepresentation(
+                                id: message.id,
+                                messageID: message.id,
+                                createdAt: message.createdAt,
+                                metadata: metadata
+                            )
+                        )
+                    )
+                    continue
+                }
+
                 if message.isSubAgentTask, let metadata = message.subAgentTaskMetadata {
                     entries.append(
                         .subAgentTask(

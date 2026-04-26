@@ -20,6 +20,12 @@
 "agent.creation.design.subtitle" = "配置名称、风格与行为原则。";
 "agent.creation.identity.header" = "基本信息";
 "agent.creation.agentName.placeholder" = "代码审查助手";
+"agent.creation.avatar.header" = "头像";
+"agent.creation.avatar.hint" = "可选。上传后会显示在聊天顶部按钮和 Agent 切换菜单中。";
+"agent.creation.avatar.upload" = "上传头像";
+"agent.creation.avatar.change" = "更换";
+"agent.creation.avatar.remove" = "移除";
+"agent.creation.avatar.invalid" = "无法读取该图片。";
 "agent.creation.vibe.header" = "沟通风格";
 "agent.creation.vibe.placeholder" = "客观、专业、直接";
 "agent.creation.truths.header" = "行为原则";

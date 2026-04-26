@@ -20,6 +20,12 @@
 "agent.creation.design.subtitle" = "Set name, vibe, and behavioral principles.";
 "agent.creation.identity.header" = "Basic Info";
 "agent.creation.agentName.placeholder" = "Code Review Assistant";
+"agent.creation.avatar.header" = "Avatar";
+"agent.creation.avatar.hint" = "Optional. Uploaded avatars are shown in the chat header button and agent switcher.";
+"agent.creation.avatar.upload" = "Upload Avatar";
+"agent.creation.avatar.change" = "Change";
+"agent.creation.avatar.remove" = "Remove";
+"agent.creation.avatar.invalid" = "Couldn't read that image.";
 "agent.creation.vibe.header" = "Communication Style";
 "agent.creation.vibe.placeholder" = "Objective, professional, direct";
 "agent.creation.truths.header" = "Behavioral Guidelines";

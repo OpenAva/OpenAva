@@ -17,6 +17,7 @@ private extension MessageListView {
         case mediaContent
         case hint
         case compactBoundary
+        case todoList
         case subAgentTask
         case toolCallHint
         case toolResultContent
@@ -70,6 +71,7 @@ extension MessageListView: ListViewAdapter {
         case .mediaContent: RowType.mediaContent
         case .hint: RowType.hint
         case .compactBoundary: RowType.compactBoundary
+        case .todoList: RowType.todoList
         case .subAgentTask: RowType.subAgentTask
         case .toolCallHint: RowType.toolCallHint
         case .toolResultContent: RowType.toolResultContent
@@ -98,6 +100,8 @@ extension MessageListView: ListViewAdapter {
             HintMessageView()
         case .compactBoundary:
             CompactBoundaryMessageView()
+        case .todoList:
+            TodoListMessageView()
         case .subAgentTask:
             SubAgentTaskCardView()
         case .toolCallHint:
@@ -178,6 +182,8 @@ extension MessageListView: ListViewAdapter {
                 return ceil(theme.fonts.footnote.lineHeight + 16)
             case let .compactBoundary(_, boundary):
                 return CompactBoundaryMessageView.contentHeight(for: theme, detail: boundary.detail, maxWidth: containerWidth)
+            case let .todoList(_, todoList):
+                return TodoListMessageView.contentHeight(for: todoList.metadata, theme: theme, maxWidth: containerWidth)
             case let .subAgentTask(_, task):
                 return SubAgentTaskCardView.contentHeight(for: task, theme: theme, maxWidth: containerWidth)
             case let .toolResultContent(_, toolResult):
@@ -330,6 +336,11 @@ extension MessageListView: ListViewAdapter {
                 compactBoundaryView.theme = theme
                 compactBoundaryView.title = boundary.title
                 compactBoundaryView.detail = boundary.detail
+            }
+        } else if let todoListView = rowView as? TodoListMessageView {
+            if case let .todoList(_, todoList) = entry {
+                todoListView.theme = theme
+                todoListView.configure(with: todoList.metadata)
             }
         } else if let subAgentTaskCardView = rowView as? SubAgentTaskCardView {
             if case let .subAgentTask(_, task) = entry {
