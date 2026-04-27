@@ -107,6 +107,79 @@ private func normalizedToolCallName(_ name: String) -> String {
     return trimmed.isEmpty ? "tool" : trimmed
 }
 
+private func extractedWrittenFilePath(from toolResultText: String) -> String? {
+    let trimmed = toolResultText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.hasPrefix("OK:"),
+          let arrowRange = trimmed.range(of: " -> ", options: .backwards)
+    else {
+        return nil
+    }
+    let path = trimmed[arrowRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+    return path.isEmpty ? nil : path
+}
+
+private func markdownMediaType(for fileURL: URL) -> String {
+    switch fileURL.pathExtension.lowercased() {
+    case "md", "markdown":
+        return "text/markdown"
+    default:
+        return "text/plain"
+    }
+}
+
+private func workspaceMarkdownFilePart(
+    for request: ToolRequest,
+    toolResultText: String,
+    responseState: ToolCallState
+) -> FileContentPart? {
+    guard responseState == .succeeded else { return nil }
+    guard request.name == "fs.write" || request.name == "fs.append" else { return nil }
+    guard let resolvedPath = extractedWrittenFilePath(from: toolResultText) else { return nil }
+
+    let fileURL = URL(fileURLWithPath: resolvedPath).standardizedFileURL
+    let ext = fileURL.pathExtension.lowercased()
+    guard ext == "md" || ext == "markdown" else { return nil }
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+    guard let fileData = try? Data(contentsOf: fileURL),
+          let textContent = String(data: fileData, encoding: .utf8)
+    else {
+        return nil
+    }
+
+    return FileContentPart(
+        mediaType: markdownMediaType(for: fileURL),
+        data: fileData,
+        textContent: textContent,
+        name: fileURL.lastPathComponent,
+        sourceFilePath: fileURL.path
+    )
+}
+
+@MainActor
+private func upsertGeneratedWorkspaceFilePart(
+    in assistantMessage: ConversationMessage,
+    request: ToolRequest,
+    toolResultText: String,
+    responseState: ToolCallState
+) {
+    guard let filePart = workspaceMarkdownFilePart(
+        for: request,
+        toolResultText: toolResultText,
+        responseState: responseState
+    ) else {
+        return
+    }
+
+    if let existingIndex = assistantMessage.parts.firstIndex(where: { part in
+        guard case let .file(existingFilePart) = part else { return false }
+        return existingFilePart.sourceFilePath == filePart.sourceFilePath
+    }) {
+        assistantMessage.parts[existingIndex] = .file(filePart)
+    } else {
+        assistantMessage.parts.append(.file(filePart))
+    }
+}
+
 private func deniedToolCallText(for decision: ToolPermissionDecision) -> String {
     let customMessage = decision.message?.trimmingCharacters(in: .whitespacesAndNewlines)
     switch decision.behavior {
@@ -114,6 +187,63 @@ private func deniedToolCallText(for decision: ToolPermissionDecision) -> String 
         return (customMessage?.isEmpty == false) ? customMessage! : String.localized("Tool execution was denied.")
     case .ask:
         return (customMessage?.isEmpty == false) ? customMessage! : String.localized("Tool execution requires approval.")
+    }
+}
+
+@MainActor
+private func resolveAskPermissionDecisionIfNeeded(
+    _ decision: ToolPermissionDecision,
+    request: ToolRequest,
+    tool: any ToolExecutor,
+    assistantMessage: ConversationMessage,
+    partIndex: Int,
+    toolUseContext: ToolExecutionContext
+) async throws -> ToolPermissionDecision {
+    guard decision.behavior == .ask else { return decision }
+
+    updateToolCallPart(
+        at: partIndex,
+        in: assistantMessage,
+        toolName: tool.displayName,
+        state: .running
+    )
+    toolUseContext.session.recordMessageInTranscript(assistantMessage)
+    toolUseContext.session.notifyMessagesDidChange(scrolling: true)
+    toolUseContext.session.setLoadingState(String.localized("Waiting for tool approval…"))
+
+    let resolvedDecision = await toolUseContext.session.requestToolPermissionApproval(
+        for: request,
+        tool: tool,
+        decision: decision
+    )
+
+    toolUseContext.session.setLoadingState(nil)
+    try Task.checkCancellation()
+    return resolvedDecision
+}
+
+private func trimmedPermissionDecisionMessage(_ decision: ToolPermissionDecision) -> String? {
+    let trimmed = decision.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (trimmed?.isEmpty == false) ? trimmed : nil
+}
+
+@MainActor
+private func applyPermissionDecisionMetadata(
+    _ decision: ToolPermissionDecision,
+    to message: ConversationMessage
+) {
+    message.metadata[ToolMessageMetadata.permissionBehavior] = decision.behavior.rawValue
+
+    if let reason = decision.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+        message.metadata[ToolMessageMetadata.permissionReason] = reason
+    } else {
+        message.metadata.removeValue(forKey: ToolMessageMetadata.permissionReason)
+    }
+
+    if let messageText = trimmedPermissionDecisionMessage(decision) {
+        message.metadata[ToolMessageMetadata.permissionMessage] = messageText
+    } else {
+        message.metadata.removeValue(forKey: ToolMessageMetadata.permissionMessage)
     }
 }
 
@@ -438,6 +568,7 @@ private func appendToolResult(
     for request: ToolRequest,
     text: String,
     state: ToolCallState,
+    permissionDecision: ToolPermissionDecision? = nil,
     session: ConversationSession,
     requestMessages: inout [ChatRequestBody.Message]
 ) {
@@ -448,6 +579,9 @@ private func appendToolResult(
             ),
         ]
         message.metadata[ToolMessageMetadata.toolCallState] = state.rawValue
+        if let permissionDecision {
+            applyPermissionDecisionMetadata(permissionDecision, to: message)
+        }
     }
     session.recordMessageInTranscript(toolMessage)
     requestMessages.append(
@@ -836,7 +970,26 @@ private func executeToolCalls(
 
         interruptedToolCalls.append((request: request, toolCallPartIndex: partIndex))
 
-        let permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
+        var permissionDecision = await toolUseContext.canUseTool(request, tool, toolUseContext)
+        let initialPermissionReason = permissionDecision.reason ?? "none"
+        logger.notice(
+            "tool permission decision session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) behavior=\(permissionDecision.behavior.rawValue, privacy: .public) reason=\(initialPermissionReason, privacy: .public)"
+        )
+
+        permissionDecision = try await resolveAskPermissionDecisionIfNeeded(
+            permissionDecision,
+            request: request,
+            tool: tool,
+            assistantMessage: assistantMessage,
+            partIndex: partIndex,
+            toolUseContext: toolUseContext
+        )
+        let permissionReason = permissionDecision.reason ?? "none"
+        if permissionDecision.behavior != .allow {
+            logger.notice(
+                "tool permission resolved session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) behavior=\(permissionDecision.behavior.rawValue, privacy: .public) reason=\(permissionReason, privacy: .public)"
+            )
+        }
         let responseText: String
         let responseState: ToolCallState
         if !permissionDecision.allowsExecution {
@@ -849,6 +1002,9 @@ private func executeToolCalls(
             toolUseContext.session.notifyMessagesDidChange(scrolling: true)
             responseText = deniedToolCallText(for: permissionDecision)
             responseState = .failed
+            logger.notice(
+                "tool execution blocked session=\(toolUseContext.session.id, privacy: .public) tool=\(request.name, privacy: .public) id=\(request.id, privacy: .public) behavior=\(permissionDecision.behavior.rawValue, privacy: .public) reason=\(permissionReason, privacy: .public)"
+            )
         } else {
             updateToolCallPart(
                 at: partIndex,
@@ -874,11 +1030,18 @@ private func executeToolCalls(
         )
 
         updateToolCallPart(at: partIndex, in: assistantMessage, state: responseState)
+        upsertGeneratedWorkspaceFilePart(
+            in: assistantMessage,
+            request: request,
+            toolResultText: responseText,
+            responseState: responseState
+        )
         toolUseContext.session.recordMessageInTranscript(assistantMessage)
         appendToolResult(
             for: request,
             text: responseText,
             state: responseState,
+            permissionDecision: permissionDecision,
             session: toolUseContext.session,
             requestMessages: &requestMessages
         )

@@ -20,7 +20,8 @@ final class TeamSwarmCapabilityTests: XCTestCase {
 
     func testTeamToolDefinitionsExposeCoreSwarmTools() {
         let definitions = TeamTools().toolDefinitions()
-        let functionNames = Set(definitions.map(\.functionName))
+        let byName = Dictionary(uniqueKeysWithValues: definitions.map { ($0.functionName, $0) })
+        let functionNames = Set(byName.keys)
 
         XCTAssertTrue(functionNames.contains("team_status"))
         XCTAssertTrue(functionNames.contains("team_message_send"))
@@ -31,6 +32,13 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         XCTAssertTrue(functionNames.contains("team_plan_approve"))
         XCTAssertFalse(functionNames.contains("team_create"))
         XCTAssertFalse(functionNames.contains("Agent"))
+
+        XCTAssertEqual(byName["team_status"]?.isReadOnly, true)
+        XCTAssertEqual(byName["team_task_list"]?.isReadOnly, true)
+        XCTAssertEqual(byName["team_task_get"]?.isReadOnly, true)
+        XCTAssertEqual(byName["team_status"]?.isConcurrencySafe, true)
+        XCTAssertEqual(byName["team_task_list"]?.isConcurrencySafe, true)
+        XCTAssertEqual(byName["team_task_get"]?.isConcurrencySafe, true)
     }
 
     func testPromptBuilderDoesNotIncludeTeamGuidanceForSingleAgent() {

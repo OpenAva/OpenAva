@@ -197,6 +197,9 @@ enum AgentPromptBuilder {
         \(directoryLine)
         Treat injected project context as workspace-owned guidance. Higher-priority runtime or user instructions override it.
         TOOLS.md contains user-provided workspace guidance and does not affect runtime tool availability.
+        When the task is primarily a summary, research synthesis, report, plan, or other deliverable that benefits from a reusable artifact, prefer creating a markdown file in the workspace instead of keeping the full deliverable only in chat.
+        Decide whether to write a file based on usefulness for the current task; do not write files for every response by default.
+        When you create such a deliverable file, use a clear descriptive filename and tell the user which workspace markdown file you created.
         """
 
         return PromptSection(title: "## Workspace", content: content)

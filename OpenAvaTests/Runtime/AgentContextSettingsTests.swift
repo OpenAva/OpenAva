@@ -354,6 +354,8 @@ final class AgentContextSettingsTests: XCTestCase {
         )
 
         XCTAssertTrue(prompt.contains("Relevant memories may be recalled dynamically for the current request or fetched with memory tools when needed."))
+        XCTAssertTrue(prompt.contains("When the task is primarily a summary, research synthesis, report, plan, or other deliverable that benefits from a reusable artifact, prefer creating a markdown file in the workspace instead of keeping the full deliverable only in chat."))
+        XCTAssertTrue(prompt.contains("Decide whether to write a file based on usefulness for the current task; do not write files for every response by default."))
         XCTAssertTrue(prompt.contains("<workspace-file name=\"SOUL.md\" purpose=\"Defines the agent&apos;s core personality and behavioral principles.\">"))
         XCTAssertTrue(prompt.contains("<workspace-file name=\"USER.md\" purpose=\"Defines user preferences, habits, and background information.\">"))
         XCTAssertTrue(prompt.contains("Use &lt;calm&gt; tone &amp; stay direct."))

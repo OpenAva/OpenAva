@@ -13,7 +13,9 @@ final class TeamTools: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             ToolDefinition(
                 functionName: "team_message_send",
@@ -91,7 +93,9 @@ final class TeamTools: ToolDefinitionProvider {
                     "type": "object",
                     "properties": [:],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             ToolDefinition(
                 functionName: "team_task_get",
@@ -107,7 +111,9 @@ final class TeamTools: ToolDefinitionProvider {
                     ],
                     "required": ["task_id"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                isReadOnly: true,
+                isConcurrencySafe: true
             ),
             ToolDefinition(
                 functionName: "team_task_update",

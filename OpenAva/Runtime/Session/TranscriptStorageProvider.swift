@@ -46,6 +46,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
         let type: String
         var text: String?
+        var name: String?
+        var mediaType: String?
+        var sourceFilePath: String?
         var imageUrl: ImageURL?
         var toolUseID: String?
         var toolName: String?
@@ -1202,7 +1205,13 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
             case let .audio(audioPart):
                 return TranscriptContentBlock(type: "audio", text: "[\(audioPart.name ?? "audio")]")
             case let .file(filePart):
-                return TranscriptContentBlock(type: "file", text: "[\(filePart.name ?? "file")]")
+                return TranscriptContentBlock(
+                    type: "file",
+                    text: filePart.textContent,
+                    name: filePart.name,
+                    mediaType: filePart.mediaType,
+                    sourceFilePath: filePart.sourceFilePath
+                )
             }
         }
     }
@@ -1271,6 +1280,19 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
                             toolCallID: toolUseID,
                             result: block.text ?? "",
                             isCollapsed: block.isCollapsed ?? true
+                        )
+                    )
+                )
+            case "file":
+                let text = block.text ?? ""
+                result.append(
+                    .file(
+                        FileContentPart(
+                            mediaType: block.mediaType ?? "text/plain",
+                            data: Data(text.utf8),
+                            textContent: block.text,
+                            name: block.name,
+                            sourceFilePath: block.sourceFilePath
                         )
                     )
                 )

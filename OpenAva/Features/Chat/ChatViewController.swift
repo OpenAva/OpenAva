@@ -196,6 +196,7 @@ open class ChatViewController: UIViewController {
     /// When non-nil, a side (macCatalyst) or top (iOS) pane is reserved for this host
     /// view and the chat list / input shrink to share the remaining space.
     private weak var embeddedWebHostView: UIView?
+    private var embeddedDocumentPreviewController: ChatWorkspaceDocumentPreviewController?
 
     /// Fraction of the split view occupied by the embedded web pane.
     /// 0.5 means 50% / 50%. Clamped to `splitRatioRange` when applied.
@@ -755,6 +756,9 @@ open class ChatViewController: UIViewController {
                 self.chatInputView.focus()
             }
         }
+        messageListView.onOpenAttachment = { [weak self] attachment in
+            self?.openMessageAttachmentPreview(attachment) ?? false
+        }
         messageListView.onPartialCompact = { [weak self] messageID, direction in
             guard let self else { return }
             Task { @MainActor [weak self] in
@@ -777,6 +781,64 @@ open class ChatViewController: UIViewController {
         )
         alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
         present(alert, animated: true)
+    }
+
+    private func openMessageAttachmentPreview(_ attachment: ChatInputAttachment) -> Bool {
+        guard attachment.type == .document else { return false }
+
+        let resolvedURL = attachment.sourceFilePath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let resolvedExtension = resolvedURL?.pathExtension.lowercased()
+            ?? URL(fileURLWithPath: attachment.storageFilename).pathExtension.lowercased()
+        guard ["md", "markdown"].contains(resolvedExtension) else { return false }
+
+        let title = attachment.name.isEmpty ? (resolvedURL?.lastPathComponent ?? attachment.storageFilename) : attachment.name
+        presentWorkspaceDocumentPreview(
+            title: title,
+            fileURL: resolvedURL,
+            fallbackText: attachment.textContent
+        )
+        return true
+    }
+
+    private func presentWorkspaceDocumentPreview(title: String, fileURL: URL?, fallbackText: String) {
+        let controller = ChatWorkspaceDocumentPreviewController(
+            title: title,
+            fileURL: fileURL,
+            fallbackText: fallbackText,
+            theme: configuration.messageTheme
+        )
+
+        #if targetEnvironment(macCatalyst)
+            dismissEmbeddedDocumentPreviewIfNeeded()
+            controller.onCloseRequested = { [weak self, weak controller] in
+                guard let self, let controller else { return }
+                self.dismissEmbeddedDocumentPreview(controller)
+            }
+            addChild(controller)
+            embedSidePaneView(controller.view)
+            controller.didMove(toParent: self)
+            embeddedDocumentPreviewController = controller
+        #else
+            controller.onCloseRequested = { [weak controller] in
+                controller?.dismiss(animated: true)
+            }
+            controller.modalPresentationStyle = .formSheet
+            controller.preferredContentSize = CGSize(width: 680, height: 760)
+            present(controller, animated: true)
+        #endif
+    }
+
+    private func dismissEmbeddedDocumentPreviewIfNeeded() {
+        guard let controller = embeddedDocumentPreviewController else { return }
+        dismissEmbeddedDocumentPreview(controller)
+    }
+
+    private func dismissEmbeddedDocumentPreview(_ controller: ChatWorkspaceDocumentPreviewController) {
+        guard embeddedDocumentPreviewController === controller else { return }
+        controller.willMove(toParent: nil)
+        removeEmbeddedSidePaneView(controller.view)
+        controller.removeFromParent()
+        embeddedDocumentPreviewController = nil
     }
 
     private func scheduleContextUsageRefresh() {

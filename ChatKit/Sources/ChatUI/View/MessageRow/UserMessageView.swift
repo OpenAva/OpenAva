@@ -11,6 +11,9 @@ import UIKit
 final class UserMessageView: MessageListRowView {
     static let contentPadding: CGFloat = 20
     static let textPadding: CGFloat = 12
+    static let sourceBadgeHeight: CGFloat = 22
+    static let sourceBadgeHorizontalPadding: CGFloat = 8
+    static let sourceSpacing: CGFloat = 8
     static let maximumIdealWidth: CGFloat = 800
 
     var text: String? {
@@ -33,6 +36,16 @@ final class UserMessageView: MessageListRowView {
         }
     }
 
+    var source: MessageListView.MessageSourceRepresentation? {
+        didSet {
+            let source = source?.showsBadge == true ? source : nil
+            sourceBadgeView.isHidden = source == nil
+            sourceLabel.text = source?.badgeText
+            setNeedsLayout()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     private var attributedText: NSAttributedString? {
         didSet {
             textView.attributedText = attributedText ?? .init()
@@ -40,6 +53,26 @@ final class UserMessageView: MessageListRowView {
     }
 
     private let backgroundGradientLayer = CAGradientLayer()
+    private let sourceBadgeView: UIView = {
+        let view = UIView()
+        view.isHidden = true
+        view.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.65)
+        view.layer.cornerRadius = UserMessageView.sourceBadgeHeight / 2
+        view.layer.cornerCurve = .continuous
+        view.layer.borderWidth = 1 / UIScreen.main.scale
+        view.layer.borderColor = ChatUIDesign.Color.brandOrange.withAlphaComponent(0.22).cgColor
+        return view
+    }()
+
+    private let sourceLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = ChatUIDesign.Color.brandOrange
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+
     private lazy var textView: LTXLabel = .init().with { $0.isSelectable = true }
 
     override init(frame: CGRect) {
@@ -59,6 +92,9 @@ final class UserMessageView: MessageListRowView {
         contentView.layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
 
+        sourceBadgeView.addSubview(sourceLabel)
+        contentView.addSubview(sourceBadgeView)
+
         textView.backgroundColor = .clear
         contentView.addSubview(textView)
     }
@@ -69,7 +105,12 @@ final class UserMessageView: MessageListRowView {
     }
 
     override var intrinsicContentSize: CGSize {
-        textView.intrinsicContentSize
+        let textSize = textView.intrinsicContentSize
+        guard !sourceBadgeView.isHidden else { return textSize }
+        return .init(
+            width: max(textSize.width, sourceBadgeSize(maxWidth: .greatestFiniteMagnitude).width),
+            height: textSize.height + Self.sourceBadgeHeight + Self.sourceSpacing
+        )
     }
 
     override func layoutSubviews() {
@@ -79,7 +120,10 @@ final class UserMessageView: MessageListRowView {
         let textContainerWidth = Self.availableTextWidth(for: bounds.width - insets.horizontal)
         textView.preferredMaxLayoutWidth = textContainerWidth
         let textSize = textView.intrinsicContentSize
-        let contentWidth = ceil(textSize.width) + Self.textPadding * 2
+        let maxContentWidth = Self.availableContentWidth(for: bounds.width - insets.horizontal)
+        let badgeSize = sourceBadgeView.isHidden ? .zero : sourceBadgeSize(maxWidth: maxContentWidth - Self.textPadding * 2)
+        let contentBodyWidth = max(ceil(textSize.width), badgeSize.width)
+        let contentWidth = contentBodyWidth + Self.textPadding * 2
         contentView.frame = .init(
             x: bounds.width - contentWidth - insets.right,
             y: 0,
@@ -88,7 +132,25 @@ final class UserMessageView: MessageListRowView {
         )
         backgroundGradientLayer.frame = contentView.bounds
         backgroundGradientLayer.cornerRadius = contentView.layer.cornerRadius
-        textView.frame = contentView.bounds.insetBy(dx: Self.textPadding, dy: Self.textPadding)
+
+        var textOriginY = Self.textPadding
+        if !sourceBadgeView.isHidden {
+            sourceBadgeView.frame = .init(
+                x: Self.textPadding,
+                y: Self.textPadding,
+                width: badgeSize.width,
+                height: Self.sourceBadgeHeight
+            )
+            sourceLabel.frame = sourceBadgeView.bounds.insetBy(dx: Self.sourceBadgeHorizontalPadding, dy: 0)
+            textOriginY += Self.sourceBadgeHeight + Self.sourceSpacing
+        }
+
+        textView.frame = .init(
+            x: Self.textPadding,
+            y: textOriginY,
+            width: contentView.bounds.width - Self.textPadding * 2,
+            height: textSize.height
+        )
     }
 
     @inlinable
@@ -99,6 +161,12 @@ final class UserMessageView: MessageListRowView {
     @inlinable
     static func availableTextWidth(for width: CGFloat) -> CGFloat {
         availableContentWidth(for: width) - textPadding * 2
+    }
+
+    private func sourceBadgeSize(maxWidth: CGFloat) -> CGSize {
+        let labelWidth = ceil(sourceLabel.intrinsicContentSize.width)
+        let width = min(maxWidth, labelWidth + Self.sourceBadgeHorizontalPadding * 2)
+        return .init(width: max(0, width), height: Self.sourceBadgeHeight)
     }
 
     /// Selects all text in the message bubble, showing interactive handles.

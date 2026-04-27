@@ -143,6 +143,129 @@ public final class ConversationSession: Identifiable, Sendable {
         sessionDelegate?.sessionDidReportUsage(usage, for: id)
     }
 
+    // MARK: - Tool Permissions
+
+    var toolPermissionMode: ToolPermissionMode = .default
+    private(set) var sessionToolPermissionRules: [ToolPermissionRule] = []
+
+    func setToolPermissionMode(_ mode: ToolPermissionMode) {
+        toolPermissionMode = mode
+    }
+
+    func addSessionToolPermissionRule(_ rule: ToolPermissionRule) {
+        let sessionRule = ToolPermissionRule(
+            id: rule.id,
+            behavior: rule.behavior,
+            scope: .session,
+            toolName: rule.toolName,
+            matcher: rule.matcher,
+            createdAt: rule.createdAt
+        )
+        sessionToolPermissionRules.removeAll { existing in
+            existing.scope == sessionRule.scope
+                && existing.toolName == sessionRule.toolName
+                && existing.matcher == sessionRule.matcher
+        }
+        sessionToolPermissionRules.append(sessionRule)
+    }
+
+    func clearSessionToolPermissionRules() {
+        sessionToolPermissionRules.removeAll()
+    }
+
+    // MARK: - Tool Permission Approvals
+
+    struct PendingToolPermissionRequest: Identifiable, Equatable {
+        let id: String
+        let toolName: String
+        let apiName: String
+        let arguments: String
+        let message: String?
+        let reason: String?
+        let createdAt: Date
+    }
+
+    private(set) var pendingToolPermissionRequests: [PendingToolPermissionRequest] = []
+    private var pendingToolPermissionContinuations: [String: CheckedContinuation<ToolPermissionDecision, Never>] = [:]
+    private lazy var pendingToolPermissionSubject = CurrentValueSubject<[PendingToolPermissionRequest], Never>([])
+
+    var pendingToolPermissionsDidChange: AnyPublisher<[PendingToolPermissionRequest], Never> {
+        pendingToolPermissionSubject.eraseToAnyPublisher()
+    }
+
+    func requestToolPermissionApproval(
+        for request: ToolRequest,
+        tool: any ToolExecutor,
+        decision: ToolPermissionDecision
+    ) async -> ToolPermissionDecision {
+        let permissionRequest = PendingToolPermissionRequest(
+            id: request.id,
+            toolName: tool.displayName,
+            apiName: request.name,
+            arguments: request.arguments,
+            message: trimmedPermissionMessage(decision),
+            reason: decision.reason,
+            createdAt: Date()
+        )
+
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pendingToolPermissionContinuations[permissionRequest.id] = continuation
+                if let existingIndex = pendingToolPermissionRequests.firstIndex(where: { $0.id == permissionRequest.id }) {
+                    pendingToolPermissionRequests[existingIndex] = permissionRequest
+                } else {
+                    pendingToolPermissionRequests.append(permissionRequest)
+                }
+                pendingToolPermissionSubject.send(pendingToolPermissionRequests)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resolveToolPermissionRequest(
+                    id: permissionRequest.id,
+                    decision: .deny(
+                        message: String.localized("Tool approval was cancelled."),
+                        reason: "tool_permission_cancelled"
+                    )
+                )
+            }
+        }
+    }
+
+    func approveToolPermissionRequest(id requestID: String) {
+        resolveToolPermissionRequest(
+            id: requestID,
+            decision: ToolPermissionDecision(
+                behavior: .allow,
+                message: nil,
+                reason: "tool_permission_approved"
+            )
+        )
+    }
+
+    func rejectToolPermissionRequest(id requestID: String, message: String? = nil) {
+        resolveToolPermissionRequest(
+            id: requestID,
+            decision: .deny(
+                message: message ?? String.localized("Tool execution was rejected."),
+                reason: "tool_permission_rejected"
+            )
+        )
+    }
+
+    private func resolveToolPermissionRequest(id requestID: String, decision: ToolPermissionDecision) {
+        guard let continuation = pendingToolPermissionContinuations.removeValue(forKey: requestID) else {
+            return
+        }
+        pendingToolPermissionRequests.removeAll { $0.id == requestID }
+        pendingToolPermissionSubject.send(pendingToolPermissionRequests)
+        continuation.resume(returning: decision)
+    }
+
+    private func trimmedPermissionMessage(_ decision: ToolPermissionDecision) -> String? {
+        let trimmed = decision.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
     // MARK: - Model Selection
 
     public var models: Models

@@ -93,19 +93,22 @@ public struct FileContentPart: Identifiable, Sendable {
     public var data: Data
     public var textContent: String?
     public var name: String?
+    public var sourceFilePath: String?
 
     public init(
         id: String = UUID().uuidString,
         mediaType: String,
         data: Data,
         textContent: String? = nil,
-        name: String? = nil
+        name: String? = nil,
+        sourceFilePath: String? = nil
     ) {
         self.id = id
         self.mediaType = mediaType
         self.data = data
         self.textContent = textContent
         self.name = name
+        self.sourceFilePath = sourceFilePath
     }
 }
 

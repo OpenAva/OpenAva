@@ -117,6 +117,199 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertTrue(toolResult.result.contains("Tool execution is unavailable."))
     }
 
+    func testReadOnlyToolPersistsAllowPermissionMetadata() async throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let definition = ToolDefinition(
+            functionName: "tool_read_only",
+            command: "tool.read.only",
+            description: "",
+            parametersSchema: .init([:] as [String: Any]),
+            isReadOnly: true,
+            isConcurrencySafe: true
+        )
+        let provider = PermissionPolicyStubToolProvider(
+            tool: definition,
+            result: ToolResult(text: "read ok")
+        )
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(
+            id: "main",
+            configuration: .init(storage: storage, tools: provider)
+        )
+        let client = SequencedStreamingStubChatClient(chunkSequences: [
+            [.tool(.init(id: "tool-call-allow", name: definition.functionName, arguments: "{}"))],
+            [.text("完成")],
+        ])
+
+        await session.submitPrompt(
+            model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
+            prompt: .init(text: "调用只读工具")
+        )
+
+        XCTAssertEqual(provider.executeCallCount, 1)
+        let toolMessage = try XCTUnwrap(session.messages.last(where: { $0.role == .tool }))
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.toolCallState], ToolCallState.succeeded.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionBehavior], ToolPermissionBehavior.allow.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "read_only_tool")
+        XCTAssertNil(toolMessage.metadata[ToolMessageMetadata.permissionMessage])
+
+        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let persistedToolEntry = try XCTUnwrap(entries.last(where: { ($0["type"] as? String) == MessageRole.tool.rawValue }))
+        let persistedMetadata = try XCTUnwrap((persistedToolEntry["message"] as? [String: Any])?["metadata"] as? [String: Any])
+        XCTAssertEqual(persistedMetadata[ToolMessageMetadata.permissionBehavior] as? String, ToolPermissionBehavior.allow.rawValue)
+        XCTAssertEqual(persistedMetadata[ToolMessageMetadata.permissionReason] as? String, "read_only_tool")
+        XCTAssertNil(persistedMetadata[ToolMessageMetadata.permissionMessage])
+    }
+
+    func testDestructiveToolIsBlockedWithAskPermissionMetadata() async throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let definition = ToolDefinition(
+            functionName: "tool_destructive",
+            command: "tool.destructive",
+            description: "",
+            parametersSchema: .init([:] as [String: Any]),
+            isDestructive: true
+        )
+        let provider = PermissionPolicyStubToolProvider(
+            tool: definition,
+            result: ToolResult(text: "should not execute")
+        )
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(
+            id: "main",
+            configuration: .init(storage: storage, tools: provider)
+        )
+        let client = SequencedStreamingStubChatClient(chunkSequences: [
+            [.tool(.init(id: "tool-call-ask", name: definition.functionName, arguments: "{}"))],
+            [.text("完成")],
+        ])
+
+        await session.submitPrompt(
+            model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
+            prompt: .init(text: "调用破坏性工具")
+        )
+
+        XCTAssertEqual(provider.executeCallCount, 0)
+        let toolMessage = try XCTUnwrap(session.messages.last(where: { $0.role == .tool }))
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.toolCallState], ToolCallState.failed.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionBehavior], ToolPermissionBehavior.ask.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "destructive_tool_requires_approval")
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionMessage], "Tool execution requires approval because this tool can modify or delete data.")
+
+        let toolResult = try XCTUnwrap(toolMessage.parts.compactMap { part -> ToolResultContentPart? in
+            guard case let .toolResult(value) = part else { return nil }
+            return value
+        }.first)
+        XCTAssertTrue(toolResult.result.contains("requires approval"))
+    }
+
+    func testUnclassifiedMutableToolIsDeniedWithPermissionMetadata() async throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let definition = ToolDefinition(
+            functionName: "tool_unclassified",
+            command: "tool.unclassified",
+            description: "",
+            parametersSchema: .init([:] as [String: Any])
+        )
+        let provider = PermissionPolicyStubToolProvider(
+            tool: definition,
+            result: ToolResult(text: "should not execute")
+        )
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(
+            id: "main",
+            configuration: .init(storage: storage, tools: provider)
+        )
+        let client = SequencedStreamingStubChatClient(chunkSequences: [
+            [.tool(.init(id: "tool-call-deny", name: definition.functionName, arguments: "{}"))],
+            [.text("完成")],
+        ])
+
+        await session.submitPrompt(
+            model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
+            prompt: .init(text: "调用未分类可变工具")
+        )
+
+        XCTAssertEqual(provider.executeCallCount, 0)
+        let toolMessage = try XCTUnwrap(session.messages.last(where: { $0.role == .tool }))
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.toolCallState], ToolCallState.failed.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionBehavior], ToolPermissionBehavior.deny.rawValue)
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "unclassified_mutating_tool_denied")
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionMessage], "Tool execution was denied because this tool is not approved by the default policy.")
+
+        let toolResult = try XCTUnwrap(toolMessage.parts.compactMap { part -> ToolResultContentPart? in
+            guard case let .toolResult(value) = part else { return nil }
+            return value
+        }.first)
+        XCTAssertTrue(toolResult.result.contains("not approved by the default policy"))
+    }
+
+    func testFileContentPartPersistsSourcePathAndTextAcrossReload() throws {
+        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+            try? FileManager.default.removeItem(at: runtimeRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let session = ConversationSession(id: "main", configuration: .init(storage: storage))
+        let sourceFileURL = runtimeRootURL.appendingPathComponent("workspace/report.md", isDirectory: false)
+        try FileManager.default.createDirectory(at: sourceFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Report\n\nSaved content".write(to: sourceFileURL, atomically: true, encoding: .utf8)
+
+        _ = session.appendNewMessage(role: .assistant) { message in
+            message.parts = [
+                .file(
+                    FileContentPart(
+                        mediaType: "text/markdown",
+                        data: Data("# Report\n\nSaved content".utf8),
+                        textContent: "# Report\n\nSaved content",
+                        name: "report.md",
+                        sourceFilePath: sourceFileURL.path
+                    )
+                ),
+            ]
+        }
+        session.persistMessages()
+
+        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let reloadedMessages = reloadedStorage.messages(in: "main")
+
+        let reloadedFile = try XCTUnwrap(reloadedMessages.first?.parts.compactMap { part -> FileContentPart? in
+            guard case let .file(value) = part else { return nil }
+            return value
+        }.first)
+
+        XCTAssertEqual(reloadedFile.name, "report.md")
+        XCTAssertEqual(reloadedFile.mediaType, "text/markdown")
+        XCTAssertEqual(reloadedFile.sourceFilePath, sourceFileURL.path)
+        XCTAssertEqual(reloadedFile.textContent, "# Report\n\nSaved content")
+    }
+
     func testFirstPersistedAssistantUpdateKeepsUserChainAcrossReload() throws {
         let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
@@ -861,6 +1054,39 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 }
 
+private final class PermissionPolicyStubToolProvider: ToolProvider, @unchecked Sendable {
+    private let tool: ToolDefinition
+    private let result: ToolResult
+    private let lock = NSLock()
+    private var storedExecuteCallCount = 0
+
+    init(tool: ToolDefinition, result: ToolResult) {
+        self.tool = tool
+        self.result = result
+    }
+
+    var executeCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedExecuteCallCount
+    }
+
+    func enabledTools() async -> [ChatRequestBody.Tool] {
+        [tool.chatRequestTool]
+    }
+
+    func findTool(for request: ToolRequest) async -> ToolExecutor? {
+        request.name == tool.functionName ? tool : nil
+    }
+
+    func executeTool(_: ToolExecutor, parameters _: String) async throws -> ToolResult {
+        lock.lock()
+        storedExecuteCallCount += 1
+        lock.unlock()
+        return result
+    }
+}
+
 private final class StreamingStubChatClient: ChatClient, @unchecked Sendable {
     let errorCollector = ErrorCollector.new()
     private let chunks: [ChatResponseChunk]
@@ -885,6 +1111,36 @@ private final class StreamingStubChatClient: ChatClient, @unchecked Sendable {
         lock.lock()
         capturedStreamingBodies.append(body)
         lock.unlock()
+        return AsyncStream<ChatResponseChunk> { continuation in
+            for chunk in chunks {
+                continuation.yield(chunk)
+            }
+            continuation.finish()
+        }.eraseToAnyAsyncSequence()
+    }
+}
+
+private final class SequencedStreamingStubChatClient: ChatClient, @unchecked Sendable {
+    let errorCollector = ErrorCollector.new()
+    private let chunkSequences: [[ChatResponseChunk]]
+    private let lock = NSLock()
+    private var streamingCallIndex = 0
+
+    init(chunkSequences: [[ChatResponseChunk]]) {
+        self.chunkSequences = chunkSequences
+    }
+
+    func chat(body _: ChatRequestBody) async throws -> ChatResponse {
+        ChatResponse(reasoning: "", text: "", images: [], tools: [])
+    }
+
+    func streamingChat(body _: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
+        lock.lock()
+        let sequenceIndex = min(streamingCallIndex, max(chunkSequences.count - 1, 0))
+        let chunks = chunkSequences.isEmpty ? [] : chunkSequences[sequenceIndex]
+        streamingCallIndex += 1
+        lock.unlock()
+
         return AsyncStream<ChatResponseChunk> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)

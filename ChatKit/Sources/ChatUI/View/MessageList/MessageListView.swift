@@ -44,6 +44,7 @@ public final class MessageListView: UIView {
     public var onPartialCompact: ((String, PartialCompactDirection) -> Void)?
     public var onToggleReasoningCollapse: ((String) -> Void)?
     public var onToggleToolResultCollapse: ((String, String) -> Void)?
+    public var onOpenAttachment: ((ChatInputAttachment) -> Bool)?
     public var onRetryInterruptedMessageSubmission: (() -> Void)?
     public var isRetryingInterruptedSubmission = false {
         didSet {

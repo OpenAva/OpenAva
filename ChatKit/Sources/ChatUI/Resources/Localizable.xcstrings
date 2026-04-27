@@ -246,6 +246,9 @@
         }
       }
     },
+    "External source" : {
+
+    },
     "Failed" : {
 
     },
@@ -299,6 +302,9 @@
         }
       }
     },
+    "from %@" : {
+
+    },
     "Generating…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -309,6 +315,9 @@
           }
         }
       }
+    },
+    "Heartbeat" : {
+
     },
     "Image" : {
       "localizations" : {
@@ -656,6 +665,9 @@
         }
       }
     },
+    "System event" : {
+
+    },
     "Task execution interrupted, please retry." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -666,6 +678,18 @@
           }
         }
       }
+    },
+    "Team broadcast" : {
+
+    },
+    "Team mention" : {
+
+    },
+    "Team message" : {
+
+    },
+    "Team task" : {
+
     },
     "Text Editor" : {
       "localizations" : {
@@ -847,6 +871,9 @@
           }
         }
       }
+    },
+    "User" : {
+
     },
     "Utilizing tool call" : {
       "extractionState" : "stale",

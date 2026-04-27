@@ -11,9 +11,16 @@ public extension ConversationSession {
         public enum Source: String, Sendable {
             case user
             case heartbeat
+            case teamMention = "team_mention"
+            case teamTask = "team_task"
+            case teamBroadcast = "team_broadcast"
+            case teamMessage = "team_message"
+            case systemEvent = "system_event"
         }
 
         public static let sourceMetadataKey = "turnSource"
+        public static let teamMessageTypeMetadataKey = "teamMessageType"
+        public static let teamSenderMetadataKey = "teamSender"
 
         public var text: String
         public var attachments: [ContentPart]
@@ -143,13 +150,13 @@ public extension ConversationSession {
                     let querySource: QuerySource = switch prompt.source {
                     case .heartbeat:
                         .heartbeat
-                    case .user:
+                    case .user, .teamMention, .teamTask, .teamBroadcast, .teamMessage, .systemEvent:
                         .user
                     }
                     let toolUseContext = ToolExecutionContext(
                         session: self,
                         toolProvider: self.toolProvider,
-                        canUseTool: allowAllTools
+                        canUseTool: defaultToolPermissionPolicy
                     )
 
                     let result = try await query(

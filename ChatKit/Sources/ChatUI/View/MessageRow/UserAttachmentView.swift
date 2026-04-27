@@ -7,6 +7,13 @@ import UIKit
 
 final class UserAttachmentView: MessageListRowView {
     private lazy var attachmentsBar: AttachmentsBar = .init()
+    var previewHandler: ((ChatInputAttachment) -> Bool)? {
+        didSet {
+            attachmentsBar.previewHandler = previewHandler
+        }
+    }
+
+    private var isTrailingAligned = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,6 +33,8 @@ final class UserAttachmentView: MessageListRowView {
     override func prepareForReuse() {
         super.prepareForReuse()
         attachmentsBar.deleteAllItems()
+        previewHandler = nil
+        isTrailingAligned = true
     }
 
     override func layoutSubviews() {
@@ -35,7 +44,7 @@ final class UserAttachmentView: MessageListRowView {
         let bounds = contentView.bounds
         let width = min(idealWidth, bounds.width)
         attachmentsBar.frame = .init(
-            x: bounds.width - width,
+            x: isTrailingAligned ? bounds.width - width : 0,
             y: 0,
             width: width,
             height: bounds.height
@@ -43,9 +52,11 @@ final class UserAttachmentView: MessageListRowView {
     }
 
     func update(with attachments: MessageListView.Attachments) {
+        isTrailingAligned = attachments.isTrailingAligned
         attachmentsBar.deleteAllItems()
         for element in attachments.items {
             attachmentsBar.insert(item: element)
         }
+        setNeedsLayout()
     }
 }

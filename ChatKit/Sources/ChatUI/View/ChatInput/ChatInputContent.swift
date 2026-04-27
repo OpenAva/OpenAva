@@ -32,6 +32,7 @@ public struct ChatInputAttachment: Codable, Identifiable, Hashable, Sendable {
     public var fileData: Data
     public var textContent: String
     public var storageFilename: String
+    public var sourceFilePath: String?
 
     public enum AttachmentType: String, Codable, Sendable {
         case image
@@ -46,7 +47,8 @@ public struct ChatInputAttachment: Codable, Identifiable, Hashable, Sendable {
         previewImageData: Data = .init(),
         fileData: Data = .init(),
         textContent: String = "",
-        storageFilename: String = ""
+        storageFilename: String = "",
+        sourceFilePath: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -55,6 +57,7 @@ public struct ChatInputAttachment: Codable, Identifiable, Hashable, Sendable {
         self.fileData = fileData
         self.textContent = textContent
         self.storageFilename = storageFilename
+        self.sourceFilePath = sourceFilePath
     }
 }
 

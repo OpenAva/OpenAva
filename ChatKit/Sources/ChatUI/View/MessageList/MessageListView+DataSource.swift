@@ -9,6 +9,103 @@ import Foundation
 import MarkdownView
 
 extension MessageListView {
+    /// Describes where a visible turn came from so one transcript can carry
+    /// human, automation, and team-originated messages without splitting flows.
+    struct MessageSourceRepresentation: Hashable {
+        enum Kind: String, Hashable {
+            case user
+            case heartbeat
+            case teamMention = "team_mention"
+            case teamTask = "team_task"
+            case teamBroadcast = "team_broadcast"
+            case teamMessage = "team_message"
+            case systemEvent = "system_event"
+            case unknown
+        }
+
+        static let sourceMetadataKey = "turnSource"
+        static let heartbeatModeMetadataKey = "heartbeatMode"
+        static let teamMessageTypeMetadataKey = "teamMessageType"
+        static let teamSenderMetadataKey = "teamSender"
+
+        let kind: Kind
+        let rawValue: String
+        let title: String
+        let detail: String?
+
+        var showsBadge: Bool {
+            kind != .user
+        }
+
+        var badgeText: String {
+            if let detail, !detail.isEmpty {
+                return "\(title) · \(detail)"
+            }
+            return title
+        }
+
+        static func make(from metadata: [String: String]) -> Self {
+            let rawSource = metadata[sourceMetadataKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? Kind.user.rawValue
+            let kind = Kind(rawValue: rawSource) ?? .unknown
+
+            let title: String
+            let detail: String?
+            switch kind {
+            case .user:
+                title = String.localized("User")
+                detail = nil
+            case .heartbeat:
+                title = String.localized("Heartbeat")
+                detail = metadata[heartbeatModeMetadataKey].flatMap(localizedMetadataDetail)
+            case .teamMention:
+                title = String.localized("Team mention")
+                detail = metadata[teamSenderMetadataKey].flatMap(localizedTeamSenderDetail)
+            case .teamTask:
+                title = String.localized("Team task")
+                detail = metadata[teamMessageTypeMetadataKey].flatMap(localizedMetadataDetail)
+            case .teamBroadcast:
+                title = String.localized("Team broadcast")
+                detail = metadata[teamSenderMetadataKey].flatMap(localizedTeamSenderDetail)
+                    ?? metadata[teamMessageTypeMetadataKey].flatMap(localizedMetadataDetail)
+            case .teamMessage:
+                title = String.localized("Team message")
+                detail = metadata[teamSenderMetadataKey].flatMap(localizedTeamSenderDetail)
+            case .systemEvent:
+                title = String.localized("System event")
+                detail = metadata[teamMessageTypeMetadataKey].flatMap(localizedMetadataDetail)
+            case .unknown:
+                title = String.localized("External source")
+                detail = localizedMetadataDetail(rawSource)
+            }
+
+            return .init(kind: kind, rawValue: rawSource, title: title, detail: detail)
+        }
+
+        private static func localizedTeamSenderDetail(_ sender: String) -> String? {
+            let trimmed = sender.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return String(format: String.localized("from %@"), trimmed)
+        }
+
+        private static func localizedMetadataDetail(_ rawValue: String) -> String? {
+            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            let words = trimmed
+                .replacingOccurrences(of: "-", with: "_")
+                .split(separator: "_")
+                .map { word in
+                    let lowercased = word.lowercased()
+                    guard let first = lowercased.first else { return "" }
+                    return String(first).uppercased() + String(lowercased.dropFirst())
+                }
+                .filter { !$0.isEmpty }
+            return words.isEmpty ? trimmed : words.joined(separator: " ")
+        }
+    }
+
     /// A lightweight representation of a message for display purposes.
     struct MessageRepresentation: Hashable {
         let id: String
@@ -16,13 +113,22 @@ extension MessageListView {
         let createdAt: Date
         let role: MessageRole
         let content: String
+        let source: MessageSourceRepresentation
         var isRevealed: Bool
         var isThinking: Bool
         var thinkingDuration: TimeInterval
+        var agentName: String?
+        var agentEmoji: String?
     }
 
     struct Attachments: Hashable {
         let items: [ChatInputAttachment]
+        let isTrailingAligned: Bool
+
+        init(items: [ChatInputAttachment], isTrailingAligned: Bool = true) {
+            self.items = items
+            self.isTrailingAligned = isTrailingAligned
+        }
     }
 
     struct ToolCallRepresentation: Hashable {
@@ -323,9 +429,12 @@ extension MessageListView {
                 createdAt: message.createdAt,
                 role: message.role,
                 content: textContent,
+                source: MessageSourceRepresentation.make(from: message.metadata),
                 isRevealed: !reasoningCollapsed,
                 isThinking: isThinking,
-                thinkingDuration: reasoningDuration
+                thinkingDuration: reasoningDuration,
+                agentName: message.metadata["agentName"],
+                agentEmoji: message.metadata["agentEmoji"]
             )
 
             switch message.role {
@@ -360,7 +469,7 @@ extension MessageListView {
                     }
                 }
                 if !attachmentItems.isEmpty {
-                    entries.append(.userAttachment(message.id, .init(items: attachmentItems)))
+                    entries.append(.userAttachment(message.id, .init(items: attachmentItems, isTrailingAligned: true)))
                 }
                 if !textContent.isEmpty {
                     entries.append(.userContent(message.id, representation))
@@ -378,9 +487,12 @@ extension MessageListView {
                             createdAt: message.createdAt,
                             role: message.role,
                             content: reasoningPart.text,
+                            source: MessageSourceRepresentation.make(from: message.metadata),
                             isRevealed: !reasoningPart.isCollapsed,
                             isThinking: isThinking,
-                            thinkingDuration: reasoningPart.duration
+                            thinkingDuration: reasoningPart.duration,
+                            agentName: message.metadata["agentName"],
+                            agentEmoji: message.metadata["agentEmoji"]
                         )
                         entries.append(.reasoningContent(reasoningPart.id, reasoningRep))
                     case let .toolCall(tc):
@@ -433,9 +545,12 @@ extension MessageListView {
                                                     createdAt: message.createdAt,
                                                     role: message.role,
                                                     content: mediaMarkdown,
+                                                    source: MessageSourceRepresentation.make(from: message.metadata),
                                                     isRevealed: !reasoningCollapsed,
                                                     isThinking: false,
-                                                    thinkingDuration: 0
+                                                    thinkingDuration: 0,
+                                                    agentName: message.metadata["agentName"],
+                                                    agentEmoji: message.metadata["agentEmoji"]
                                                 )
                                                 entries.append(.responseContent(segmentID, textRep))
                                             case let .media(media):
@@ -537,9 +652,28 @@ extension MessageListView {
                                 entries.append(.mediaContent(mediaID, mediaRep))
                             }
                         }
+                    case let .file(filePart):
+                        let resolvedName = filePart.name ?? String.localized("Document")
+                        let storageFilename = filePart.sourceFilePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+                            ?? filePart.name
+                            ?? "document.txt"
+                        let attachment = ChatInputAttachment(
+                            type: .document,
+                            name: resolvedName,
+                            fileData: filePart.data,
+                            textContent: filePart.textContent ?? String(data: filePart.data, encoding: .utf8) ?? "",
+                            storageFilename: storageFilename,
+                            sourceFilePath: filePart.sourceFilePath
+                        )
+                        entries.append(
+                            .userAttachment(
+                                "\(message.id).file.\(filePart.id)",
+                                .init(items: [attachment], isTrailingAligned: false)
+                            )
+                        )
                     case let .toolResult(toolResult):
                         continue
-                    case .image, .audio, .file:
+                    case .image, .audio:
                         continue
                     }
                 }

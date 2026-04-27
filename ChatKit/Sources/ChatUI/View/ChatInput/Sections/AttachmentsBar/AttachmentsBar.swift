@@ -35,6 +35,7 @@ final class AttachmentsBar: EditorSectionView {
     }
 
     var previewItemDataSource: Any?
+    var previewHandler: ((Item) -> Bool)?
 
     required init() {
         collectionViewLayout.scrollDirection = .horizontal
@@ -213,6 +214,10 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
 
     func presentPreview(for item: Item) {
         assert(Thread.isMainThread)
+
+        if previewHandler?(item) == true {
+            return
+        }
 
         if item.type == .document {
             let textViewerController = makeTextViewer(text: item.textContent, editable: storage != nil)

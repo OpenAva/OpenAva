@@ -133,9 +133,12 @@ extension MessageListView: ListViewAdapter {
             switch entry {
             case let .userContent(_, message):
                 let availableWidth = UserMessageView.availableTextWidth(for: containerWidth)
+                let sourceHeight = message.source.showsBadge
+                    ? UserMessageView.sourceBadgeHeight + UserMessageView.sourceSpacing
+                    : 0
                 let cacheKey = NSString(string: "user-\(message.messageID)|\(Int(availableWidth.rounded()))")
                 if let cached = userContentHeightCache.object(forKey: cacheKey) {
-                    return CGFloat(cached.floatValue) + UserMessageView.textPadding * 2
+                    return CGFloat(cached.floatValue) + UserMessageView.textPadding * 2 + sourceHeight
                 }
 
                 let attributedContent = NSAttributedString(string: message.content, attributes: [
@@ -144,7 +147,7 @@ extension MessageListView: ListViewAdapter {
                 ])
                 let height = boundingSize(with: availableWidth, for: attributedContent).height
                 userContentHeightCache.setObject(NSNumber(value: Double(height)), forKey: cacheKey)
-                return height + UserMessageView.textPadding * 2
+                return height + UserMessageView.textPadding * 2 + sourceHeight
             case .userAttachment:
                 return AttachmentsBar.itemHeight
             case let .reasoningContent(_, message):
@@ -175,7 +178,11 @@ extension MessageListView: ListViewAdapter {
                 markdownViewForSizeCalculation.theme = theme
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 markdownViewForSizeCalculation.setMarkdownManually(package)
-                return ceil(markdownViewForSizeCalculation.boundingSize(for: containerWidth).height)
+                var height = ceil(markdownViewForSizeCalculation.boundingSize(for: containerWidth).height)
+                if message.agentName != nil {
+                    height += 20 // 16 labelHeight + 4 padding
+                }
+                return height
             case let .mediaContent(_, media):
                 return MediaMessageView.contentHeight(for: media, containerWidth: containerWidth)
             case .hint:
@@ -241,6 +248,7 @@ extension MessageListView: ListViewAdapter {
         if let userMessageView = rowView as? UserMessageView {
             if case let .userContent(_, message) = entry {
                 userMessageView.theme = theme
+                userMessageView.source = message.source
                 userMessageView.text = message.content
                 // Copy / Select All menu
                 let text = message.content
@@ -272,11 +280,13 @@ extension MessageListView: ListViewAdapter {
         } else if let userAttachmentView = rowView as? UserAttachmentView {
             if case let .userAttachment(_, attachments) = entry {
                 userAttachmentView.theme = theme
+                userAttachmentView.previewHandler = onOpenAttachment
                 userAttachmentView.update(with: attachments)
             }
         } else if let responseView = rowView as? ResponseView {
             if case let .responseContent(_, message) = entry {
                 responseView.theme = theme
+                responseView.configure(agentName: message.agentName, agentEmoji: message.agentEmoji)
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 responseView.markdownView.setMarkdown(package)
                 // Copy / Select All menu
