@@ -196,7 +196,7 @@ final class YouTubeTranscriptServiceTests: XCTestCase {
     }
 
     func testDefaultTranscriptPagingFitsLargerTranscriptInSinglePage() {
-        let repeated = String(repeating: "字", count: 14_000)
+        let repeated = String(repeating: "字", count: 14000)
         let document = YouTubeTranscriptDocument(
             videoID: "video1234567",
             input: "video1234567",
