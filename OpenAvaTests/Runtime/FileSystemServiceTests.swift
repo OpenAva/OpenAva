@@ -64,6 +64,74 @@ final class FileSystemServiceTests: XCTestCase {
         XCTAssertEqual(relativePaths(from: result.items), ["root.swift"])
     }
 
+    func testReadFileRejectsAbsolutePathOutsideWorkspaceWithSharedPrefix() async throws {
+        let parentURL = workspaceURL.deletingLastPathComponent()
+        let outsideURL = parentURL
+            .appendingPathComponent(workspaceURL.lastPathComponent + "-outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideURL) }
+
+        let outsideFileURL = outsideURL.appendingPathComponent("secret.txt")
+        try "secret".write(to: outsideFileURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await service.readFile(path: outsideFileURL.path)
+            XCTFail("Expected access denied error")
+        } catch let error as FileSystemService.FileSystemError {
+            guard case .accessDenied = error else {
+                XCTFail("Expected accessDenied, got: \(error)")
+                return
+            }
+        }
+    }
+
+    func testReadFileRejectsSymlinkEscapingWorkspace() async throws {
+        let outsideURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FileSystemServiceTestsOutside")
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideURL) }
+
+        let secretURL = outsideURL.appendingPathComponent("secret.txt")
+        try "secret".write(to: secretURL, atomically: true, encoding: .utf8)
+
+        let linkURL = workspaceURL.appendingPathComponent("escape", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+
+        do {
+            _ = try await service.readFile(path: "escape/secret.txt")
+            XCTFail("Expected access denied error")
+        } catch let error as FileSystemService.FileSystemError {
+            guard case .accessDenied = error else {
+                XCTFail("Expected accessDenied, got: \(error)")
+                return
+            }
+        }
+    }
+
+    func testWriteFileRejectsSymlinkEscapingWorkspace() async throws {
+        let outsideURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FileSystemServiceTestsOutside")
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideURL) }
+
+        let linkURL = workspaceURL.appendingPathComponent("escape", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+
+        do {
+            _ = try await service.writeFile(path: "escape/leak.txt", content: "blocked")
+            XCTFail("Expected access denied error")
+        } catch let error as FileSystemService.FileSystemError {
+            guard case .accessDenied = error else {
+                XCTFail("Expected accessDenied, got: \(error)")
+                return
+            }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outsideURL.appendingPathComponent("leak.txt").path))
+    }
+
     private func createFixtureTree() throws {
         try writeFile("root.swift")
         try writeFile("README.md")

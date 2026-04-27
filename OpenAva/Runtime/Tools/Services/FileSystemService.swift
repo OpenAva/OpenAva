@@ -491,17 +491,24 @@ actor FileSystemService {
     /// Resolve and validate a path for read-only operations.
     private func resolveReadablePath(_ path: String) throws -> URL {
         let workspaceURL = try writableWorkspaceDirectoryURL().standardizedFileURL
+        let resolvedWorkspaceURL = resolveSymlinkAwarePath(workspaceURL)
 
         if path.hasPrefix("/") {
             let url = URL(fileURLWithPath: path).standardizedFileURL
-            guard isWithinReadableRoots(url) || url.path.hasPrefix(workspaceURL.path) else {
+            let resolvedURL = resolveSymlinkAwarePath(url)
+            guard (isWithinReadableRoots(url) || isPathWithinRoot(url, root: workspaceURL))
+                && (isWithinReadableRoots(resolvedURL, resolveSymlinks: true) || isPathWithinRoot(resolvedURL, root: resolvedWorkspaceURL))
+            else {
                 throw FileSystemError.accessDenied(path: path)
             }
             return url
         }
 
         let url = workspaceURL.appendingPathComponent(path).standardizedFileURL
-        guard isWithinReadableRoots(url) || url.path.hasPrefix(workspaceURL.path) else {
+        let resolvedURL = resolveSymlinkAwarePath(url)
+        guard (isWithinReadableRoots(url) || isPathWithinRoot(url, root: workspaceURL))
+            && (isWithinReadableRoots(resolvedURL, resolveSymlinks: true) || isPathWithinRoot(resolvedURL, root: resolvedWorkspaceURL))
+        else {
             throw FileSystemError.accessDenied(path: path)
         }
         return url
@@ -509,7 +516,8 @@ actor FileSystemService {
 
     /// Resolve and validate a path for write operations.
     private func resolveWritablePath(_ path: String) throws -> URL {
-        let workspaceURL = try writableWorkspaceDirectoryURL()
+        let workspaceURL = try writableWorkspaceDirectoryURL().standardizedFileURL
+        let resolvedWorkspaceURL = resolveSymlinkAwarePath(workspaceURL)
 
         let url: URL
         if path.hasPrefix("/") {
@@ -518,7 +526,12 @@ actor FileSystemService {
             url = workspaceURL.appendingPathComponent(path).standardizedFileURL
         }
 
-        guard url.path.hasPrefix(workspaceURL.path) else {
+        guard isPathWithinRoot(url, root: workspaceURL) else {
+            throw FileSystemError.accessDenied(path: path)
+        }
+
+        let resolvedURL = resolveSymlinkAwarePath(url)
+        guard isPathWithinRoot(resolvedURL, root: resolvedWorkspaceURL) else {
             throw FileSystemError.accessDenied(path: path)
         }
 
@@ -538,19 +551,47 @@ actor FileSystemService {
 
     private func matchedReadableRoot(for url: URL) throws -> URL {
         let normalizedURL = url.standardizedFileURL
-        if let matched = readableRootURLs.first(where: { normalizedURL.path.hasPrefix($0.path) }) {
+        if let matched = readableRootURLs.first(where: { isPathWithinRoot(normalizedURL, root: $0.standardizedFileURL) }) {
             return matched
         }
         let workspaceURL = try writableWorkspaceDirectoryURL().standardizedFileURL
-        if normalizedURL.path.hasPrefix(workspaceURL.path) {
+        if isPathWithinRoot(normalizedURL, root: workspaceURL) {
             return workspaceURL
         }
         throw FileSystemError.accessDenied(path: normalizedURL.path)
     }
 
-    private func isWithinReadableRoots(_ url: URL) -> Bool {
-        let normalizedPath = url.standardizedFileURL.path
-        return readableRootURLs.contains { normalizedPath.hasPrefix($0.path) }
+    private func isWithinReadableRoots(_ url: URL, resolveSymlinks: Bool = false) -> Bool {
+        let normalizedURL = resolveSymlinks ? resolveSymlinkAwarePath(url) : url.standardizedFileURL
+        return readableRootURLs.contains { rootURL in
+            let normalizedRootURL = resolveSymlinks ? resolveSymlinkAwarePath(rootURL) : rootURL.standardizedFileURL
+            return isPathWithinRoot(normalizedURL, root: normalizedRootURL)
+        }
+    }
+
+    private func resolveSymlinkAwarePath(_ url: URL) -> URL {
+        var existingURL = url.standardizedFileURL
+        var trailingComponents: [String] = []
+
+        while !fileManager.fileExists(atPath: existingURL.path), existingURL.path != "/" {
+            trailingComponents.insert(existingURL.lastPathComponent, at: 0)
+            existingURL = existingURL.deletingLastPathComponent().standardizedFileURL
+        }
+
+        var resolvedURL = existingURL.resolvingSymlinksInPath().standardizedFileURL
+        for component in trailingComponents {
+            resolvedURL.appendPathComponent(component)
+        }
+        return resolvedURL.standardizedFileURL
+    }
+
+    private func isPathWithinRoot(_ candidate: URL, root: URL) -> Bool {
+        let candidateComponents = candidate.standardizedFileURL.pathComponents
+        let rootComponents = root.standardizedFileURL.pathComponents
+        guard candidateComponents.count >= rootComponents.count else {
+            return false
+        }
+        return zip(candidateComponents, rootComponents).allSatisfy { $0 == $1 }
     }
 
     /// Compile a glob matcher that can match either basenames or root-relative paths.

@@ -153,6 +153,30 @@ actor BashService {
         #"(^|[;&|]{1,2})\s*(vim|vi|nano|emacs|less|more|man|top|htop|watch)\b"#,
         #"\bread\s+-"#,
     ]
+    private static let maxCommandSegments = 50
+    private static let dangerousEnvironmentVariables: Set<String> = [
+        "BASH_ENV",
+        "CDPATH",
+        "DYLD_FRAMEWORK_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "ENV",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "IFS",
+        "LD_AUDIT",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "PATH",
+        "PERL5OPT",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "RUBYOPT",
+    ]
+    private static let dangerousEnvironmentVariablePrefixes: [String] = ["DYLD_", "LD_"]
     private static let noOutputExpectedCommands: Set<String> = [
         "mkdir", "touch", "git add", "git checkout", "git switch", "git branch", "git commit",
         "git reset", "git restore", "git stash", "chmod", "chown", "ln", "mv", "cp", "rm",
@@ -232,6 +256,9 @@ actor BashService {
                 "interactive or unsafe shell behavior is not allowed by the Bash tool permission policy"
             )
         }
+        try validateCommandComplexity(command)
+        try validateLeadingEnvironmentAssignments(command)
+        try validateSedCommandSafety(command)
 
         if let cdResult = try normalizeLeadingChangeDirectory(command: command, workspaceRootURL: workspaceRootURL) {
             return cdResult
@@ -273,13 +300,19 @@ actor BashService {
         }
 
         let standardizedDirectory = candidateDirectory.standardizedFileURL
-        guard standardizedDirectory.path.hasPrefix(workspaceRootURL.path + "/") || standardizedDirectory.path == workspaceRootURL.path else {
+        guard isPathWithinRoot(standardizedDirectory, root: workspaceRootURL.standardizedFileURL) else {
             throw BashServiceError.invalidRequest("'cd' must remain within the active workspace")
         }
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: standardizedDirectory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw BashServiceError.invalidRequest("directory for 'cd' does not exist within the active workspace")
+        }
+
+        let resolvedWorkspace = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedDirectory = standardizedDirectory.resolvingSymlinksInPath().standardizedFileURL
+        guard isPathWithinRoot(resolvedDirectory, root: resolvedWorkspace) else {
+            throw BashServiceError.invalidRequest("'cd' must remain within the active workspace")
         }
 
         return PermissionResult(workingDirectoryURL: standardizedDirectory, command: innerCommand)
@@ -292,6 +325,319 @@ actor BashService {
             return String(trimmed.dropFirst().dropLast())
         }
         return trimmed
+    }
+
+    private func validateCommandComplexity(_ command: String) throws {
+        let segments = topLevelCommandSegments(command)
+        guard segments.count <= Self.maxCommandSegments else {
+            throw BashServiceError.invalidRequest(
+                "command is too complex for safe execution (\(segments.count) segments, max \(Self.maxCommandSegments))"
+            )
+        }
+    }
+
+    private func validateLeadingEnvironmentAssignments(_ command: String) throws {
+        for segment in topLevelCommandSegments(command) {
+            for variableName in leadingEnvironmentVariableNames(in: segment) {
+                guard !isDangerousEnvironmentVariable(variableName) else {
+                    throw BashServiceError.invalidRequest(
+                        "dangerous environment variable assignment is not allowed by the Bash tool permission policy"
+                    )
+                }
+            }
+        }
+    }
+
+    private func validateSedCommandSafety(_ command: String) throws {
+        for segment in topLevelCommandSegments(command) {
+            let words = shellWords(in: segment)
+            guard !words.isEmpty else { continue }
+
+            var index = 0
+            while index < words.count, leadingEnvironmentVariableName(in: words[index]) != nil {
+                index += 1
+            }
+            guard index < words.count else { continue }
+
+            let commandName = URL(fileURLWithPath: words[index]).lastPathComponent
+            guard commandName == "sed" else { continue }
+
+            let arguments = Array(words[(index + 1)...])
+            try validateSedArguments(arguments)
+        }
+    }
+
+    private func validateSedArguments(_ arguments: [String]) throws {
+        guard !arguments.isEmpty else { return }
+
+        var shouldValidateNextExpression = false
+        for argument in arguments {
+            if shouldValidateNextExpression {
+                if containsDangerousSedExpression(argument) {
+                    throw BashServiceError.invalidRequest(
+                        "sed command uses a restricted expression (flags 'e' and 'w' are not allowed)"
+                    )
+                }
+                shouldValidateNextExpression = false
+                continue
+            }
+
+            if argument == "-e" || argument == "--expression" {
+                shouldValidateNextExpression = true
+                continue
+            }
+
+            if argument.hasPrefix("-e"), argument.count > 2 {
+                let expression = String(argument.dropFirst(2))
+                if containsDangerousSedExpression(expression) {
+                    throw BashServiceError.invalidRequest(
+                        "sed command uses a restricted expression (flags 'e' and 'w' are not allowed)"
+                    )
+                }
+                continue
+            }
+
+            if argument == "-i" || argument.hasPrefix("-i") || argument == "--in-place" || argument.hasPrefix("--in-place=") {
+                throw BashServiceError.invalidRequest(
+                    "sed in-place editing is disabled by the Bash tool permission policy"
+                )
+            }
+
+            if argument == "-f" || argument.hasPrefix("-f") || argument == "--file" || argument.hasPrefix("--file=") {
+                throw BashServiceError.invalidRequest(
+                    "sed script files are disabled by the Bash tool permission policy"
+                )
+            }
+
+            if argument.hasPrefix("-") {
+                continue
+            }
+            if containsDangerousSedExpression(argument) {
+                throw BashServiceError.invalidRequest(
+                    "sed command uses a restricted expression (flags 'e' and 'w' are not allowed)"
+                )
+            }
+        }
+    }
+
+    private func containsDangerousSedExpression(_ rawExpression: String) -> Bool {
+        let expression = unquote(rawExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !expression.isEmpty else { return false }
+
+        if expression.range(of: #"(^|[;[:space:]])[wW]\s+\S"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        guard let flags = sedSubstitutionFlags(in: expression) else { return false }
+        return flags.contains(where: { $0 == "e" || $0 == "w" || $0 == "W" })
+    }
+
+    private func sedSubstitutionFlags(in expression: String) -> String? {
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sIndex = trimmed.firstIndex(of: "s") else { return nil }
+        let delimiterIndex = trimmed.index(after: sIndex)
+        guard delimiterIndex < trimmed.endIndex else { return nil }
+        let delimiter = trimmed[delimiterIndex]
+        guard !delimiter.isLetter, !delimiter.isNumber, !delimiter.isWhitespace else { return nil }
+
+        var index = trimmed.index(after: delimiterIndex)
+        var escaped = false
+        var delimitersSeen = 0
+        while index < trimmed.endIndex {
+            let character = trimmed[index]
+            if escaped {
+                escaped = false
+                index = trimmed.index(after: index)
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                index = trimmed.index(after: index)
+                continue
+            }
+            if character == delimiter {
+                delimitersSeen += 1
+                if delimitersSeen == 2 {
+                    let flagsStart = trimmed.index(after: index)
+                    return String(trimmed[flagsStart...])
+                }
+            }
+            index = trimmed.index(after: index)
+        }
+        return nil
+    }
+
+    private func leadingEnvironmentVariableNames(in segment: String) -> [String] {
+        var variables: [String] = []
+        for word in shellWords(in: segment) {
+            guard let variableName = leadingEnvironmentVariableName(in: word) else {
+                break
+            }
+            variables.append(variableName)
+        }
+        return variables
+    }
+
+    private func leadingEnvironmentVariableName(in word: String) -> String? {
+        guard let equalsIndex = word.firstIndex(of: "=") else { return nil }
+        guard equalsIndex != word.startIndex else { return nil }
+        let name = String(word[..<equalsIndex])
+        guard let firstCharacter = name.first,
+              firstCharacter == "_" || firstCharacter.isLetter
+        else {
+            return nil
+        }
+        guard name.dropFirst().allSatisfy({ $0 == "_" || $0.isLetter || $0.isNumber }) else {
+            return nil
+        }
+        return name
+    }
+
+    private func isDangerousEnvironmentVariable(_ variableName: String) -> Bool {
+        let uppercased = variableName.uppercased()
+        if Self.dangerousEnvironmentVariables.contains(uppercased) {
+            return true
+        }
+        return Self.dangerousEnvironmentVariablePrefixes.contains { uppercased.hasPrefix($0) }
+    }
+
+    private func shellWords(in value: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        for character in value {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+
+            if character.isWhitespace {
+                if !current.isEmpty {
+                    words.append(current)
+                    current.removeAll(keepingCapacity: true)
+                }
+                continue
+            }
+
+            current.append(character)
+        }
+
+        if !current.isEmpty {
+            words.append(current)
+        }
+        return words
+    }
+
+    private func topLevelCommandSegments(_ command: String) -> [String] {
+        var segments: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+        var index = command.startIndex
+
+        func flushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                segments.append(trimmed)
+            }
+            current.removeAll(keepingCapacity: true)
+        }
+
+        while index < command.endIndex {
+            let character = command[index]
+
+            if escaping {
+                current.append(character)
+                escaping = false
+                index = command.index(after: index)
+                continue
+            }
+
+            if character == "\\" {
+                current.append(character)
+                escaping = true
+                index = command.index(after: index)
+                continue
+            }
+
+            if let activeQuote = quote {
+                current.append(character)
+                if character == activeQuote {
+                    quote = nil
+                }
+                index = command.index(after: index)
+                continue
+            }
+
+            if character == "\"" || character == "'" {
+                quote = character
+                current.append(character)
+                index = command.index(after: index)
+                continue
+            }
+
+            if character == ";" {
+                flushCurrent()
+                index = command.index(after: index)
+                continue
+            }
+
+            if character == "&" {
+                let next = command.index(after: index)
+                if next < command.endIndex, command[next] == "&" {
+                    flushCurrent()
+                    index = command.index(after: next)
+                    continue
+                }
+            }
+
+            if character == "|" {
+                let next = command.index(after: index)
+                flushCurrent()
+                if next < command.endIndex, command[next] == "|" {
+                    index = command.index(after: next)
+                } else {
+                    index = next
+                }
+                continue
+            }
+
+            current.append(character)
+            index = command.index(after: index)
+        }
+
+        flushCurrent()
+        return segments
+    }
+
+    private func isPathWithinRoot(_ candidate: URL, root: URL) -> Bool {
+        let candidateComponents = candidate.standardizedFileURL.pathComponents
+        let rootComponents = root.standardizedFileURL.pathComponents
+        guard candidateComponents.count >= rootComponents.count else {
+            return false
+        }
+        return zip(candidateComponents, rootComponents).allSatisfy { $0 == $1 }
     }
 
     private func noOutputExpected(command: String) -> Bool {

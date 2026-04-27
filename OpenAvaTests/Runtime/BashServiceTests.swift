@@ -83,6 +83,113 @@ final class BashServiceTests: XCTestCase {
             XCTAssertTrue(response.error?.message.contains("within the active workspace") == true)
         }
 
+        func testBashExecuteHandlerRejectsSymlinkEscapingWorkspace() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            let outsideURL = makeTemporaryDirectory(named: "bash-service-outside")
+            let linkURL = workspaceURL.appendingPathComponent("escape", isDirectory: false)
+            try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+            defer {
+                try? FileManager.default.removeItem(at: workspaceURL)
+                try? FileManager.default.removeItem(at: outsideURL)
+            }
+
+            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let response = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-cd-symlink-outside",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"cd escape && pwd"}"#
+                )
+            )
+
+            XCTAssertFalse(response.ok)
+            XCTAssertEqual(response.error?.code, .invalidRequest)
+            XCTAssertTrue(response.error?.message.contains("within the active workspace") == true)
+        }
+
+        func testBashExecuteHandlerRejectsDangerousEnvironmentAssignments() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            defer { try? FileManager.default.removeItem(at: workspaceURL) }
+
+            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let response = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-dangerous-env",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"LD_PRELOAD=/tmp/evil.dylib pwd"}"#
+                )
+            )
+
+            XCTAssertFalse(response.ok)
+            XCTAssertEqual(response.error?.code, .invalidRequest)
+            XCTAssertTrue(response.error?.message.contains("environment variable assignment") == true)
+        }
+
+        func testBashExecuteHandlerRejectsSedHighRiskFlags() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            defer { try? FileManager.default.removeItem(at: workspaceURL) }
+
+            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let inPlaceResponse = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-sed-in-place",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"sed -i '' 's/a/b/' test.txt"}"#
+                )
+            )
+
+            XCTAssertFalse(inPlaceResponse.ok)
+            XCTAssertEqual(inPlaceResponse.error?.code, .invalidRequest)
+            XCTAssertTrue(inPlaceResponse.error?.message.contains("in-place") == true)
+
+            let executeFlagResponse = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-sed-exec-flag",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"sed -e 's/a/b/e' test.txt"}"#
+                )
+            )
+
+            XCTAssertFalse(executeFlagResponse.ok)
+            XCTAssertEqual(executeFlagResponse.error?.code, .invalidRequest)
+            XCTAssertTrue(executeFlagResponse.error?.message.contains("restricted expression") == true)
+        }
+
+        func testBashExecuteHandlerRejectsOverlyComplexCommands() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            defer { try? FileManager.default.removeItem(at: workspaceURL) }
+
+            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let repeatedTrue = Array(repeating: "true", count: 55).joined(separator: " && ")
+            let response = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-too-complex",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"\#(repeatedTrue)"}"#
+                )
+            )
+
+            XCTAssertFalse(response.ok)
+            XCTAssertEqual(response.error?.code, .invalidRequest)
+            XCTAssertTrue(response.error?.message.contains("too complex") == true)
+        }
+
         func testBashExecuteHandlerSupportsBackgroundExecution() async throws {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
