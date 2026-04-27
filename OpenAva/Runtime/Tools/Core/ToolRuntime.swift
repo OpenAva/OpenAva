@@ -48,6 +48,7 @@ final class ToolRuntime: @unchecked Sendable {
     private let yahooFinanceService: YahooFinanceService
     private let aShareMarketService: AShareMarketService
     private let arxivSearchService: ArxivSearchService
+    private let xService: XService
     private var registryRegistrationTask: Task<Void, Never>?
     private lazy var deviceProvider: DeviceTools = .init(
         cameraService: cameraService,
@@ -154,6 +155,7 @@ final class ToolRuntime: @unchecked Sendable {
             yahooFinanceService: YahooFinanceService(),
             aShareMarketService: AShareMarketService(),
             arxivSearchService: ArxivSearchService(),
+            xService: XService(),
             workspaceRootURL: workspaceRootURL,
             runtimeRootURL: runtimeRootURL,
             teamsRootURL: teamsRootURL,
@@ -191,6 +193,7 @@ final class ToolRuntime: @unchecked Sendable {
         yahooFinanceService: YahooFinanceService = YahooFinanceService(),
         aShareMarketService: AShareMarketService = AShareMarketService(),
         arxivSearchService: ArxivSearchService = ArxivSearchService(),
+        xService: XService = XService(),
         workspaceRootURL: URL? = nil,
         runtimeRootURL: URL? = nil,
         teamsRootURL: URL? = nil,
@@ -227,6 +230,7 @@ final class ToolRuntime: @unchecked Sendable {
         self.yahooFinanceService = yahooFinanceService
         self.aShareMarketService = aShareMarketService
         self.arxivSearchService = arxivSearchService
+        self.xService = xService
         self.configureTeamSwarm = configureTeamSwarm
         if configureTeamSwarm {
             TeamSwarmCoordinator.shared.configure(
@@ -327,6 +331,7 @@ final class ToolRuntime: @unchecked Sendable {
         providers.append(yahooFinanceService)
         providers.append(aShareMarketService)
         providers.append(arxivSearchService)
+        providers.append(xService)
 
         for provider in providers {
             await registry.register(provider: provider, context: context)
@@ -464,11 +469,11 @@ final class ToolRuntime: @unchecked Sendable {
 
     // MARK: - Response Helpers
 
-    private static func invalidRequest(id: String, _ message: String) -> BridgeInvokeResponse {
+    private nonisolated static func invalidRequest(id: String, _ message: String) -> BridgeInvokeResponse {
         BridgeInvokeResponse(id: id, ok: false, error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: \(message)"))
     }
 
-    private static func unavailableResponse(id: String, _ message: String) -> BridgeInvokeResponse {
+    private nonisolated static func unavailableResponse(id: String, _ message: String) -> BridgeInvokeResponse {
         BridgeInvokeResponse(id: id, ok: false, error: OpenClawNodeError(code: .unavailable, message: message))
     }
 }

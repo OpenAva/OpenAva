@@ -6,7 +6,7 @@ import OpenClawKit
 enum ToolInvocationHelpers {
     // MARK: - Parameter Decoding
 
-    static func decodeParams<T: Decodable>(_ type: T.Type, from json: String?) throws -> T {
+    nonisolated static func decodeParams<T: Decodable>(_ type: T.Type, from json: String?) throws -> T {
         guard let json, let data = json.data(using: .utf8) else {
             throw NSError(domain: "ToolInvocation", code: 20, userInfo: [
                 NSLocalizedDescriptionKey: "INVALID_REQUEST: paramsJSON required",
@@ -17,30 +17,30 @@ enum ToolInvocationHelpers {
 
     // MARK: - Response Helpers
 
-    static func successResponse(id: String, payload: String) -> BridgeInvokeResponse {
+    nonisolated static func successResponse(id: String, payload: String) -> BridgeInvokeResponse {
         BridgeInvokeResponse(id: id, ok: true, payload: payload)
     }
 
-    static func errorResponse(id: String, code: OpenClawNodeErrorCode, message: String) -> BridgeInvokeResponse {
+    nonisolated static func errorResponse(id: String, code: OpenClawNodeErrorCode, message: String) -> BridgeInvokeResponse {
         BridgeInvokeResponse(id: id, ok: false, error: OpenClawNodeError(code: code, message: message))
     }
 
-    static func invalidRequest(id: String, _ message: String) -> BridgeInvokeResponse {
+    nonisolated static func invalidRequest(id: String, _ message: String) -> BridgeInvokeResponse {
         errorResponse(id: id, code: .invalidRequest, message: "INVALID_REQUEST: \(message)")
     }
 
-    static func unavailableResponse(id: String, _ message: String) -> BridgeInvokeResponse {
+    nonisolated static func unavailableResponse(id: String, _ message: String) -> BridgeInvokeResponse {
         errorResponse(id: id, code: .unavailable, message: message)
     }
 
-    static func truncateText(_ text: String, limit: Int, suffix: String = "Output truncated.") -> String {
+    nonisolated static func truncateText(_ text: String, limit: Int, suffix: String = "Output truncated.") -> String {
         guard text.count > limit else { return text }
         return "\(String(text.prefix(limit)))...\n\(suffix)"
     }
 
     // MARK: - Payload Encoding
 
-    static func encodePayload(_ obj: some Encodable) throws -> String {
+    nonisolated static func encodePayload(_ obj: some Encodable) throws -> String {
         let data = try JSONEncoder().encode(obj)
         guard let json = String(bytes: data, encoding: .utf8) else {
             throw NSError(domain: "ToolInvocation", code: 21, userInfo: [
@@ -50,7 +50,7 @@ enum ToolInvocationHelpers {
         return json
     }
 
-    static func encodePayloadWithMessage(_ payload: some Encodable, message: String) throws -> String {
+    nonisolated static func encodePayloadWithMessage(_ payload: some Encodable, message: String) throws -> String {
         let payloadData = try JSONEncoder().encode(payload)
         guard var payloadDict = try JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
             throw NSError(domain: "ToolInvocation", code: 22, userInfo: [
@@ -69,7 +69,7 @@ enum ToolInvocationHelpers {
 
     // MARK: - XML-like Tag Helpers
 
-    static func mimeType(for format: String) -> String {
+    nonisolated static func mimeType(for format: String) -> String {
         switch format.lowercased() {
         case "jpg", "jpeg": return "image/jpeg"
         case "png": return "image/png"
@@ -79,7 +79,7 @@ enum ToolInvocationHelpers {
         }
     }
 
-    static func composeTag(name: String, attributes: [(String, String)]) -> String {
+    nonisolated static func composeTag(name: String, attributes: [(String, String)]) -> String {
         let attrs = attributes
             .filter { !$0.1.isEmpty }
             .map { key, value in
@@ -89,7 +89,7 @@ enum ToolInvocationHelpers {
         return attrs.isEmpty ? "<\(name)/>" : "<\(name) \(attrs)/>"
     }
 
-    static func composeBlock(name: String, attributes: [(String, String)], children: [String]) -> String {
+    nonisolated static func composeBlock(name: String, attributes: [(String, String)], children: [String]) -> String {
         let start = composeTag(name: name, attributes: attributes)
         guard !children.isEmpty else {
             return start.replacingOccurrences(of: "/>", with: "></\(name)>")
@@ -99,7 +99,7 @@ enum ToolInvocationHelpers {
         return "\(open)\n\(body)\n</\(name)>"
     }
 
-    static func xmlEscaped(_ value: String) -> String {
+    nonisolated static func xmlEscaped(_ value: String) -> String {
         value
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
@@ -110,7 +110,7 @@ enum ToolInvocationHelpers {
 
     // MARK: - File Extension Helpers
 
-    static func normalizedFileExtension(_ raw: String) -> String {
+    nonisolated static func normalizedFileExtension(_ raw: String) -> String {
         let filtered = raw.lowercased().filter { $0.isLetter || $0.isNumber }
         return filtered.isEmpty ? "bin" : filtered
     }
