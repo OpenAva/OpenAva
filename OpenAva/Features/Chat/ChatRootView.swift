@@ -70,6 +70,7 @@ struct ChatRootView: View {
             #endif
         }
         .onAppear {
+            normalizeSessionContextForVisibleMenu()
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             RemoteControlCoordinator.shared.bind(containerStore: containerStore)
             presentOnboardingIfNeeded()
@@ -98,6 +99,9 @@ struct ChatRootView: View {
             drainPendingAutoSend()
             autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
             updateHeartbeatService()
+        }
+        .onChange(of: containerStore.activeSessionContext) { _, _ in
+            normalizeSessionContextForVisibleMenu()
         }
         .onChange(of: containerAgent) { _, _ in
             updateHeartbeatService()
@@ -135,7 +139,9 @@ struct ChatRootView: View {
                 for: sessionKey,
                 agentID: containerStore.activeAgent?.id
             ),
+            teams: visibleTeams,
             agents: containerStore.agents,
+            activeContext: visibleActiveSessionContext,
             activeAgentID: containerStore.activeAgent?.id,
             activeAgentName: currentActiveAgentName,
             activeAgentEmoji: currentActiveAgentEmoji,
@@ -146,7 +152,7 @@ struct ChatRootView: View {
             menuRefreshToken: menuRefreshToken,
             onConsumePendingAutoSend: consumePendingAutoSend,
             onMenuAction: handleMenuAction,
-            onAgentSwitch: handleAgentSwitch,
+            onSessionSwitch: handleSessionSwitch,
             onModelSwitch: handleModelSwitch,
             onCreateLocalAgent: openLocalAgentCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
@@ -177,6 +183,20 @@ struct ChatRootView: View {
         resolvedDefaultSessionKey
     }
 
+    /// Temporarily hide custom team entries from the chat session menu.
+    private var visibleTeams: [TeamProfile] {
+        []
+    }
+
+    private var visibleActiveSessionContext: ActiveSessionContext {
+        switch containerStore.activeSessionContext {
+        case .globalTeam, .agent:
+            containerStore.activeSessionContext
+        case .team:
+            .globalTeam
+        }
+    }
+
     private func presentOnboardingIfNeeded() {
         guard !didEvaluateOnboarding else { return }
         didEvaluateOnboarding = true
@@ -184,6 +204,11 @@ struct ChatRootView: View {
             showsAgentOnboarding = true
             return
         }
+    }
+
+    private func normalizeSessionContextForVisibleMenu() {
+        guard case .team = containerStore.activeSessionContext else { return }
+        _ = containerStore.setActiveSessionContext(.globalTeam)
     }
 
     /// Reads one pending launch request and resolves it into a chat message.
@@ -203,10 +228,10 @@ struct ChatRootView: View {
         pendingAutoSendMessage = nil
     }
 
-    private func handleAgentSwitch(_ agentID: UUID) {
+    private func handleSessionSwitch(_ context: ActiveSessionContext) {
         // Keep existing sessions alive so in-flight tasks can keep running
         // when users switch to another agent.
-        guard containerStore.setActiveAgent(agentID) else { return }
+        guard containerStore.setActiveSessionContext(context) else { return }
     }
 
     private func handleModelSwitch(_ modelID: UUID) {
@@ -401,11 +426,25 @@ struct ChatRootView: View {
     }
 
     private var currentActiveAgentName: String {
-        containerStore.activeAgent?.name ?? L10n.tr("chat.activeAgent.fallbackName")
+        switch visibleActiveSessionContext {
+        case .globalTeam:
+            return L10n.tr("chat.menu.globalTeam")
+        case .team:
+            return L10n.tr("chat.menu.globalTeam")
+        case .agent:
+            return containerStore.activeAgent?.name ?? L10n.tr("chat.activeAgent.fallbackName")
+        }
     }
 
     private var currentActiveAgentEmoji: String {
-        containerStore.activeAgent?.emoji ?? ""
+        switch visibleActiveSessionContext {
+        case .globalTeam:
+            return "👥"
+        case .team:
+            return "👥"
+        case .agent:
+            return containerStore.activeAgent?.emoji ?? ""
+        }
     }
 
     private var currentSelectedModelName: String {
@@ -422,7 +461,9 @@ struct ChatRootView: View {
 private struct ChatScreen: View {
     private let container: AppContainer
     private let scopedSessionID: String
+    private let teams: [TeamProfile]
     private let agents: [AgentProfile]
+    private let activeContext: ActiveSessionContext
     private let activeAgentID: UUID?
     private let activeAgentName: String
     private let activeAgentEmoji: String
@@ -433,7 +474,7 @@ private struct ChatScreen: View {
     private let menuRefreshToken: Int
     private let onConsumePendingAutoSend: ((String) -> Void)?
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
-    private let onAgentSwitch: ((UUID) -> Void)?
+    private let onSessionSwitch: ((ActiveSessionContext) -> Void)?
     private let onModelSwitch: ((UUID) -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
@@ -448,7 +489,9 @@ private struct ChatScreen: View {
     init(
         container: AppContainer,
         scopedSessionID: String,
+        teams: [TeamProfile],
         agents: [AgentProfile],
+        activeContext: ActiveSessionContext,
         activeAgentID: UUID?,
         activeAgentName: String,
         activeAgentEmoji: String,
@@ -459,7 +502,7 @@ private struct ChatScreen: View {
         menuRefreshToken: Int = 0,
         onConsumePendingAutoSend: ((String) -> Void)? = nil,
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
-        onAgentSwitch: ((UUID) -> Void)? = nil,
+        onSessionSwitch: ((ActiveSessionContext) -> Void)? = nil,
         onModelSwitch: ((UUID) -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
@@ -470,7 +513,9 @@ private struct ChatScreen: View {
     ) {
         self.container = container
         self.scopedSessionID = scopedSessionID
+        self.teams = teams
         self.agents = agents
+        self.activeContext = activeContext
         self.activeAgentID = activeAgentID
         self.activeAgentName = activeAgentName
         self.activeAgentEmoji = activeAgentEmoji
@@ -481,7 +526,7 @@ private struct ChatScreen: View {
         self.menuRefreshToken = menuRefreshToken
         self.onConsumePendingAutoSend = onConsumePendingAutoSend
         self.onMenuAction = onMenuAction
-        self.onAgentSwitch = onAgentSwitch
+        self.onSessionSwitch = onSessionSwitch
         self.onModelSwitch = onModelSwitch
         self.onCreateLocalAgent = onCreateLocalAgent
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
@@ -555,8 +600,8 @@ private struct ChatScreen: View {
             )
         }
 
-        private var topBarAgentMenuEntries: [ChatTopBar.AgentMenuEntry] {
-            ChatTopBar.agentMenuEntries(agents: agents, activeAgentID: activeAgentID)
+        private var topBarSessionMenuEntries: [ChatTopBar.SessionMenuEntry] {
+            ChatTopBar.sessionMenuEntries(teams: teams, agents: agents, activeContext: activeContext)
         }
 
         private var topBarConfigurationSections: [ChatTopBar.ConfigurationSection] {
@@ -568,15 +613,35 @@ private struct ChatScreen: View {
         }
 
         private var agentMenuContent: some View {
-            ForEach(topBarAgentMenuEntries.indices, id: \.self) { index in
-                let entry = topBarAgentMenuEntries[index]
+            ForEach(topBarSessionMenuEntries.indices, id: \.self) { index in
+                let entry = topBarSessionMenuEntries[index]
                 if case .createLocalAgent = entry.kind, index > 0 {
                     Divider()
                 }
                 switch entry.kind {
+                case .globalTeam:
+                    Button {
+                        onSessionSwitch?(.globalTeam)
+                    } label: {
+                        if entry.isSelected {
+                            Label(entry.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(entry.displayTitle)
+                        }
+                    }
+                case let .team(teamID):
+                    Button {
+                        onSessionSwitch?(.team(teamID))
+                    } label: {
+                        if entry.isSelected {
+                            Label(entry.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(entry.displayTitle)
+                        }
+                    }
                 case let .agent(agentID):
                     Button {
-                        onAgentSwitch?(agentID)
+                        onSessionSwitch?(.agent(agentID))
                     } label: {
                         if entry.isSelected {
                             Label(entry.displayTitle, systemImage: "checkmark")
@@ -683,7 +748,9 @@ private struct ChatScreen: View {
                 invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
+            teams: teams,
             agents: agents,
+            activeContext: activeContext,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,
             activeAgentEmoji: activeAgentEmoji,
@@ -694,7 +761,7 @@ private struct ChatScreen: View {
             menuRefreshToken: menuRefreshToken,
             onConsumePendingAutoSend: onConsumePendingAutoSend,
             onMenuAction: onMenuAction,
-            onAgentSwitch: onAgentSwitch,
+            onSessionSwitch: onSessionSwitch,
             onModelSwitch: onModelSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,

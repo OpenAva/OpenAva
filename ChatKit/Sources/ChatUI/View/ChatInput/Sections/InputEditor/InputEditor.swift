@@ -335,6 +335,12 @@ final class InputEditor: EditorSectionView {
                 .font: UIFont.systemFont(ofSize: font.pointSize, weight: .semibold),
             ], range: range)
         }
+        for range in highlightedMentionRanges(in: text) {
+            attributed.addAttributes([
+                .foregroundColor: ChatUIDesign.Color.brandOrange,
+                .font: UIFont.systemFont(ofSize: font.pointSize, weight: .semibold),
+            ], range: range)
+        }
 
         textView.attributedText = attributed
         textView.typingAttributes = baseTextAttributes()
@@ -380,6 +386,39 @@ final class InputEditor: EditorSectionView {
         return NSRange(text.startIndex ..< commandEnd, in: text)
     }
 
+    func highlightedMentionRanges(in text: String) -> [NSRange] {
+        guard !text.isEmpty else { return [] }
+
+        let nsText = text as NSString
+        var ranges: [NSRange] = []
+        var index = 0
+
+        while index < nsText.length {
+            let character = nsText.character(at: index)
+            if character == 64,
+               index == 0 || isMentionBoundaryCharacter(nsText.character(at: index - 1))
+            {
+                var upperBound = index + 1
+                while upperBound < nsText.length,
+                      !isMentionBoundaryCharacter(nsText.character(at: upperBound))
+                {
+                    upperBound += 1
+                }
+
+                if upperBound > index + 1 {
+                    ranges.append(NSRange(location: index, length: upperBound - index))
+                }
+
+                index = upperBound
+                continue
+            }
+
+            index += 1
+        }
+
+        return ranges
+    }
+
     private func availableSkillCommands() -> [String] {
         var commands: [String] = []
         for item in configuration.quickSettingItems {
@@ -399,6 +438,17 @@ final class InputEditor: EditorSectionView {
         let commandEnd = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
         let command = String(trimmed[..<commandEnd])
         return command.count > 1 ? command : nil
+    }
+
+    private var mentionBoundarySet: CharacterSet {
+        CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.symbols)
+    }
+
+    private func isMentionBoundaryCharacter(_ character: unichar) -> Bool {
+        guard let scalar = UnicodeScalar(character) else { return false }
+        return mentionBoundarySet.contains(scalar)
     }
 
     private func updatePrimaryActionButtonAppearance() {

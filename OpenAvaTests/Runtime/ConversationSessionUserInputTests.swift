@@ -15,6 +15,31 @@ final class ConversationSessionPromptInputTests: XCTestCase {
         XCTAssertEqual(input.metadata[ConversationSession.PromptInput.sourceMetadataKey], "heartbeat")
     }
 
+    func testTeamPromptInputStoresSourceAndTeamMetadata() {
+        let input = ConversationSession.PromptInput(
+            text: "team request",
+            source: .teamTask,
+            metadata: [
+                ConversationSession.PromptInput.teamMessageTypeMetadataKey: "scheduled_message",
+                ConversationSession.PromptInput.teamSenderMetadataKey: "Coordinator",
+            ]
+        )
+
+        XCTAssertEqual(input.metadata[ConversationSession.PromptInput.sourceMetadataKey], "team_task")
+        XCTAssertEqual(input.metadata[ConversationSession.PromptInput.teamMessageTypeMetadataKey], "scheduled_message")
+        XCTAssertEqual(input.metadata[ConversationSession.PromptInput.teamSenderMetadataKey], "Coordinator")
+    }
+
+    func testPromptInputSourceOverridesConflictingMetadata() {
+        let input = ConversationSession.PromptInput(
+            text: "heartbeat request",
+            source: .heartbeat,
+            metadata: [ConversationSession.PromptInput.sourceMetadataKey: "user"]
+        )
+
+        XCTAssertEqual(input.metadata[ConversationSession.PromptInput.sourceMetadataKey], "heartbeat")
+    }
+
     func testBuildRequestMessagesUsesUserMessageText() {
         let session = ConversationSession(
             id: "main",

@@ -220,7 +220,9 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let chatClient: (any ChatClient)?
     let toolProvider: ToolProvider?
     let systemPrompt: String?
+    let teams: [TeamProfile]
     let agents: [AgentProfile]
+    let activeContext: ActiveSessionContext
     let activeAgentID: UUID?
     let activeAgentName: String
     let activeAgentEmoji: String
@@ -234,7 +236,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let menuRefreshToken: Int
     let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((MenuAction) -> Void)?
-    let onAgentSwitch: ((UUID) -> Void)?
+    let onSessionSwitch: ((ActiveSessionContext) -> Void)?
     let onModelSwitch: ((UUID) -> Void)?
     let onCreateLocalAgent: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
@@ -247,14 +249,16 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onMenuAction: onMenuAction,
+            teams: teams,
             agents: agents,
+            activeContext: activeContext,
             activeAgentID: activeAgentID,
             activeAgentName: activeAgentName,
             activeAgentEmoji: activeAgentEmoji,
             selectedModelName: selectedModelName,
             selectedProviderName: selectedProviderName,
             autoCompactEnabled: autoCompactEnabled,
-            onAgentSwitch: onAgentSwitch,
+            onSessionSwitch: onSessionSwitch,
             onModelSwitch: onModelSwitch,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
@@ -267,55 +271,89 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         sessionConfiguration: ConversationSession.Configuration,
         models: ConversationSession.Models,
         providedSession: ConversationSession?,
-        serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?
+        serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?,
+        isTeamSession: Bool
     ) {
         let storageProvider: any StorageProvider
         let sessionDelegate: SessionDelegate?
         let providedSession: ConversationSession?
         let models: ConversationSession.Models
         var serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?
+        var isTeamSession = false
 
-        if let runtimeRootURL, activeAgentID != nil {
-            if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
-                let invocationSessionID = "\(activeAgentID!.uuidString)::\(sessionID)"
-                let resources = AgentMainSessionRegistry.shared.sessionResources(
-                    for: agent,
-                    modelConfig: modelConfig,
-                    invocationSessionID: invocationSessionID,
-                    agentCount: agentCount
-                )
-                storageProvider = resources.storageProvider
-                sessionDelegate = resources.sessionDelegate
-                providedSession = resources.session
-                models = resources.session.models
-                serializedExecutionContext = (agent, modelConfig, invocationSessionID)
-            } else {
-                storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        switch activeContext {
+        case .globalTeam, .team:
+            isTeamSession = true
+            let teamRuntimeURL = TeamStore.runtimeDirectoryURL(workspaceRootURL: workspaceRootURL, createDirectoryIfNeeded: true) ?? runtimeRootURL
+            if let teamRuntimeURL {
+                storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: teamRuntimeURL)
                 sessionDelegate = AgentSessionDelegate(
                     sessionID: sessionID,
-                    runtimeRootURL: runtimeRootURL,
+                    runtimeRootURL: teamRuntimeURL,
                     chatClient: chatClient,
-                    agentName: activeAgentName,
-                    agentEmoji: activeAgentEmoji
+                    agentName: "Coordinator",
+                    agentEmoji: "🤖"
                 )
-                var fallbackModels = ConversationSession.Models()
-                if let chatClient {
-                    fallbackModels.chat = ConversationSession.Model(
-                        client: chatClient,
-                        capabilities: [.visual, .tool],
-                        contextLength: modelConfig?.contextTokens ?? 128_000,
-                        maxOutputTokens: modelConfig?.resolvedMaxOutputTokens ?? 20000,
-                        autoCompactEnabled: autoCompactEnabled
-                    )
-                }
-                providedSession = nil
-                models = fallbackModels
+            } else {
+                storageProvider = DisposableStorageProvider.shared
+                sessionDelegate = nil
             }
-        } else {
-            storageProvider = DisposableStorageProvider.shared
-            sessionDelegate = nil
+            var fallbackModels = ConversationSession.Models()
+            if let chatClient {
+                fallbackModels.chat = ConversationSession.Model(
+                    client: chatClient,
+                    capabilities: [.visual, .tool],
+                    contextLength: modelConfig?.contextTokens ?? 128_000,
+                    maxOutputTokens: modelConfig?.resolvedMaxOutputTokens ?? 20000,
+                    autoCompactEnabled: autoCompactEnabled
+                )
+            }
             providedSession = nil
-            models = .init()
+            models = fallbackModels
+
+        case .agent:
+            if let runtimeRootURL, activeAgentID != nil {
+                if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
+                    let invocationSessionID = "\(activeAgentID!.uuidString)::\(sessionID)"
+                    let resources = AgentMainSessionRegistry.shared.sessionResources(
+                        for: agent,
+                        modelConfig: modelConfig,
+                        invocationSessionID: invocationSessionID,
+                        agentCount: agentCount
+                    )
+                    storageProvider = resources.storageProvider
+                    sessionDelegate = resources.sessionDelegate
+                    providedSession = resources.session
+                    models = resources.session.models
+                    serializedExecutionContext = (agent, modelConfig, invocationSessionID)
+                } else {
+                    storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+                    sessionDelegate = AgentSessionDelegate(
+                        sessionID: sessionID,
+                        runtimeRootURL: runtimeRootURL,
+                        chatClient: chatClient,
+                        agentName: activeAgentName,
+                        agentEmoji: activeAgentEmoji
+                    )
+                    var fallbackModels = ConversationSession.Models()
+                    if let chatClient {
+                        fallbackModels.chat = ConversationSession.Model(
+                            client: chatClient,
+                            capabilities: [.visual, .tool],
+                            contextLength: modelConfig?.contextTokens ?? 128_000,
+                            maxOutputTokens: modelConfig?.resolvedMaxOutputTokens ?? 20000,
+                            autoCompactEnabled: autoCompactEnabled
+                        )
+                    }
+                    providedSession = nil
+                    models = fallbackModels
+                }
+            } else {
+                storageProvider = DisposableStorageProvider.shared
+                sessionDelegate = nil
+                providedSession = nil
+                models = .init()
+            }
         }
 
         let sessionConfiguration = ConversationSession.Configuration(
@@ -332,7 +370,174 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             collapseReasoningWhenComplete: true
         )
 
-        return (sessionConfiguration, models, providedSession, serializedExecutionContext)
+        if activeContext == .globalTeam {
+            sessionConfiguration.storage.setTitle(L10n.tr("chat.menu.globalTeam"), for: sessionID)
+        }
+
+        return (sessionConfiguration, models, providedSession, serializedExecutionContext, isTeamSession)
+    }
+
+    private func applyPromptSubmissionHandler(
+        to chatViewController: ChatViewController,
+        sessionContext: (
+            sessionConfiguration: ConversationSession.Configuration,
+            models: ConversationSession.Models,
+            providedSession: ConversationSession?,
+            serializedExecutionContext: (agent: AgentProfile, modelConfig: AppConfig.LLMModel, invocationSessionID: String)?,
+            isTeamSession: Bool
+        ),
+        agentCount: Int
+    ) {
+        if let serializedExecutionContext = sessionContext.serializedExecutionContext {
+            chatViewController.promptSubmissionHandler = { _, _, prompt in
+                do {
+                    return try await AgentMainSessionRegistry.shared.submitToMainSession(
+                        for: serializedExecutionContext.agent,
+                        modelConfig: serializedExecutionContext.modelConfig,
+                        invocationSessionID: serializedExecutionContext.invocationSessionID,
+                        agentCount: agentCount
+                    ) { resources in
+                        guard let model = resources.session.models.chat else {
+                            return false
+                        }
+                        return resources.session.submitPromptWithoutWaiting(
+                            model: model,
+                            prompt: prompt,
+                            usingExistingReservation: true
+                        )
+                    }
+                } catch {
+                    return false
+                }
+            }
+        } else if sessionContext.isTeamSession {
+            chatViewController.promptSubmissionHandler = { session, _, prompt in
+                guard let model = session.models.chat else { return false }
+
+                guard let generation = session.queryGuard.tryStart() else {
+                    return false
+                }
+
+                _ = session.appendNewMessage(role: .user) { msg in
+                    msg.textContent = prompt.text
+                    for attachment in prompt.attachments {
+                        msg.parts.append(attachment)
+                    }
+                    for (key, value) in prompt.metadata {
+                        msg.metadata[key] = value
+                    }
+                }
+                session.notifyMessagesDidChange(scrolling: true)
+
+                let mentionTarget = resolveTeamPromptMentionTarget(in: prompt.text, agents: agents)
+                let responderName: String
+                let responderEmoji: String
+
+                switch mentionTarget {
+                case let .agent(agent):
+                    responderName = agent.name
+                    responderEmoji = agent.emoji
+                case .everyone, .none:
+                    responderName = "Coordinator"
+                    responderEmoji = "🤖"
+                }
+
+                let assistantMsg = session.appendNewMessage(role: .assistant) { msg in
+                    msg.metadata["agentName"] = responderName
+                    msg.metadata["agentEmoji"] = responderEmoji
+                }
+
+                switch mentionTarget {
+                case .agent:
+                    guard let modelConfig else {
+                        assistantMsg.textContent = String.localized("Error")
+                        session.setLoadingState(nil)
+                        session.notifyMessagesDidChange(scrolling: true)
+                        _ = session.queryGuard.end(generation)
+                        session.persistMessages()
+                        return true
+                    }
+
+                    let reqMessages = await session.buildMessages(capabilities: model.capabilities)
+                    session.setLoadingState(String.localized("Thinking..."))
+                    do {
+                        let stream = try await model.client.streamingChat(
+                            body: ChatRequestBody(
+                                model: modelConfig.model,
+                                messages: reqMessages,
+                                maxCompletionTokens: model.maxOutputTokens
+                            )
+                        )
+                        session.setLoadingState(nil)
+                        for try await chunk in stream {
+                            if case let .text(text) = chunk {
+                                assistantMsg.textContent += text
+                                session.notifyMessagesDidChange(scrolling: true)
+                            }
+                        }
+                    } catch {
+                        assistantMsg.textContent = String.localized("Error") + ": \(error.localizedDescription)"
+                        session.setLoadingState(nil)
+                        session.notifyMessagesDidChange(scrolling: true)
+                    }
+                case let .everyone(messageBody):
+                    let everyoneToken = localizedEveryoneMentionToken()
+                    let toolContext = TeamSwarmCoordinator.ToolContext(sessionID: session.id, senderMemberID: nil)
+
+                    guard !messageBody.isEmpty else {
+                        assistantMsg.textContent = L10n.tr("chat.team.broadcast.emptyMessage", everyoneToken)
+                        session.setLoadingState(nil)
+                        session.notifyMessagesDidChange(scrolling: true)
+                        _ = session.queryGuard.end(generation)
+                        session.persistMessages()
+                        return true
+                    }
+
+                    guard !agents.isEmpty else {
+                        assistantMsg.textContent = L10n.tr("chat.team.broadcast.noAgents", everyoneToken)
+                        session.setLoadingState(nil)
+                        session.notifyMessagesDidChange(scrolling: true)
+                        _ = session.queryGuard.end(generation)
+                        session.persistMessages()
+                        return true
+                    }
+
+                    var deliveredCount = 0
+                    for agent in agents {
+                        do {
+                            try TeamSwarmCoordinator.shared.sendMessage(
+                                to: agent.name,
+                                message: messageBody,
+                                messageType: "broadcast_message",
+                                context: toolContext
+                            )
+                            deliveredCount += 1
+                        } catch {
+                            continue
+                        }
+                    }
+
+                    assistantMsg.textContent = deliveredCount > 0
+                        ? L10n.tr("chat.team.broadcast.sentToAll", deliveredCount)
+                        : L10n.tr("chat.team.broadcast.noAgents", everyoneToken)
+                    session.setLoadingState(nil)
+                    session.notifyMessagesDidChange(scrolling: true)
+                case .none:
+                    assistantMsg.textContent = L10n.tr(
+                        "chat.team.broadcast.promptMentionAgent",
+                        localizedEveryoneMentionToken()
+                    )
+                    session.setLoadingState(nil)
+                    session.notifyMessagesDidChange(scrolling: true)
+                }
+
+                _ = session.queryGuard.end(generation)
+                session.persistMessages()
+                return true
+            }
+        } else {
+            chatViewController.promptSubmissionHandler = nil
+        }
     }
 
     func makeUIViewController(context: Context) -> UIViewController {
@@ -400,31 +605,11 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         // Route top-right menu interactions back to SwiftUI.
         chatViewController.menuDelegate = context.coordinator
         context.coordinator.chatViewController = chatViewController
-        if let serializedExecutionContext = sessionContext.serializedExecutionContext {
-            chatViewController.promptSubmissionHandler = { _, _, prompt in
-                do {
-                    return try await AgentMainSessionRegistry.shared.submitToMainSession(
-                        for: serializedExecutionContext.agent,
-                        modelConfig: serializedExecutionContext.modelConfig,
-                        invocationSessionID: serializedExecutionContext.invocationSessionID,
-                        agentCount: agentCount
-                    ) { resources in
-                        guard let model = resources.session.models.chat else {
-                            return false
-                        }
-                        return resources.session.submitPromptWithoutWaiting(
-                            model: model,
-                            prompt: prompt,
-                            usingExistingReservation: true
-                        )
-                    }
-                } catch {
-                    return false
-                }
-            }
-        } else {
-            chatViewController.promptSubmissionHandler = nil
-        }
+        applyPromptSubmissionHandler(
+            to: chatViewController,
+            sessionContext: sessionContext,
+            agentCount: agentCount
+        )
         chatViewController.updateHeader(.init(
             agentName: activeAgentName,
             agentEmoji: activeAgentEmoji,
@@ -480,7 +665,9 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
+        context.coordinator.teams = teams
         context.coordinator.agents = agents
+        context.coordinator.activeContext = activeContext
         context.coordinator.activeAgentID = activeAgentID
         context.coordinator.activeAgentName = activeAgentName
         context.coordinator.activeAgentEmoji = activeAgentEmoji
@@ -501,31 +688,11 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         } else {
             chatViewController.draftPersistenceKey = nil
         }
-        if let serializedExecutionContext = sessionContext.serializedExecutionContext {
-            chatViewController.promptSubmissionHandler = { _, _, prompt in
-                do {
-                    return try await AgentMainSessionRegistry.shared.submitToMainSession(
-                        for: serializedExecutionContext.agent,
-                        modelConfig: serializedExecutionContext.modelConfig,
-                        invocationSessionID: serializedExecutionContext.invocationSessionID,
-                        agentCount: agentCount
-                    ) { resources in
-                        guard let model = resources.session.models.chat else {
-                            return false
-                        }
-                        return resources.session.submitPromptWithoutWaiting(
-                            model: model,
-                            prompt: prompt,
-                            usingExistingReservation: true
-                        )
-                    }
-                } catch {
-                    return false
-                }
-            }
-        } else {
-            chatViewController.promptSubmissionHandler = nil
-        }
+        applyPromptSubmissionHandler(
+            to: chatViewController,
+            sessionContext: sessionContext,
+            agentCount: agentCount
+        )
 
         // Auto-send on behalf of the intent if this is a new request.
         if let id = pendingAutoSendID,
@@ -539,7 +706,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             onConsumePendingAutoSend?(id)
         }
 
-        context.coordinator.onAgentSwitch = onAgentSwitch
+        context.coordinator.onSessionSwitch = onSessionSwitch
         context.coordinator.onModelSwitch = onModelSwitch
         context.coordinator.onCreateLocalAgent = onCreateLocalAgent
         context.coordinator.onDeleteCurrentAgent = onDeleteCurrentAgent
@@ -574,13 +741,15 @@ extension ChatViewControllerWrapper {
         /// Tracks the last auto-sent request ID to prevent re-submission on re-render.
         var processedAutoSendID: String?
         var onMenuAction: ((MenuAction) -> Void)?
+        var teams: [TeamProfile]
         var agents: [AgentProfile]
+        var activeContext: ActiveSessionContext
         var activeAgentID: UUID?
         var activeAgentName: String
         var activeAgentEmoji: String
         var selectedModelName: String
         var selectedProviderName: String
-        var onAgentSwitch: ((UUID) -> Void)?
+        var onSessionSwitch: ((ActiveSessionContext) -> Void)?
         var onModelSwitch: ((UUID) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
@@ -591,14 +760,16 @@ extension ChatViewControllerWrapper {
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
+            teams: [TeamProfile],
             agents: [AgentProfile],
+            activeContext: ActiveSessionContext,
             activeAgentID: UUID?,
             activeAgentName: String,
             activeAgentEmoji: String,
             selectedModelName: String,
             selectedProviderName: String,
             autoCompactEnabled: Bool,
-            onAgentSwitch: ((UUID) -> Void)?,
+            onSessionSwitch: ((ActiveSessionContext) -> Void)?,
             onModelSwitch: ((UUID) -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
@@ -606,14 +777,16 @@ extension ChatViewControllerWrapper {
             onToggleAutoCompact: (() -> Void)?
         ) {
             self.onMenuAction = onMenuAction
+            self.teams = teams
             self.agents = agents
+            self.activeContext = activeContext
             self.activeAgentID = activeAgentID
             self.activeAgentName = activeAgentName
             self.activeAgentEmoji = activeAgentEmoji
             self.selectedModelName = selectedModelName
             self.selectedProviderName = selectedProviderName
             self.autoCompactEnabled = autoCompactEnabled
-            self.onAgentSwitch = onAgentSwitch
+            self.onSessionSwitch = onSessionSwitch
             self.onModelSwitch = onModelSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
             self.onDeleteCurrentAgent = onDeleteCurrentAgent
@@ -835,16 +1008,16 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
-            let entries = ChatTopBar.agentMenuEntries(agents: agents, activeAgentID: activeAgentID)
+            let entries = ChatTopBar.sessionMenuEntries(teams: teams, agents: agents, activeContext: activeContext)
             var primaryChildren: [UIMenuElement] = []
             var secondaryChildren: [UIMenuElement] = []
 
             for entry in entries {
-                guard let element = makeAgentMenuElement(for: entry) else { continue }
+                guard let element = makeSessionMenuElement(for: entry) else { continue }
                 switch entry.kind {
                 case .createLocalAgent:
                     secondaryChildren.append(element)
-                case .agent, .empty:
+                case .globalTeam, .team, .agent, .empty:
                     primaryChildren.append(element)
                 }
             }
@@ -859,8 +1032,34 @@ extension ChatViewControllerWrapper {
             return UIMenu(title: "", children: sections)
         }
 
-        private func makeAgentMenuElement(for entry: ChatTopBar.AgentMenuEntry) -> UIMenuElement? {
+        private func makeSessionMenuElement(for entry: ChatTopBar.SessionMenuEntry) -> UIMenuElement? {
             switch entry.kind {
+            case .globalTeam:
+                let image = standardizedMenuIcon(UIImage(systemName: "person.2"))
+                let state: UIMenuElement.State = entry.isSelected ? .on : .off
+                return UIAction(
+                    title: entry.title,
+                    image: image,
+                    identifier: nil,
+                    discoverabilityTitle: nil,
+                    attributes: [],
+                    state: state
+                ) { [weak self] _ in
+                    self?.onSessionSwitch?(.globalTeam)
+                }
+            case let .team(teamID):
+                let image = standardizedMenuIcon(UIImage(systemName: "person.3"))
+                let state: UIMenuElement.State = entry.isSelected ? .on : .off
+                return UIAction(
+                    title: entry.title,
+                    image: image,
+                    identifier: nil,
+                    discoverabilityTitle: nil,
+                    attributes: [],
+                    state: state
+                ) { [weak self] _ in
+                    self?.onSessionSwitch?(.team(teamID))
+                }
             case let .agent(agentID):
                 let image = makeAgentMenuImage(for: agentID, fallbackEmoji: entry.emoji)
                 let state: UIMenuElement.State = entry.isSelected ? .on : .off
@@ -872,7 +1071,7 @@ extension ChatViewControllerWrapper {
                     attributes: [],
                     state: state
                 ) { [weak self] _ in
-                    self?.onAgentSwitch?(agentID)
+                    self?.onSessionSwitch?(.agent(agentID))
                 }
             case .createLocalAgent:
                 return UIAction(

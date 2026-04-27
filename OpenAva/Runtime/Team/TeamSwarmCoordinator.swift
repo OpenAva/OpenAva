@@ -529,7 +529,7 @@ final class TeamSwarmCoordinator {
         do {
             let output = try await performMemberTurn(
                 member: member,
-                prompt: pendingMessage.text
+                pendingMessage: pendingMessage
             )
             let planRequestID = persistPlanApprovalRequest(member: member, plan: output)
             updateMember(memberID: member.id) { member in
@@ -557,7 +557,7 @@ final class TeamSwarmCoordinator {
         do {
             let output = try await performMemberTurn(
                 member: member,
-                prompt: pendingMessage.text
+                pendingMessage: pendingMessage
             )
             finishMember(memberID: member.id, status: .idle, result: output, error: nil)
         } catch {
@@ -567,7 +567,7 @@ final class TeamSwarmCoordinator {
 
     private func performMemberTurn(
         member: TeamMember,
-        prompt: String
+        pendingMessage: TeamMailboxMessage
     ) async throws -> String {
         let agent = try agentProfile(for: member)
         let modelConfig = try resolvedModelConfig(for: agent, memberName: member.name)
@@ -594,7 +594,14 @@ final class TeamSwarmCoordinator {
                 let baselineLastMessageID = baselineMessages.last?.id
 
                 session.refreshContentsFromDatabase(scrolling: false)
-                let promptInput = ConversationSession.PromptInput(text: prompt)
+                let promptInput = ConversationSession.PromptInput(
+                    text: pendingMessage.text,
+                    source: self.promptSource(forTeamMessageType: pendingMessage.messageType),
+                    metadata: [
+                        ConversationSession.PromptInput.teamMessageTypeMetadataKey: pendingMessage.messageType,
+                        ConversationSession.PromptInput.teamSenderMetadataKey: pendingMessage.from,
+                    ]
+                )
                 await session.submitPrompt(
                     model: model,
                     prompt: promptInput
@@ -638,6 +645,19 @@ final class TeamSwarmCoordinator {
 
                 return latestAssistantText ?? "Completed without a textual final response."
             }
+        }
+    }
+
+    private func promptSource(forTeamMessageType messageType: String) -> ConversationSession.PromptInput.Source {
+        switch messageType {
+        case "broadcast_message":
+            return .teamBroadcast
+        case "message":
+            return .teamMessage
+        case "teammate_idle", "shutdown_request":
+            return .systemEvent
+        default:
+            return .teamTask
         }
     }
 

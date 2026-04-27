@@ -313,7 +313,13 @@
 "chat.menu.deleteAlert.title" = "Delete Current Agent?";
 "chat.menu.deleteAlert.message" = "Are you sure you want to delete %@? This action cannot be undone.";
 "chat.menu.noAgentsAvailable" = "No agents available";
+"chat.menu.globalTeam" = "Global Team";
 "chat.menu.newLocalAgent" = "New Agent";
+"chat.team.mention.everyone" = "all";
+"chat.team.broadcast.emptyMessage" = "Please add a message after %@.";
+"chat.team.broadcast.noAgents" = "No agents available to receive %@.";
+"chat.team.broadcast.sentToAll" = "Broadcast sent to %lld agents.";
+"chat.team.broadcast.promptMentionAgent" = "Broadcast received. Please @ an agent to talk to them, or use %@.";
 "chat.menu.manageTeams" = "Manage Teams";
 "chat.menu.team.manage" = "Manage %@";
 "chat.menu.team.title" = "Team";

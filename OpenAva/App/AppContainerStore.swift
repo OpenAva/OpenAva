@@ -2,6 +2,12 @@ import Combine
 import Foundation
 import Observation
 
+enum ActiveSessionContext: Equatable {
+    case globalTeam
+    case team(UUID)
+    case agent(UUID)
+}
+
 @MainActor
 @Observable
 final class AppContainerStore {
@@ -11,12 +17,16 @@ final class AppContainerStore {
     private(set) var preferredLanguageCode: String?
     private(set) var resolvedLanguageCode: String
     private(set) var usageSnapshot: UsageSnapshot = .init()
+    var activeSessionContext: ActiveSessionContext = .globalTeam
     private let fileManager: FileManager
     private let agentWorkspaceRootURL: URL?
     private var usageCancellable: AnyCancellable?
 
     var activeAgent: AgentProfile? {
-        agentState.activeAgent
+        if case let .agent(id) = activeSessionContext {
+            return agentState.agents.first(where: { $0.id == id })
+        }
+        return nil
     }
 
     var agents: [AgentProfile] {
@@ -291,12 +301,19 @@ final class AppContainerStore {
     }
 
     @discardableResult
-    func setActiveAgent(_ agentID: UUID) -> Bool {
-        let changed = AgentStore.setActiveAgent(agentID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
-        if changed {
-            rebuildContainer(with: container.config)
+    func setActiveSessionContext(_ context: ActiveSessionContext) -> Bool {
+        guard activeSessionContext != context else { return false }
+        activeSessionContext = context
+        if case let .agent(id) = context {
+            _ = AgentStore.setActiveAgent(id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         }
-        return changed
+        rebuildContainer(with: container.config)
+        return true
+    }
+
+    @discardableResult
+    func setActiveAgent(_ agentID: UUID) -> Bool {
+        return setActiveSessionContext(.agent(agentID))
     }
 
     @discardableResult
@@ -361,9 +378,9 @@ final class AppContainerStore {
 
     private func rebuildContainer(with baseConfig: AppConfig) {
         agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
-        let resolvedConfig = Self.applyAgent(to: baseConfig, state: agentState)
+        let resolvedConfig = Self.applyAgent(to: baseConfig, activeAgent: activeAgent)
         container = AppContainer.make(config: resolvedConfig)
-        SkillLauncherCatalogPublisher.publish(activeAgent: agentState.activeAgent)
+        SkillLauncherCatalogPublisher.publish(activeAgent: activeAgent)
     }
 
     private func reloadTeamState() {
@@ -377,7 +394,7 @@ final class AppContainerStore {
         rebuildContainer(with: container.config)
     }
 
-    private static func applyAgent(to baseConfig: AppConfig, state: AgentStateSnapshot) -> AppConfig {
+    private static func applyAgent(to baseConfig: AppConfig, activeAgent: AgentProfile?) -> AppConfig {
         var config = baseConfig
 
         // Keep selected model id valid even before an active agent is resolved.
@@ -386,7 +403,7 @@ final class AppContainerStore {
             preferredID: config.agent.selectedLLMModelID
         )
 
-        guard let activeAgent = state.activeAgent else {
+        guard let activeAgent = activeAgent else {
             return config
         }
 

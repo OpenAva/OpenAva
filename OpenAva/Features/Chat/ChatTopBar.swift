@@ -32,8 +32,10 @@ enum ChatTopBar {
         }
     }
 
-    struct AgentMenuEntry: Identifiable, Equatable {
+    struct SessionMenuEntry: Identifiable, Equatable {
         enum Kind: Equatable {
+            case globalTeam
+            case team(UUID)
             case agent(UUID)
             case createLocalAgent
             case empty
@@ -84,51 +86,65 @@ enum ChatTopBar {
         Title(agentName: agentName, agentEmoji: agentEmoji, modelName: modelName)
     }
 
-    static func agentMenuEntries(agents: [AgentProfile], activeAgentID: UUID?) -> [AgentMenuEntry] {
-        let items = agents.map { agent in
+    static func sessionMenuEntries(teams: [TeamProfile], agents: [AgentProfile], activeContext: ActiveSessionContext) -> [SessionMenuEntry] {
+        var items: [SessionMenuEntry] = []
+
+        items.append(SessionMenuEntry(
+            id: "session-globalTeam",
+            kind: .globalTeam,
+            title: L10n.tr("chat.menu.globalTeam"),
+            emoji: "👥",
+            isSelected: activeContext == .globalTeam,
+            isEnabled: true
+        ))
+
+        for team in teams {
+            let title = team.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let emoji = team.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+            items.append(SessionMenuEntry(
+                id: "team-\(team.id.uuidString)",
+                kind: .team(team.id),
+                title: title.isEmpty ? L10n.tr("chat.activeTeam.fallbackName") : title,
+                emoji: emoji,
+                isSelected: activeContext == .team(team.id),
+                isEnabled: true
+            ))
+        }
+
+        for agent in agents {
             let title = agent.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let emoji = agent.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
-            return AgentMenuEntry(
+            items.append(SessionMenuEntry(
                 id: "agent-\(agent.id.uuidString)",
                 kind: .agent(agent.id),
                 title: title.isEmpty ? L10n.tr("chat.activeAgent.fallbackName") : title,
                 emoji: emoji,
-                isSelected: agent.id == activeAgentID,
+                isSelected: activeContext == .agent(agent.id),
                 isEnabled: true
-            )
+            ))
         }
 
-        if items.isEmpty {
-            return [
-                AgentMenuEntry(
-                    id: "agent-empty",
-                    kind: .empty,
-                    title: L10n.tr("chat.menu.noAgentsAvailable"),
-                    emoji: "",
-                    isSelected: false,
-                    isEnabled: false
-                ),
-                AgentMenuEntry(
-                    id: "agent-create-local",
-                    kind: .createLocalAgent,
-                    title: L10n.tr("chat.menu.newLocalAgent"),
-                    emoji: "",
-                    isSelected: false,
-                    isEnabled: true
-                ),
-            ]
-        }
-
-        return items + [
-            AgentMenuEntry(
-                id: "agent-create-local",
-                kind: .createLocalAgent,
-                title: L10n.tr("chat.menu.newLocalAgent"),
+        if agents.isEmpty {
+            items.append(SessionMenuEntry(
+                id: "agent-empty",
+                kind: .empty,
+                title: L10n.tr("chat.menu.noAgentsAvailable"),
                 emoji: "",
                 isSelected: false,
-                isEnabled: true
-            ),
-        ]
+                isEnabled: false
+            ))
+        }
+
+        items.append(SessionMenuEntry(
+            id: "agent-create-local",
+            kind: .createLocalAgent,
+            title: L10n.tr("chat.menu.newLocalAgent"),
+            emoji: "",
+            isSelected: false,
+            isEnabled: true
+        ))
+
+        return items
     }
 
     static func configurationSections(

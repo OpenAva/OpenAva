@@ -313,7 +313,13 @@
 "chat.menu.deleteAlert.title" = "删除当前 Agent？";
 "chat.menu.deleteAlert.message" = "确认删除 %@ 吗？此操作不可撤销。";
 "chat.menu.noAgentsAvailable" = "暂无可用 Agent";
+"chat.menu.globalTeam" = "全局团队";
 "chat.menu.newLocalAgent" = "新建 Agent";
+"chat.team.mention.everyone" = "all";
+"chat.team.broadcast.emptyMessage" = "请在 %@ 后输入消息。";
+"chat.team.broadcast.noAgents" = "当前没有 Agent 可接收 %@ 消息。";
+"chat.team.broadcast.sentToAll" = "已向 %lld 个 Agent 广播消息。";
+"chat.team.broadcast.promptMentionAgent" = "已收到广播。请 @ 某个 Agent 与其对话，或使用 %@。";
 "chat.menu.manageTeams" = "管理团队";
 "chat.menu.team.manage" = "管理 %@";
 "chat.menu.team.title" = "团队";
