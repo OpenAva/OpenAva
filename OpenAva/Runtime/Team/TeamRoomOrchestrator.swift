@@ -203,13 +203,13 @@ final class TeamRoomOrchestrator {
         context: SubmissionContext,
         turnID: String
     ) async throws {
-        let participants = Self.resolveParticipants(
+        let allParticipants = Self.resolveParticipants(
             activeContext: context.activeContext,
             teams: context.teams,
             agents: context.agents
         )
 
-        guard !participants.isEmpty else {
+        guard !allParticipants.isEmpty else {
             Self.appendSystemEvent(
                 "No agents are assigned to this Team Room yet.",
                 to: roomSession,
@@ -217,6 +217,13 @@ final class TeamRoomOrchestrator {
             )
             return
         }
+
+        let participants = await resolveAddressedParticipants(
+            all: allParticipants,
+            roomSession: roomSession,
+            context: context,
+            turnID: turnID
+        )
 
         var didAppendReply = false
         for agent in participants {
@@ -240,6 +247,33 @@ final class TeamRoomOrchestrator {
                 context: context
             )
         }
+    }
+
+    func resolveAddressedParticipants(
+        all: [AgentProfile],
+        roomSession: ConversationSession,
+        context: SubmissionContext,
+        turnID: String
+    ) async -> [AgentProfile] {
+        guard all.count > 1, let modelConfig = context.fallbackModelConfig else {
+            return all
+        }
+        let userText = roomSession.messages
+            .last { $0.metadata["teamRoomTurnID"] == turnID && $0.role == .user }?
+            .textContent
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !userText.isEmpty else { return all }
+
+        let addressed = await TeamMentionResolver.resolveAddressedAgents(
+            userMessage: userText,
+            agentNames: all.map(\.name),
+            using: modelConfig
+        )
+        guard !addressed.isEmpty else { return all }
+
+        let lowercased = Set(addressed.map { $0.lowercased() })
+        let filtered = all.filter { lowercased.contains($0.name.lowercased()) }
+        return filtered.isEmpty ? all : filtered
     }
 
     private func runAgentTurn(
@@ -457,10 +491,14 @@ final class TeamRoomOrchestrator {
             "Team Room"
         }
 
+        let participationNote = participantCount == 1
+            ? "The user is addressing you directly."
+            : "The user is asking the room, and \(participantCount) agent(s) may answer independently."
+
         let roomInstruction = """
         You are \(agent.name), replying directly in \(roomName).
         The visible conversation transcript is the single source of truth for this Team Room.
-        The user is asking the room, and \(participantCount) agent(s) may answer independently.
+        \(participationNote)
         Do not speak as a coordinator and do not summarize other agents unless the user explicitly asks you to.
         Provide your own useful contribution as \(agent.name).
         """
