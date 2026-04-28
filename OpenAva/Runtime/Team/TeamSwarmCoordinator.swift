@@ -734,8 +734,8 @@ final class TeamSwarmCoordinator {
         let state = loadAgentState()
         guard let activeAgent = state.activeAgent,
               let modelConfig = LLMConfigStore
-                  .loadCollection()
-                  .selectedModel(preferredID: activeAgent.selectedModelID),
+              .loadCollection()
+              .selectedModel(preferredID: activeAgent.selectedModelID),
               modelConfig.isConfigured
         else {
             return nil

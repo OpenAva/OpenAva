@@ -119,7 +119,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
     }
 
-    func testChatSessionMenuIncludesCustomTeamAndSelection() throws {
+    func testChatSessionMenuIncludesCustomTeamAndSelection() {
         let teamID = UUID()
         let team = TeamProfile(
             id: teamID,
@@ -142,7 +142,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertFalse(entries[0].isSelected)
     }
 
-    func testTeamChatConfigurationMenuHidesAgentManagementActions() throws {
+    func testTeamChatConfigurationMenuHidesAgentManagementActions() {
         let teamSections = ChatTopBar.configurationSections(
             autoCompactEnabled: true,
             isBackgroundEnabled: false,
