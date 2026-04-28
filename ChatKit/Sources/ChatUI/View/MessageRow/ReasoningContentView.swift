@@ -21,11 +21,11 @@ final class ReasoningContentView: MessageListRowView {
         return style
     }()
 
-    static let revealedTileHeight: CGFloat = 44
-    static let unrevealedTileHeight: CGFloat = 70
-    static let spacing: CGFloat = 12
-    private static let tileContentLeading: CGFloat = 14
-    private static let indicatorWidth: CGFloat = 2
+    static let revealedTileHeight: CGFloat = 28
+    static let unrevealedTileHeight: CGFloat = 28
+    static let spacing: CGFloat = 8
+    private static let tileContentLeading: CGFloat = 8
+    private static let indicatorWidth: CGFloat = 1
 
     var thinkingDuration: TimeInterval = 0 {
         didSet {
@@ -64,10 +64,6 @@ final class ReasoningContentView: MessageListRowView {
             } else {
                 textView.attributedText = .init()
             }
-            let singleLineContent = text?.replacingOccurrences(of: "\n", with: " ")
-            thinkingTile.thinkingContent = singleLineContent?.suffix(50)
-                .map { String($0) }
-                .joined()
             setNeedsLayout()
         }
     }
@@ -86,9 +82,9 @@ final class ReasoningContentView: MessageListRowView {
         thinkingTile.addGestureRecognizer(tapGesture)
         contentView.addSubview(thinkingTile)
 
-        indicator.layer.cornerRadius = 1
-        indicator.backgroundColor = .secondaryLabel
-        indicator.alpha = 0.6
+        indicator.layer.cornerRadius = 0.5
+        indicator.backgroundColor = .tertiaryLabel
+        indicator.alpha = 1.0
         contentView.addSubview(indicator)
 
         textView.backgroundColor = .clear
@@ -103,7 +99,6 @@ final class ReasoningContentView: MessageListRowView {
     override func themeDidUpdate() {
         super.themeDidUpdate()
         thinkingTile.titleLabel.font = theme.fonts.body
-        thinkingTile.thinkingContentFont = theme.fonts.footnote
     }
 
     override func layoutSubviews() {
@@ -116,9 +111,9 @@ final class ReasoningContentView: MessageListRowView {
             height: isRevealed ? Self.revealedTileHeight : Self.unrevealedTileHeight
         )
 
-        let contentLeading = thinkingTile.frame.minX + Self.tileContentLeading
-        let indicatorLeading = thinkingTile.frame.minX
-        let indicatorY = thinkingTile.frame.maxY + 12
+        let contentLeading = thinkingTile.frame.minX + Self.tileContentLeading + 14
+        let indicatorLeading = thinkingTile.frame.minX + 6.5
+        let indicatorY = thinkingTile.frame.maxY + Self.spacing
         if isRevealed {
             indicator.isHidden = false
             indicator.frame = .init(
@@ -178,55 +173,35 @@ extension ReasoningContentView {
             }
         }
 
-        var thinkingContentFont: UIFont = .systemFont(ofSize: 12) {
-            didSet {
-                let content = thinkingContent
-                thinkingContent = content // do update
-            }
-        }
-
-        var thinkingContent: String? {
-            didSet {
-                if let content = thinkingContent {
-                    textView.attributedText = .init(string: content, attributes: [
-                        .font: thinkingContentFont,
-                        .foregroundColor: UIColor.secondaryLabel,
-                    ])
-                } else {
-                    textView.attributedText = .init()
-                }
-                if textView.bounds.width > 0 {
-                    doWithAnimation { self.layoutTextView() }
-                } else {
-                    layoutTextView()
-                }
-            }
-        }
-
         lazy var titleLabel: GlyphixTextLabel = .init().with {
             $0.isBlurEffectEnabled = false
         }
 
+        private lazy var symbolView: UIImageView = .init(image: UIImage(systemName: "sparkles")).with {
+            $0.contentMode = .scaleAspectFit
+            $0.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+                pointSize: 14,
+                weight: .medium
+            )
+            $0.tintColor = .label
+        }
+
         private lazy var loadingSymbol: LoadingSymbol = .init()
-        private lazy var textView: LTXLabel = .init()
-        private lazy var textContainerView: UIView = .init()
         private lazy var arrowView: UIImageView = .init(image: UIImage(systemName: "chevron.right")).with {
             $0.contentMode = .scaleAspectFit
             $0.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
                 pointSize: Self.arrowSymbolPointSize,
-                weight: .semibold
+                weight: .medium
             )
         }
 
         override init(frame: CGRect) {
             super.init(frame: frame)
-            clipsToBounds = true
 
-            backgroundColor = .secondarySystemFill.withAlphaComponent(0.08)
-            layer.cornerRadius = ChatUIDesign.Radius.card
-            layer.cornerCurve = .continuous
+            addSubview(symbolView)
 
             titleLabel.textAlignment = .leading
+            titleLabel.textColor = .label
             addSubview(titleLabel)
 
             loadingSymbol.dotRadius = 1
@@ -235,22 +210,7 @@ extension ReasoningContentView {
             loadingSymbol.animationInterval = 0.24
             addSubview(loadingSymbol)
 
-            textView.backgroundColor = .clear
-            addSubview(textView)
-            addSubview(textContainerView)
-            textContainerView.addSubview(textView)
-
-            // Create gradient mask using CAGradientLayer
-            let gradientMask = CAGradientLayer()
-            gradientMask.colors = [
-                UIColor.black.cgColor,
-                UIColor.black.withAlphaComponent(0).cgColor,
-            ]
-            gradientMask.startPoint = CGPoint(x: 0.8, y: 0.5)
-            gradientMask.endPoint = CGPoint(x: 1.0, y: 0.5)
-            textContainerView.layer.mask = gradientMask
-
-            arrowView.tintColor = .secondaryLabel
+            arrowView.tintColor = .tertiaryLabel
             addSubview(arrowView)
 
             updateThinkingDurationText()
@@ -264,35 +224,45 @@ extension ReasoningContentView {
         override func layoutSubviews() {
             super.layoutSubviews()
 
+            let symbolSize: CGFloat = 14
+            symbolView.frame = .init(
+                x: 0,
+                y: (bounds.height - symbolSize) / 2,
+                width: symbolSize,
+                height: symbolSize
+            )
+
             let titleSize = titleLabel.intrinsicContentSize
             titleLabel.frame = .init(
-                x: 14,
-                y: isRevealed ? (bounds.height - ceil(titleSize.height)) / 2 : 12,
+                x: symbolView.frame.maxX + 6,
+                y: (bounds.height - ceil(titleSize.height)) / 2,
                 width: ceil(titleSize.width),
                 height: ceil(titleSize.height)
             )
             loadingSymbol.frame = .init(
-                x: titleLabel.frame.maxX + 3,
+                x: titleLabel.frame.maxX + 4,
                 y: titleLabel.frame.midY - 4.5,
                 width: loadingSymbol.intrinsicContentSize.width,
                 height: 9
             )
 
             let arrowSize = CGSize(width: Self.arrowFrameSize, height: Self.arrowFrameSize)
+            let arrowAnchorX: CGFloat = {
+                if isThinking {
+                    return loadingSymbol.frame.maxX + 6
+                }
+                return titleLabel.frame.maxX + 4
+            }()
             arrowView.frame = .init(
-                x: bounds.width - arrowSize.width - 12,
+                x: arrowAnchorX,
                 y: (bounds.height - arrowSize.height) / 2,
                 width: arrowSize.width,
                 height: arrowSize.height
             )
 
-            layoutTextView()
-
             if isRevealed {
-                textView.alpha = 0
                 arrowView.transform = .init(rotationAngle: .pi / 2)
             } else {
-                textView.alpha = 1
                 arrowView.transform = .identity
             }
         }
@@ -304,31 +274,12 @@ extension ReasoningContentView {
 
         override var intrinsicContentSize: CGSize {
             let titleSize = titleLabel.intrinsicContentSize
+            let symbolWidth: CGFloat = 14 + 6
+            let loadingWidth = isThinking ? (loadingSymbol.intrinsicContentSize.width + 4) : 0
+            let arrowWidth = Self.arrowFrameSize + (isThinking ? 6 : 4)
             return .init(
-                width: titleSize.width + (isRevealed ? 80 : 180),
-                height: titleSize.height
-            )
-        }
-
-        private func layoutTextView() {
-            textView.preferredMaxLayoutWidth = .infinity
-            let textSize = textView.intrinsicContentSize
-            let textWidth = ceil(textSize.width)
-            let textHeight = ceil(textSize.height)
-            let leftPadding = ReasoningContentView.tileContentLeading
-            let rightPadding: CGFloat = 26
-            textContainerView.frame = .init(
-                x: leftPadding,
-                y: ReasoningContentView.unrevealedTileHeight - textHeight - 12,
-                width: max(0, bounds.width - leftPadding - rightPadding),
-                height: textHeight
-            )
-            textContainerView.layer.mask?.frame = textContainerView.bounds
-            textView.frame = .init(
-                x: 0,
-                y: 0,
-                width: textWidth,
-                height: textHeight
+                width: symbolWidth + ceil(titleSize.width) + loadingWidth + arrowWidth,
+                height: max(ceil(titleSize.height), ReasoningContentView.unrevealedTileHeight)
             )
         }
     }

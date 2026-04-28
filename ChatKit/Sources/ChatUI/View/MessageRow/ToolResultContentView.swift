@@ -22,15 +22,15 @@ final class ToolResultContentView: MessageListRowView {
 
     private var sectionViews: [SectionView] = []
 
-    private static let contentLeading: CGFloat = 14
-    private static let indicatorWidth: CGFloat = 2
+    private static let contentLeading: CGFloat = 22
+    private static let indicatorWidth: CGFloat = 1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        indicator.layer.cornerRadius = 1
-        indicator.backgroundColor = .secondaryLabel
-        indicator.alpha = 0.6
+        indicator.layer.cornerRadius = 0.5
+        indicator.backgroundColor = .tertiaryLabel
+        indicator.alpha = 1.0
         contentView.addSubview(indicator)
 
         contentView.addSubview(scrollView)
@@ -75,7 +75,7 @@ final class ToolResultContentView: MessageListRowView {
         super.layoutSubviews()
 
         indicator.frame = .init(
-            x: 0,
+            x: 6.5,
             y: 0,
             width: Self.indicatorWidth,
             height: contentView.bounds.height

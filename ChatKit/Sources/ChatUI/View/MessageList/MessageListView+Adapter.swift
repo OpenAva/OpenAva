@@ -235,7 +235,7 @@ extension MessageListView: ListViewAdapter {
             case .interruptionRetry:
                 return RetryActionView.rowHeight
             case .toolCallHint:
-                return theme.fonts.body.lineHeight + 20
+                return theme.fonts.body.lineHeight + 8
             }
         }()
 

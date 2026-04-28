@@ -6,9 +6,9 @@
 import UIKit
 
 final class ToolHintView: MessageListRowView {
-    // Keep tool hint chevron consistent with reasoning tile chevron.
+    // Inline, lightweight style to match reasoning tile.
     private static let chevronSymbolPointSize: CGFloat = 13
-    private static let chevronSymbolWeight: UIImage.SymbolWeight = .semibold
+    private static let chevronSymbolWeight: UIImage.SymbolWeight = .medium
 
     var text: String?
 
@@ -36,7 +36,6 @@ final class ToolHintView: MessageListRowView {
 
     var clickHandler: (() -> Void)?
 
-    private let backgroundGradientLayer = CAGradientLayer()
     private let label: ShimmerTextLabel = .init().with {
         $0.font = UIFont.preferredFont(forTextStyle: .body)
         $0.textColor = .label
@@ -55,28 +54,18 @@ final class ToolHintView: MessageListRowView {
 
     private let chevronView: UIImageView = .init().with {
         $0.contentMode = .scaleAspectFit
-        $0.tintColor = .secondaryLabel
+        $0.tintColor = .tertiaryLabel
         $0.isHidden = true
     }
 
-    private let decoratedView: UIImageView = .init(image: .init(named: "tools"))
     private var isClickable: Bool = false
     private let chevronSize: CGFloat = 14
+    private let symbolSize: CGFloat = 14
 
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        decoratedView.contentMode = .scaleAspectFit
-        decoratedView.tintColor = .label
-
-        backgroundGradientLayer.startPoint = .init(x: 0.6, y: 0)
-        backgroundGradientLayer.endPoint = .init(x: 0.4, y: 1)
-
         contentView.backgroundColor = .clear
-        contentView.layer.cornerRadius = ChatUIDesign.Radius.card
-        contentView.layer.cornerCurve = .continuous
-        contentView.layer.insertSublayer(backgroundGradientLayer, at: 0)
-        contentView.addSubview(decoratedView)
         contentView.addSubview(symbolView)
         contentView.addSubview(label)
         contentView.addSubview(chevronView)
@@ -93,65 +82,53 @@ final class ToolHintView: MessageListRowView {
         let labelSize = label.intrinsicContentSize
 
         symbolView.frame = .init(
-            x: 12,
-            y: (contentView.bounds.height - labelSize.height) / 2,
-            width: labelSize.height, // 1:1
-            height: labelSize.height
+            x: 0,
+            y: (contentView.bounds.height - symbolSize) / 2,
+            width: symbolSize,
+            height: symbolSize
         )
 
         label.frame = .init(
-            x: symbolView.frame.maxX + 8,
+            x: symbolView.frame.maxX + 6,
             y: (contentView.bounds.height - labelSize.height) / 2,
             width: labelSize.width,
             height: labelSize.height
         )
 
         chevronView.frame = .init(
-            x: label.frame.maxX + 8,
+            x: label.frame.maxX + 6,
             y: (contentView.bounds.height - chevronSize) / 2,
             width: chevronSize,
             height: chevronSize
         )
 
         let contentWidth = chevronView.isHidden ? label.frame.maxX : chevronView.frame.maxX
-        contentView.frame.size.width = contentWidth + 18
-        decoratedView.frame = .init(x: contentView.bounds.width - 12, y: -4, width: 16, height: 16)
-        backgroundGradientLayer.frame = contentView.bounds
-        backgroundGradientLayer.cornerRadius = contentView.layer.cornerRadius
+        contentView.frame.size.width = contentWidth
     }
 
     override func themeDidUpdate() {
         super.themeDidUpdate()
         label.font = theme.fonts.body
-        chevronView.tintColor = .secondaryLabel
+        chevronView.tintColor = .tertiaryLabel
     }
 
     private func updateStateImage() {
-        let configuration = UIImage.SymbolConfiguration(scale: .small)
+        let configuration = UIImage.SymbolConfiguration(
+            pointSize: symbolSize,
+            weight: .medium
+        )
         switch state {
         case .succeeded:
-            backgroundGradientLayer.colors = [
-                UIColor.systemGreen.withAlphaComponent(0.08).cgColor,
-                UIColor.systemGreen.withAlphaComponent(0.12).cgColor,
-            ]
             let image = UIImage(systemName: "checkmark.circle", withConfiguration: configuration)
             symbolView.image = image
             symbolView.tintColor = .systemGreen
             label.stopShimmer()
         case .running:
-            backgroundGradientLayer.colors = [
-                UIColor.systemBlue.withAlphaComponent(0.08).cgColor,
-                UIColor.systemBlue.withAlphaComponent(0.12).cgColor,
-            ]
             let image = UIImage(systemName: "hourglass", withConfiguration: configuration)
             symbolView.image = image
             symbolView.tintColor = .systemBlue
             label.startShimmer()
         case .failed:
-            backgroundGradientLayer.colors = [
-                UIColor.systemRed.withAlphaComponent(0.08).cgColor,
-                UIColor.systemRed.withAlphaComponent(0.12).cgColor,
-            ]
             let image = UIImage(systemName: "xmark.circle", withConfiguration: configuration)
             symbolView.image = image
             symbolView.tintColor = .systemRed
