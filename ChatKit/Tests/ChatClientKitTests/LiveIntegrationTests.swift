@@ -24,7 +24,7 @@ import Testing
 @Suite(.tags(.live))
 struct DeepSeekLiveTests {
     let client = DeepSeekClient(
-        model: "deepseek-reasoner",
+        model: "deepseek-v4-flash",
         apiKey: TestAPIKeys.deepseek
     )
 
@@ -1025,13 +1025,12 @@ private let weatherTool = ChatRequestBody.Tool.function(
 ///      https://api-docs.deepseek.com/guides/tool_calls
 @Suite(.tags(.live))
 struct DeepSeekToolCallLiveTests {
-    // Use deepseek-chat (V3.2 non-thinking) for tool calls.
-    // deepseek-reasoner supports tool calls since V3.2 but requires strict
-    // reasoning_content echo-back; deepseek-chat is the recommended model for
-    // standard tool-call workflows.
+    // Use deepseek-v4-flash for tool calls.
+    // deepseek-v4-flash supports both thinking and non-thinking modes and
+    // is the recommended model for standard tool-call workflows.
     // Ref: https://api-docs.deepseek.com/guides/tool_calls
     let client = DeepSeekClient(
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
         apiKey: TestAPIKeys.deepseek
     )
 

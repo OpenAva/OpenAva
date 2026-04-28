@@ -5,22 +5,39 @@ enum ChatTopBar {
     static let trailingMenuSystemImage = "ellipsis"
 
     struct Title: Equatable {
-        let agentName: String
-        let agentEmoji: String
+        enum IdentityKind: Equatable {
+            case teamRoom
+            case agent
+        }
+
+        let displayName: String
+        let displayEmoji: String
         let modelName: String
+        let identityKind: IdentityKind
+
+        init(displayName: String, displayEmoji: String?, modelName: String, identityKind: IdentityKind) {
+            self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.displayEmoji = (displayEmoji ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            self.modelName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.identityKind = identityKind
+        }
 
         init(agentName: String, agentEmoji: String?, modelName: String) {
-            self.agentName = agentName.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.agentEmoji = (agentEmoji ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            self.modelName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.init(displayName: agentName, displayEmoji: agentEmoji, modelName: modelName, identityKind: .agent)
         }
 
-        var resolvedAgentName: String {
-            agentName.isEmpty ? L10n.tr("chat.activeAgent.fallbackName") : agentName
+        var resolvedDisplayName: String {
+            if !displayName.isEmpty { return displayName }
+            switch identityKind {
+            case .teamRoom:
+                return L10n.tr("chat.activeTeam.fallbackName")
+            case .agent:
+                return L10n.tr("chat.activeAgent.fallbackName")
+            }
         }
 
-        var principalAgentText: String {
-            agentEmoji.isEmpty ? resolvedAgentName : "\(agentEmoji) \(resolvedAgentName)"
+        var principalDisplayText: String {
+            displayEmoji.isEmpty ? resolvedDisplayName : "\(displayEmoji) \(resolvedDisplayName)"
         }
 
         var resolvedModelName: String {
@@ -28,7 +45,7 @@ enum ChatTopBar {
         }
 
         var principalTitleText: String {
-            principalAgentText
+            principalDisplayText
         }
     }
 
@@ -84,6 +101,25 @@ enum ChatTopBar {
 
     static func title(agentName: String, agentEmoji: String?, modelName: String) -> Title {
         Title(agentName: agentName, agentEmoji: agentEmoji, modelName: modelName)
+    }
+
+    static func title(displayName: String, displayEmoji: String?, modelName: String, identityKind: Title.IdentityKind) -> Title {
+        Title(displayName: displayName, displayEmoji: displayEmoji, modelName: modelName, identityKind: identityKind)
+    }
+
+    static func title(displayName: String, displayEmoji: String?, modelName: String, activeContext: ActiveSessionContext) -> Title {
+        let identityKind: Title.IdentityKind = switch activeContext {
+        case .globalTeam, .team:
+            .teamRoom
+        case .agent:
+            .agent
+        }
+        return title(
+            displayName: displayName,
+            displayEmoji: displayEmoji,
+            modelName: modelName,
+            identityKind: identityKind
+        )
     }
 
     static func sessionMenuEntries(teams: [TeamProfile], agents: [AgentProfile], activeContext: ActiveSessionContext) -> [SessionMenuEntry] {
@@ -150,7 +186,8 @@ enum ChatTopBar {
     static func configurationSections(
         autoCompactEnabled: Bool,
         isBackgroundEnabled: Bool,
-        includeBackgroundExecution: Bool
+        includeBackgroundExecution: Bool,
+        includeAgentManagement: Bool = true
     ) -> [ConfigurationSection] {
         let configurationSection = ConfigurationSection(
             id: "configuration",
@@ -191,14 +228,18 @@ enum ChatTopBar {
                 )
             )
         }
+        if includeAgentManagement {
+            managementItems.append(
+                ConfigurationItem(
+                    id: "auto-compact",
+                    kind: .autoCompact(enabled: autoCompactEnabled),
+                    title: L10n.tr("chat.menu.autoCompact"),
+                    systemImage: "rectangle.compress.vertical",
+                    isDestructive: false
+                )
+            )
+        }
         managementItems.append(contentsOf: [
-            ConfigurationItem(
-                id: "auto-compact",
-                kind: .autoCompact(enabled: autoCompactEnabled),
-                title: L10n.tr("chat.menu.autoCompact"),
-                systemImage: "rectangle.compress.vertical",
-                isDestructive: false
-            ),
             ConfigurationItem(
                 id: "open-cron",
                 kind: .destination(.cron),
@@ -213,21 +254,25 @@ enum ChatTopBar {
                 systemImage: "dot.radiowaves.left.and.right",
                 isDestructive: false
             ),
-            ConfigurationItem(
-                id: "rename-agent",
-                kind: .renameAgent,
-                title: L10n.tr("chat.menu.renameAgent"),
-                systemImage: "pencil",
-                isDestructive: false
-            ),
-            ConfigurationItem(
-                id: "delete-agent",
-                kind: .deleteAgent,
-                title: L10n.tr("chat.menu.deleteAgent"),
-                systemImage: "trash",
-                isDestructive: true
-            ),
         ])
+        if includeAgentManagement {
+            managementItems.append(contentsOf: [
+                ConfigurationItem(
+                    id: "rename-agent",
+                    kind: .renameAgent,
+                    title: L10n.tr("chat.menu.renameAgent"),
+                    systemImage: "pencil",
+                    isDestructive: false
+                ),
+                ConfigurationItem(
+                    id: "delete-agent",
+                    kind: .deleteAgent,
+                    title: L10n.tr("chat.menu.deleteAgent"),
+                    systemImage: "trash",
+                    isDestructive: true
+                ),
+            ])
+        }
 
         return [
             configurationSection,

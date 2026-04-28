@@ -14,12 +14,14 @@ final class ShimmerTextLabel: UILabel {
 
     override var text: String? {
         didSet {
+            invalidateIntrinsicContentSize()
             updateMaskString()
         }
     }
 
     override var attributedText: NSAttributedString? {
         didSet {
+            invalidateIntrinsicContentSize()
             updateMaskString()
         }
     }
@@ -37,19 +39,24 @@ final class ShimmerTextLabel: UILabel {
         super.layoutSubviews()
         guard isShimmering else { return }
         gradientLayer.frame = bounds
-        gradientLayer.mask?.frame = bounds
+        if let mask = gradientLayer.mask as? CATextLayer {
+            mask.frame = bounds
+            mask.contentsScale = UIScreen.main.scale
+        }
     }
 
     func startShimmer() {
         guard !isShimmering else { return }
         isShimmering = true
         originalTextColor = textColor
-        textColor = .clear
+        // Keep the label text visible as a baseline; the gradient sublayer
+        // adds the shimmer highlight on top instead of replacing the text.
+        textColor = UIColor.label.withAlphaComponent(0.6)
 
         gradientLayer.colors = [
-            UIColor.label.withAlphaComponent(0.35).cgColor,
-            UIColor.label.cgColor,
-            UIColor.label.withAlphaComponent(0.35).cgColor,
+            UIColor.clear.cgColor,
+            UIColor.label.withAlphaComponent(0.6).cgColor,
+            UIColor.clear.cgColor,
         ]
         gradientLayer.locations = [0, 0.5, 1]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)

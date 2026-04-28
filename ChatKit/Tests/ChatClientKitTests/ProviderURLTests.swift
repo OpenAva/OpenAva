@@ -10,10 +10,10 @@ import Testing
 struct ProviderURLTests {
     @Test("DeepSeekClient constructs correct URL")
     func deepseekURL() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "sk-test")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "sk-test")
         #expect(client.baseURL == "https://api.deepseek.com")
         #expect(client.path == "/chat/completions")
-        #expect(client.model == "deepseek-reasoner")
+        #expect(client.model == "deepseek-v4-flash")
         #expect(client.apiKey == "sk-test")
     }
 
@@ -66,10 +66,10 @@ struct ProviderURLTests {
         #expect(request.httpMethod == "POST")
     }
 
-    @Test("DeepSeekClient default model is deepseek-reasoner")
+    @Test("DeepSeekClient default model is deepseek-v4-flash")
     func deepseekDefaultModel() {
         let client = DeepSeekClient()
-        #expect(client.model == "deepseek-reasoner")
+        #expect(client.model == "deepseek-v4-flash")
     }
 
     @Test("MoonshotClient default model is kimi-k2.5")

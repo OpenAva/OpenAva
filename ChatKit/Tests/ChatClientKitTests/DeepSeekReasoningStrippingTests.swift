@@ -2,7 +2,7 @@
 //  DeepSeekReasoningStrippingTests.swift
 //  ChatClientKitTests
 //
-//  Verifies DeepSeek V3.2 tool-call + reasoning rules:
+//  Verifies DeepSeek V4 tool-call + reasoning rules:
 //
 //  - Assistant messages WITH reasoning      → preserve reasoning internally
 //  - Outbound payload maps reasoning -> reasoning_content for DeepSeek API
@@ -21,7 +21,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek resolve preserves reasoning in plain assistant messages (no tool calls)")
     func preserveReasoningFromAssistantMessages() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let body = ChatRequestBody(
             messages: [
@@ -34,7 +34,7 @@ struct DeepSeekReasoningStrippingTests {
 
         let resolved = client.applyModelSettings(to: body, streaming: true)
 
-        #expect(resolved.model == "deepseek-reasoner")
+        #expect(resolved.model == "deepseek-v4-flash")
         #expect(resolved.stream == true)
 
         for message in resolved.messages {
@@ -57,7 +57,7 @@ struct DeepSeekReasoningStrippingTests {
     /// Ref: https://api-docs.deepseek.com/guides/reasoning_model (Tool Calls section)
     @Test("DeepSeek resolve preserves reasoning in assistant messages that have tool calls")
     func preserveReasoningWithToolCalls() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let toolCalls: [ChatRequestBody.Message.ToolCall] = [
             .init(id: "call_1", function: .init(name: "get_weather", arguments: "{\"city\":\"Tokyo\"}")),
@@ -94,7 +94,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek resolve preserves content and reasoning when tool calls present")
     func preserveContentAndReasoningWithToolCalls() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let toolCalls: [ChatRequestBody.Message.ToolCall] = [
             .init(id: "call_1", function: .init(name: "get_weather", arguments: "{\"city\":\"Tokyo\"}")),
@@ -126,7 +126,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek resolve preserves reasoning from plain assistant message (no tool calls)")
     func preserveReasoningNoToolCalls() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let body = ChatRequestBody(
             messages: [
@@ -147,7 +147,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek resolve handles mixed: both assistant messages keep reasoning")
     func mixedMessagesSelectiveReasoning() {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let toolCalls: [ChatRequestBody.Message.ToolCall] = [
             .init(id: "call_1", function: .init(name: "search", arguments: "{}")),
@@ -180,7 +180,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek encoded JSON preserves reasoning_content in tool-call assistant message")
     func encodedJSONPreservesReasoningWithToolCalls() throws {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let toolCalls: [ChatRequestBody.Message.ToolCall] = [
             .init(id: "call_abc", function: .init(name: "calc", arguments: "{}")),
@@ -206,7 +206,7 @@ struct DeepSeekReasoningStrippingTests {
 
     @Test("DeepSeek encoded JSON maps reasoning to reasoning_content without tool calls")
     func encodedJSONMapsReasoningWithoutToolCalls() throws {
-        let client = DeepSeekClient(model: "deepseek-reasoner", apiKey: "test-key")
+        let client = DeepSeekClient(model: "deepseek-v4-flash", apiKey: "test-key")
 
         let body = ChatRequestBody(
             messages: [

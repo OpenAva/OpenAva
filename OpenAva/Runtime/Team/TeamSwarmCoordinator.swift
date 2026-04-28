@@ -163,6 +163,7 @@ final class TeamSwarmCoordinator {
     private var teamRecord: TeamRecord?
     private var memberSignals: [String: AsyncStream<Void>.Continuation] = [:]
     private var memberTasks: [String: Task<Void, Never>] = [:]
+    private var coordinatorInboxDeliveryTask: Task<Void, Never>?
     private var loadedConfigurationSignature: String?
 
     private init() {}
@@ -265,6 +266,36 @@ final class TeamSwarmCoordinator {
         )
     }
 
+    private func pendingCoordinatorInboxMessages(limit: Int? = nil) -> [TeamMailboxMessage] {
+        guard let teamDirectoryURL = teamDirectoryURL() else {
+            return []
+        }
+        let messages = TeamMailbox.unreadMessages(
+            teamDirectoryURL: teamDirectoryURL,
+            recipientName: Self.coordinatorName
+        )
+        return limitedInboxMessages(messages, limit: limit)
+    }
+
+    private func markCoordinatorInboxMessagesRead(_ messages: [TeamMailboxMessage]) {
+        guard let teamDirectoryURL = teamDirectoryURL(), !messages.isEmpty else {
+            return
+        }
+        try? TeamMailbox.markRead(
+            teamDirectoryURL: teamDirectoryURL,
+            recipientName: Self.coordinatorName,
+            messageIDs: Set(messages.map(\.id))
+        )
+        notifyChanged()
+    }
+
+    private func limitedInboxMessages(_ messages: [TeamMailboxMessage], limit: Int?) -> [TeamMailboxMessage] {
+        guard let limit, limit > 0, messages.count > limit else {
+            return messages
+        }
+        return Array(messages.suffix(limit))
+    }
+
     @discardableResult
     func sendScheduledMessage(
         toAgentID agentID: String,
@@ -326,7 +357,7 @@ final class TeamSwarmCoordinator {
         }
 
         if let pendingExecutionInput {
-            let feedbackLine = normalized(feedback).map { "\n\nCoordinator feedback: \($0)" } ?? ""
+            let feedbackLine = normalized(feedback).map { "\n\nPlan approval feedback: \($0)" } ?? ""
             enqueuePendingTeamMessage(
                 recipientName: updatedMember.name,
                 fromName: Self.coordinatorName,
@@ -661,6 +692,146 @@ final class TeamSwarmCoordinator {
         }
     }
 
+    private struct CoordinatorDeliveryConfiguration {
+        let agent: AgentProfile
+        let modelConfig: AppConfig.LLMModel
+        let agentCount: Int
+        let invocationSessionID: String
+    }
+
+    private func scheduleCoordinatorInboxDelivery() {
+        guard coordinatorInboxDeliveryTask == nil else {
+            return
+        }
+
+        coordinatorInboxDeliveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await runCoordinatorInboxDeliveryLoop()
+            coordinatorInboxDeliveryTask = nil
+        }
+    }
+
+    private func runCoordinatorInboxDeliveryLoop() async {
+        while !Task.isCancelled {
+            let messages = pendingCoordinatorInboxMessages(limit: 10)
+            guard !messages.isEmpty else {
+                return
+            }
+            guard let configuration = coordinatorDeliveryConfiguration() else {
+                return
+            }
+
+            let didSubmit = await submitCoordinatorInboxMessages(messages, configuration: configuration)
+            if didSubmit {
+                markCoordinatorInboxMessagesRead(messages)
+            } else {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    private func coordinatorDeliveryConfiguration() -> CoordinatorDeliveryConfiguration? {
+        let state = loadAgentState()
+        guard let activeAgent = state.activeAgent,
+              let modelConfig = LLMConfigStore
+                  .loadCollection()
+                  .selectedModel(preferredID: activeAgent.selectedModelID),
+              modelConfig.isConfigured
+        else {
+            return nil
+        }
+
+        let mainSessionID = teamRecord?.coordinatorSessionID ?? Self.mainSessionID
+        return CoordinatorDeliveryConfiguration(
+            agent: activeAgent,
+            modelConfig: modelConfig,
+            agentCount: max(state.agents.count, 1),
+            invocationSessionID: "\(activeAgent.id.uuidString)::\(mainSessionID)"
+        )
+    }
+
+    private func submitCoordinatorInboxMessages(
+        _ messages: [TeamMailboxMessage],
+        configuration: CoordinatorDeliveryConfiguration
+    ) async -> Bool {
+        let resources = AgentMainSessionRegistry.shared.sessionResources(
+            for: configuration.agent,
+            modelConfig: configuration.modelConfig,
+            invocationSessionID: configuration.invocationSessionID,
+            agentCount: configuration.agentCount
+        )
+        await waitForCoordinatorSessionIdle(resources.session)
+        guard !Task.isCancelled else {
+            return false
+        }
+
+        do {
+            return try await AgentMainSessionRegistry.shared.submitToMainSession(
+                for: configuration.agent,
+                modelConfig: configuration.modelConfig,
+                invocationSessionID: configuration.invocationSessionID,
+                agentCount: configuration.agentCount
+            ) { resources in
+                let session = resources.session
+                guard !session.isQueryActive,
+                      let model = session.models.chat
+                else {
+                    return false
+                }
+
+                session.refreshContentsFromDatabase(scrolling: false)
+                return await session.submitPrompt(
+                    model: model,
+                    prompt: self.coordinatorPromptInput(for: messages)
+                )
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private func waitForCoordinatorSessionIdle(_ session: ConversationSession) async {
+        while session.isQueryActive, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+    }
+
+    private func coordinatorPromptInput(for messages: [TeamMailboxMessage]) -> ConversationSession.PromptInput {
+        let sortedMessages = messages.sorted { $0.timestamp < $1.timestamp }
+        let text: String
+        if sortedMessages.count == 1, let message = sortedMessages.first {
+            text = message.text
+        } else {
+            text = (["You have \(sortedMessages.count) new team messages. Process them in timestamp order."] + sortedMessages.map { message in
+                """
+                <team-message id=\"\(message.id)\" from=\"\(message.from)\" type=\"\(message.messageType)\" timestamp=\"\(formatTimestamp(message.timestamp))\">
+                \(message.text)
+                </team-message>
+                """
+            }).joined(separator: "\n\n")
+        }
+
+        var metadata: [String: String] = [
+            ConversationSession.PromptInput.teamMessageTypeMetadataKey: sortedMessages.count == 1 ? (sortedMessages.first?.messageType ?? "message") : "team_message_batch",
+            ConversationSession.PromptInput.teamSenderMetadataKey: sortedMessages.map(\.from).joined(separator: ", "),
+            "teamMessageIDs": sortedMessages.map(\.id).joined(separator: ","),
+        ]
+
+        if let firstMessage = sortedMessages.first {
+            metadata["teamFirstMessageID"] = firstMessage.id
+        }
+
+        return ConversationSession.PromptInput(
+            text: text,
+            source: .teamMessage,
+            metadata: metadata
+        )
+    }
+
+    private func formatTimestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
     private func agentProfile(for member: TeamMember) throws -> AgentProfile {
         guard let memberUUID = UUID(uuidString: member.id),
               let agent = loadAgentState().agents.first(where: { $0.id == memberUUID })
@@ -756,6 +927,10 @@ final class TeamSwarmCoordinator {
             messageType: messageType
         )
         try? TeamMailbox.append(teamDirectoryURL: teamDirectoryURL, recipientName: recipientName, message: message)
+        if recipientName.caseInsensitiveCompare(Self.coordinatorName) == .orderedSame {
+            scheduleCoordinatorInboxDelivery()
+            notifyChanged()
+        }
     }
 
     private func enqueueTeammateIdleMessage(memberName: String, summary: String?) {
@@ -936,23 +1111,22 @@ final class TeamSwarmCoordinator {
     }
 
     private func senderName(for context: ToolContext) -> String? {
+        senderMember(for: context)?.name ?? Self.coordinatorName
+    }
+
+    private func senderMember(for context: ToolContext) -> TeamMember? {
         if let senderMemberID = context.senderMemberID,
-           let member = teamRecord?.members.first(where: { $0.id == senderMemberID })
+           let member = resolveMember(memberID: senderMemberID)
         {
-            return member.name
-        }
-        if let senderMemberID = context.senderMemberID,
-           let resolved = resolveMember(memberID: senderMemberID)
-        {
-            return resolved.name
+            return member
         }
         if let sessionID = context.sessionID,
            let senderMemberID = activeAgentID(from: sessionID),
-           let resolved = resolveMember(memberID: senderMemberID)
+           let member = resolveMember(memberID: senderMemberID)
         {
-            return resolved.name
+            return member
         }
-        return Self.coordinatorName
+        return nil
     }
 
     private func activeAgentID(from sessionID: String) -> String? {
@@ -966,6 +1140,8 @@ final class TeamSwarmCoordinator {
     }
 
     private func loadPersistedTeams() {
+        coordinatorInboxDeliveryTask?.cancel()
+        coordinatorInboxDeliveryTask = nil
         memberSignals.removeAll()
         memberTasks.values.forEach { $0.cancel() }
         memberTasks.removeAll()
@@ -982,6 +1158,7 @@ final class TeamSwarmCoordinator {
             return member
         }
         teamRecord = team
+        scheduleCoordinatorInboxDelivery()
     }
 
     private func synchronizeTeamDirectories() {

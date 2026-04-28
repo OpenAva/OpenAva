@@ -88,7 +88,12 @@ struct ChatRootView: View {
         }
         .onChange(of: containerStore.agents) { _, _ in
             menuRefreshToken &+= 1
+            normalizeSessionContextForVisibleMenu()
             updateHeartbeatService()
+        }
+        .onChange(of: containerStore.teams) { _, _ in
+            menuRefreshToken &+= 1
+            normalizeSessionContextForVisibleMenu()
         }
         .onChange(of: containerStore.activeAgent?.id) { _, newAgentID in
             if newAgentID == nil, !containerStore.hasAgent {
@@ -102,6 +107,7 @@ struct ChatRootView: View {
         }
         .onChange(of: containerStore.activeSessionContext) { _, _ in
             normalizeSessionContextForVisibleMenu()
+            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
         }
         .onChange(of: containerAgent) { _, _ in
             updateHeartbeatService()
@@ -133,15 +139,16 @@ struct ChatRootView: View {
 
     private var chatScreenView: some View {
         let sessionKey = primarySessionKey
+        let activeContext = visibleActiveSessionContext
         return ChatScreen(
             container: containerStore.container,
             scopedSessionID: scopedSessionID(
                 for: sessionKey,
-                agentID: containerStore.activeAgent?.id
+                context: activeContext
             ),
             teams: visibleTeams,
             agents: containerStore.agents,
-            activeContext: visibleActiveSessionContext,
+            activeContext: activeContext,
             activeAgentID: containerStore.activeAgent?.id,
             activeAgentName: currentActiveAgentName,
             activeAgentEmoji: currentActiveAgentEmoji,
@@ -183,17 +190,19 @@ struct ChatRootView: View {
         resolvedDefaultSessionKey
     }
 
-    /// Temporarily hide custom team entries from the chat session menu.
     private var visibleTeams: [TeamProfile] {
-        []
+        containerStore.teams
     }
 
     private var visibleActiveSessionContext: ActiveSessionContext {
         switch containerStore.activeSessionContext {
-        case .globalTeam, .agent:
-            containerStore.activeSessionContext
-        case .team:
-            .globalTeam
+        case .globalTeam:
+            return .globalTeam
+        case let .team(teamID):
+            return activeTeamProfile(for: teamID) == nil ? .globalTeam : .team(teamID)
+        case let .agent(agentID):
+            let agentExists = containerStore.agents.contains { $0.id == agentID }
+            return agentExists ? .agent(agentID) : .globalTeam
         }
     }
 
@@ -207,8 +216,14 @@ struct ChatRootView: View {
     }
 
     private func normalizeSessionContextForVisibleMenu() {
-        guard case .team = containerStore.activeSessionContext else { return }
-        _ = containerStore.setActiveSessionContext(.globalTeam)
+        switch containerStore.activeSessionContext {
+        case let .team(teamID) where activeTeamProfile(for: teamID) == nil:
+            _ = containerStore.setActiveSessionContext(.globalTeam)
+        case let .agent(agentID) where !containerStore.agents.contains(where: { $0.id == agentID }):
+            _ = containerStore.setActiveSessionContext(.globalTeam)
+        default:
+            break
+        }
     }
 
     /// Reads one pending launch request and resolves it into a chat message.
@@ -267,10 +282,16 @@ struct ChatRootView: View {
         return true
     }
 
-    private func scopedSessionID(for sessionKey: String, agentID _: UUID?) -> String {
-        // Use sessionKey directly without agent prefix to allow easy agent directory migration.
-        // Transcripts are already isolated by runtimeRootURL per agent.
-        sessionKey
+    private func scopedSessionID(for sessionKey: String, context: ActiveSessionContext) -> String {
+        switch context {
+        case .globalTeam:
+            return "team-global-\(sessionKey)"
+        case let .team(teamID):
+            return "team-\(teamID.uuidString)-\(sessionKey)"
+        case .agent:
+            // Agent transcripts are already isolated by runtimeRootURL per agent.
+            return sessionKey
+        }
     }
 
     private func updateHeartbeatService() {
@@ -285,7 +306,7 @@ struct ChatRootView: View {
             return .init(
                 agent: agent,
                 agentID: agent.id.uuidString,
-                mainSessionID: scopedSessionID(for: primarySessionKey, agentID: agent.id),
+                mainSessionID: scopedSessionID(for: primarySessionKey, context: .agent(agent.id)),
                 agentName: agent.name,
                 agentEmoji: agent.emoji,
                 workspaceRootURL: agent.workspaceURL,
@@ -429,8 +450,8 @@ struct ChatRootView: View {
         switch visibleActiveSessionContext {
         case .globalTeam:
             return L10n.tr("chat.menu.globalTeam")
-        case .team:
-            return L10n.tr("chat.menu.globalTeam")
+        case let .team(teamID):
+            return activeTeamProfile(for: teamID)?.name ?? L10n.tr("chat.activeTeam.fallbackName")
         case .agent:
             return containerStore.activeAgent?.name ?? L10n.tr("chat.activeAgent.fallbackName")
         }
@@ -440,11 +461,15 @@ struct ChatRootView: View {
         switch visibleActiveSessionContext {
         case .globalTeam:
             return "👥"
-        case .team:
-            return "👥"
+        case let .team(teamID):
+            return activeTeamProfile(for: teamID)?.emoji ?? "👥"
         case .agent:
             return containerStore.activeAgent?.emoji ?? ""
         }
+    }
+
+    private func activeTeamProfile(for teamID: UUID) -> TeamProfile? {
+        containerStore.teams.first { $0.id == teamID }
     }
 
     private var currentSelectedModelName: String {
@@ -453,7 +478,7 @@ struct ChatRootView: View {
 
     private func toggleAutoCompact() {
         let newValue = !autoCompactEnabled
-        containerStore.setAutoCompact(newValue)
+        guard containerStore.setAutoCompact(newValue) else { return }
         autoCompactEnabled = newValue
     }
 }
@@ -594,9 +619,10 @@ private struct ChatScreen: View {
 
         private var topBarTitle: ChatTopBar.Title {
             ChatTopBar.title(
-                agentName: activeAgentName,
-                agentEmoji: activeAgentEmoji,
-                modelName: selectedModelName
+                displayName: activeAgentName,
+                displayEmoji: activeAgentEmoji,
+                modelName: selectedModelName,
+                activeContext: activeContext
             )
         }
 
@@ -608,14 +634,36 @@ private struct ChatScreen: View {
             ChatTopBar.configurationSections(
                 autoCompactEnabled: autoCompactEnabled,
                 isBackgroundEnabled: BackgroundExecutionPreferences.shared.isEnabled,
-                includeBackgroundExecution: false
+                includeBackgroundExecution: false,
+                includeAgentManagement: isAgentContext
             )
+        }
+
+        private var isAgentContext: Bool {
+            if case .agent = activeContext { return true }
+            return false
+        }
+
+        private func shouldInsertDividerBeforeSessionEntry(at index: Int) -> Bool {
+            guard index > 0, topBarSessionMenuEntries.indices.contains(index) else { return false }
+            let entry = topBarSessionMenuEntries[index]
+            switch entry.kind {
+            case .agent:
+                return !topBarSessionMenuEntries[..<index].contains { item in
+                    if case .agent = item.kind { return true }
+                    return false
+                }
+            case .createLocalAgent:
+                return true
+            case .globalTeam, .team, .empty:
+                return false
+            }
         }
 
         private var agentMenuContent: some View {
             ForEach(topBarSessionMenuEntries.indices, id: \.self) { index in
                 let entry = topBarSessionMenuEntries[index]
-                if case .createLocalAgent = entry.kind, index > 0 {
+                if shouldInsertDividerBeforeSessionEntry(at: index) {
                     Divider()
                 }
                 switch entry.kind {
@@ -737,6 +785,15 @@ private struct ChatScreen: View {
         chatControllerView
     }
 
+    private var toolInvocationSessionID: String {
+        switch activeContext {
+        case .globalTeam, .team:
+            "global::\(scopedSessionID)"
+        case .agent:
+            "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
+        }
+    }
+
     private var chatControllerView: some View {
         ChatViewControllerWrapper(
             sessionID: scopedSessionID,
@@ -745,7 +802,7 @@ private struct ChatScreen: View {
             chatClient: container.services.chatClient,
             toolProvider: ToolRegistryProvider(
                 toolRuntime: container.services.toolRuntime,
-                invocationSessionID: "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
+                invocationSessionID: toolInvocationSessionID
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
             teams: teams,

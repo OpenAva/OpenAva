@@ -251,6 +251,7 @@
 "device.tools.location.guidance.services.mac" = "Please enable system location services in macOS System Settings > Privacy & Security > Location Services.";
 "device.tools.location.guidance.services.ios" = "Please enable system location services in iOS Settings > Privacy & Security > Location Services.";
 "chat.activeAgent.fallbackName" = "Assistant";
+"chat.activeTeam.fallbackName" = "Team";
 "chat.selectedModel.notSelected" = "Not Selected";
 "chat.command.runHeartbeatNow" = "Run Heartbeat";
 "chat.command.focusInput" = "Focus Input";

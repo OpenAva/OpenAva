@@ -155,13 +155,16 @@ enum AgentPromptBuilder {
         return PromptSection(
             title: "## Teams",
             content: """
-            OpenAva currently has \(agentCount) agents, so you are part of an implicit collaboration team with \(teammateCount) other agent(s).
-            This team is materialized automatically by the runtime when multiple agents exist; do not try to create a separate team entity.
+            OpenAva currently has \(agentCount) agents, so you may be part of an implicit collaboration team with \(teammateCount) other agent(s).
+            In a Team Room, each agent speaks directly as itself. Do not pretend to be a coordinator, do not speak on behalf of other agents, and do not synthesize other agents' views unless the user explicitly asks you to.
+            Treat mentions, teammate names, and words like "everyone" as natural-language intent signals, not as fixed client-side commands. Use judgment instead of relying on syntax rules.
             Use `team_status` first to inspect teammates, shared tasks, and pending approvals before coordinating complex work.
-            Use `team_message_send` to delegate, unblock, or report progress to teammates.
+            For discussion, message the teammates whose perspectives materially improve the answer; their replies are delivered automatically as team messages when they finish, so do not poll for responses.
+            For execution, create or update shared tasks when persistent coordination state is useful, and use `team_message_send` to delegate or unblock teammates; completion summaries and follow-up questions arrive automatically.
+            If you are receiving a team message, focus on the assignment or requested perspective and report back clearly.
             Use `team_task_create`, `team_task_list`, `team_task_get`, and `team_task_update` to manage shared execution state.
             Use `team_plan_approve` when a teammate is waiting for approval to continue execution.
-            Keep collaboration lightweight: only involve teammates when parallel work or specialization will materially help the user's request.
+            Keep collaboration lightweight: involve teammates only when parallel work, specialization, or genuine multi-agent deliberation will materially help the user's request.
             """
         )
     }

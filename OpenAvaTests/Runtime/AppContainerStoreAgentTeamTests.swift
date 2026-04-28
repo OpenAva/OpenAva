@@ -119,6 +119,79 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
     }
 
+    func testChatSessionMenuIncludesCustomTeamAndSelection() throws {
+        let teamID = UUID()
+        let team = TeamProfile(
+            id: teamID,
+            name: "Core Team",
+            emoji: "🧭",
+            agentPoolIDs: []
+        )
+
+        let entries = ChatTopBar.sessionMenuEntries(
+            teams: [team],
+            agents: [],
+            activeContext: .team(teamID)
+        )
+
+        XCTAssertGreaterThanOrEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].kind, .globalTeam)
+        XCTAssertEqual(entries[1].kind, .team(teamID))
+        XCTAssertEqual(entries[1].displayTitle, "🧭 Core Team")
+        XCTAssertTrue(entries[1].isSelected)
+        XCTAssertFalse(entries[0].isSelected)
+    }
+
+    func testTeamChatConfigurationMenuHidesAgentManagementActions() throws {
+        let teamSections = ChatTopBar.configurationSections(
+            autoCompactEnabled: true,
+            isBackgroundEnabled: false,
+            includeBackgroundExecution: true,
+            includeAgentManagement: false
+        )
+        let teamItemIDs = Set(teamSections.flatMap(\.items).map(\.id))
+
+        XCTAssertTrue(teamItemIDs.contains("background-execution"))
+        XCTAssertTrue(teamItemIDs.contains("open-cron"))
+        XCTAssertTrue(teamItemIDs.contains("open-remote-control"))
+        XCTAssertFalse(teamItemIDs.contains("auto-compact"))
+        XCTAssertFalse(teamItemIDs.contains("rename-agent"))
+        XCTAssertFalse(teamItemIDs.contains("delete-agent"))
+
+        let agentSections = ChatTopBar.configurationSections(
+            autoCompactEnabled: true,
+            isBackgroundEnabled: false,
+            includeBackgroundExecution: true,
+            includeAgentManagement: true
+        )
+        let agentItemIDs = Set(agentSections.flatMap(\.items).map(\.id))
+
+        XCTAssertTrue(agentItemIDs.contains("auto-compact"))
+        XCTAssertTrue(agentItemIDs.contains("rename-agent"))
+        XCTAssertTrue(agentItemIDs.contains("delete-agent"))
+    }
+
+    func testContainerStoreCanActivateCustomTeamContext() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let team = try XCTUnwrap(containerStore.createTeam(name: "Core Team", emoji: "🧭"))
+
+        XCTAssertTrue(containerStore.setActiveSessionContext(.team(team.id)))
+        XCTAssertEqual(containerStore.activeSessionContext, .team(team.id))
+    }
+
     private func removeStateFile() {
         try? FileManager.default.removeItem(at: stateFileURL())
     }

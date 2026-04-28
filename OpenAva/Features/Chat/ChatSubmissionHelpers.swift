@@ -50,49 +50,6 @@ func makePromptInput(from object: ChatInputContent) -> ConversationSession.Promp
     )
 }
 
-enum TeamPromptMentionTarget: Equatable {
-    case everyone(message: String)
-    case agent(AgentProfile)
-    case none
-}
-
-func localizedEveryoneMentionToken() -> String {
-    let alias = L10n.tr("chat.team.mention.everyone").trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !alias.isEmpty else { return "@all" }
-    return alias.hasPrefix("@") ? alias : "@\(alias)"
-}
-
-func teamEveryoneMentionAliases() -> [String] {
-    var orderedAliases: [String] = []
-    var seen: Set<String> = []
-
-    for rawAlias in [localizedEveryoneMentionToken(), "@all", "@everyone", "@所有人"] {
-        let alias = rawAlias.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !alias.isEmpty else { continue }
-        let normalized = alias.lowercased()
-        guard !seen.contains(normalized) else { continue }
-        seen.insert(normalized)
-        orderedAliases.append(alias)
-    }
-
-    return orderedAliases
-}
-
-func resolveTeamPromptMentionTarget(in text: String, agents: [AgentProfile]) -> TeamPromptMentionTarget {
-    for alias in teamEveryoneMentionAliases() where containsMentionToken(alias, in: text) {
-        return .everyone(message: messageBodyByRemovingMentionToken(alias, from: text))
-    }
-
-    for agent in agents {
-        let mention = "@\(agent.name)"
-        if containsMentionToken(mention, in: text) {
-            return .agent(agent)
-        }
-    }
-
-    return .none
-}
-
 @MainActor
 func handlePromptSubmit(
     session: ConversationSession?,
@@ -185,69 +142,4 @@ private func mediaType(for attachment: ChatInputAttachment, fallback: String) ->
         return mimeType
     }
     return fallback
-}
-
-private func messageBodyByRemovingMentionToken(_ token: String, from text: String) -> String {
-    guard let mentionRange = firstMatchedMentionRange(of: token, in: text),
-          let swiftRange = Range(mentionRange, in: text)
-    else {
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var remainder = text
-    remainder.removeSubrange(swiftRange)
-    remainder = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
-
-    let leadingDelimiterSet = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "，,。.!！?？:：;；、"))
-    while let firstScalar = remainder.unicodeScalars.first,
-          leadingDelimiterSet.contains(firstScalar)
-    {
-        remainder.unicodeScalars.removeFirst()
-    }
-
-    return remainder.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private func containsMentionToken(_ token: String, in text: String) -> Bool {
-    firstMatchedMentionRange(of: token, in: text) != nil
-}
-
-private func firstMatchedMentionRange(of token: String, in text: String) -> NSRange? {
-    let searchToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !searchToken.isEmpty else { return nil }
-
-    let fullText = text as NSString
-    var searchRange = NSRange(location: 0, length: fullText.length)
-
-    while searchRange.location <= fullText.length {
-        let match = fullText.range(
-            of: searchToken,
-            options: [.caseInsensitive, .diacriticInsensitive],
-            range: searchRange
-        )
-        guard match.location != NSNotFound else { return nil }
-
-        let lowerBound = match.location
-        let upperBound = match.location + match.length
-        let hasLeadingBoundary = lowerBound == 0 || isMentionBoundaryCharacter(fullText.character(at: lowerBound - 1))
-        let hasTrailingBoundary = upperBound >= fullText.length || isMentionBoundaryCharacter(fullText.character(at: upperBound))
-
-        if hasLeadingBoundary, hasTrailingBoundary {
-            return match
-        }
-
-        let nextLocation = upperBound
-        guard nextLocation < fullText.length else { return nil }
-        searchRange = NSRange(location: nextLocation, length: fullText.length - nextLocation)
-    }
-
-    return nil
-}
-
-private func isMentionBoundaryCharacter(_ character: unichar) -> Bool {
-    guard let scalar = UnicodeScalar(character) else { return false }
-    let boundarySet = CharacterSet.whitespacesAndNewlines
-        .union(.punctuationCharacters)
-        .union(.symbols)
-    return boundarySet.contains(scalar)
 }

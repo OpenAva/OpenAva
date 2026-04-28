@@ -150,13 +150,13 @@ struct ChatCompletionChunkDecodingTests {
 
     @Test("Decodes real DeepSeek reasoning stream chunk")
     func decodeRealDeepSeekChunk() throws {
-        // Actual format from DeepSeek deepseek-reasoner API
+        // Actual format from DeepSeek deepseek-v4-flash API
         let json = """
         {
             "id": "chatcmpl-abc123",
             "object": "chat.completion.chunk",
             "created": 1710000000,
-            "model": "deepseek-reasoner",
+            "model": "deepseek-v4-flash",
             "choices": [{
                 "index": 0,
                 "delta": {

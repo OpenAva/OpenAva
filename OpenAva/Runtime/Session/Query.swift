@@ -20,6 +20,14 @@ private struct QueryAutoCompactState {
     var tracking: AutoCompactTrackingState?
 }
 
+@MainActor
+struct QueryMessageHooks {
+    static let none = QueryMessageHooks()
+
+    var configureAssistantMessage: (ConversationMessage) -> Void = { _ in }
+    var configureToolMessage: (ConversationMessage) -> Void = { _ in }
+}
+
 private enum ToolExecutionOutcome {
     case continueQuery
     case stopAfterTerminalToolResults(finishReason: FinishReason)
@@ -255,7 +263,8 @@ func query(
     tools: [ChatRequestBody.Tool]?,
     toolUseContext: ToolExecutionContext,
     maxTurns: Int,
-    querySource: QuerySource
+    querySource: QuerySource,
+    messageHooks: QueryMessageHooks = .none
 ) async throws -> QueryResult {
     logger.notice(
         "query entered session=\(session.id, privacy: .public) maxTurns=\(maxTurns) toolsEnabled=\(String(tools != nil), privacy: .public)"
@@ -285,7 +294,8 @@ func query(
                 session: session,
                 model: model,
                 requestMessages: &requestMessages,
-                tools: tools
+                tools: tools,
+                messageHooks: messageHooks
             )
         } catch {
             let recovered = await recoverFromPromptTooLongIfPossible(
@@ -325,7 +335,8 @@ func query(
                 pendingToolCalls,
                 assistantMessage: assistantMessage,
                 requestMessages: &requestMessages,
-                toolUseContext: toolUseContext
+                toolUseContext: toolUseContext,
+                messageHooks: messageHooks
             )
             markAutoCompactTurnCompletedIfNeeded(&autoCompactState, session: session)
             switch toolExecutionOutcome {
@@ -341,7 +352,7 @@ func query(
         }
     }
 
-    return finalizeMaxTurnsResult(session: session, state: state)
+    return finalizeMaxTurnsResult(session: session, state: state, messageHooks: messageHooks)
 }
 
 @MainActor
@@ -381,11 +392,13 @@ private func advanceQueryState(
 @MainActor
 private func finalizeMaxTurnsResult(
     session: ConversationSession,
-    state: QueryState
+    state: QueryState,
+    messageHooks: QueryMessageHooks
 ) -> QueryResult {
     let message = session.appendNewMessage(role: .assistant) { msg in
         msg.textContent = String.localized("Reached maximum number of turns.")
         msg.finishReason = .length
+        messageHooks.configureAssistantMessage(msg)
     }
     session.recordMessageInTranscript(message)
     session.notifyMessagesDidChange(scrolling: true)
@@ -570,7 +583,8 @@ private func appendToolResult(
     state: ToolCallState,
     permissionDecision: ToolPermissionDecision? = nil,
     session: ConversationSession,
-    requestMessages: inout [ChatRequestBody.Message]
+    requestMessages: inout [ChatRequestBody.Message],
+    messageHooks: QueryMessageHooks = .none
 ) {
     let toolMessage = session.appendNewMessage(role: .tool) { message in
         message.parts = [
@@ -582,6 +596,7 @@ private func appendToolResult(
         if let permissionDecision {
             applyPermissionDecisionMetadata(permissionDecision, to: message)
         }
+        messageHooks.configureToolMessage(message)
     }
     session.recordMessageInTranscript(toolMessage)
     requestMessages.append(
@@ -623,7 +638,8 @@ private func appendInterruptedToolResults(
     _ interruptedToolCalls: [(request: ToolRequest, toolCallPartIndex: Int)],
     to assistantMessage: ConversationMessage,
     requestMessages: inout [ChatRequestBody.Message],
-    toolUseContext: ToolExecutionContext
+    toolUseContext: ToolExecutionContext,
+    messageHooks: QueryMessageHooks
 ) {
     let interruptionText = toolUseContext.interruptionText()
     var didMutateAssistant = false
@@ -646,7 +662,8 @@ private func appendInterruptedToolResults(
             text: interruptionText,
             state: .failed,
             session: toolUseContext.session,
-            requestMessages: &requestMessages
+            requestMessages: &requestMessages,
+            messageHooks: messageHooks
         )
     }
     if didMutateAssistant {
@@ -780,13 +797,16 @@ private func executeQueryTurn(
     session: ConversationSession,
     model: ConversationSession.Model,
     requestMessages: inout [ChatRequestBody.Message],
-    tools: [ChatRequestBody.Tool]?
+    tools: [ChatRequestBody.Tool]?,
+    messageHooks: QueryMessageHooks
 ) async throws -> QueryTurnOutput {
     try Task.checkCancellation()
     logger.debug("execute query turn session=\(session.id, privacy: .public) starting")
     session.setLoadingState(nil)
 
-    let message = session.appendNewMessage(role: .assistant)
+    let message = session.appendNewMessage(role: .assistant) { message in
+        messageHooks.configureAssistantMessage(message)
+    }
     session.notifyMessagesDidChange(scrolling: true)
 
     let collapseAfterReasoningComplete = session.collapseReasoningWhenComplete
@@ -896,7 +916,8 @@ private func executeToolCalls(
     _ pendingToolCalls: [ToolRequest],
     assistantMessage: ConversationMessage,
     requestMessages: inout [ChatRequestBody.Message],
-    toolUseContext: ToolExecutionContext
+    toolUseContext: ToolExecutionContext,
+    messageHooks: QueryMessageHooks
 ) async throws -> ToolExecutionOutcome {
     guard !pendingToolCalls.isEmpty else { return .continueQuery }
     guard let toolProvider = toolUseContext.toolProvider else {
@@ -914,7 +935,8 @@ private func executeToolCalls(
                 text: unavailableText,
                 state: .failed,
                 session: toolUseContext.session,
-                requestMessages: &requestMessages
+                requestMessages: &requestMessages,
+                messageHooks: messageHooks
             )
         }
         toolUseContext.session.notifyMessagesDidChange(scrolling: true)
@@ -936,7 +958,8 @@ private func executeToolCalls(
                 interruptedToolCalls,
                 to: assistantMessage,
                 requestMessages: &requestMessages,
-                toolUseContext: toolUseContext
+                toolUseContext: toolUseContext,
+                messageHooks: messageHooks
             )
             toolUseContext.session.notifyMessagesDidChange(scrolling: true)
         }
@@ -962,7 +985,8 @@ private func executeToolCalls(
                 text: QueryExecutionError.toolNotFound(name: request.name).localizedDescription,
                 state: .failed,
                 session: toolUseContext.session,
-                requestMessages: &requestMessages
+                requestMessages: &requestMessages,
+                messageHooks: messageHooks
             )
             toolUseContext.session.notifyMessagesDidChange(scrolling: true)
             continue
@@ -1043,7 +1067,8 @@ private func executeToolCalls(
             state: responseState,
             permissionDecision: permissionDecision,
             session: toolUseContext.session,
-            requestMessages: &requestMessages
+            requestMessages: &requestMessages,
+            messageHooks: messageHooks
         )
         toolUseContext.session.notifyMessagesDidChange(scrolling: true)
     }

@@ -35,7 +35,7 @@ let modelDefinitions: [ModelDefinition] = [
         }
     ),
     ModelDefinition(
-        title: "DeepSeek Reasoner",
+        title: "DeepSeek V4 Flash",
         subtitle: "DeepSeek",
         icon: "waveform.path.ecg",
         systemPrompt: "You are a helpful AI assistant powered by DeepSeek. Think carefully and be helpful.",
@@ -43,7 +43,7 @@ let modelDefinitions: [ModelDefinition] = [
         requiredAPIKey: .deepseek,
         createModel: {
             .init(
-                client: DeepSeekClient(model: "deepseek-reasoner", apiKey: APIKeyID.deepseek.currentValue),
+                client: DeepSeekClient(model: "deepseek-v4-flash", apiKey: APIKeyID.deepseek.currentValue),
                 capabilities: [.tool],
                 contextLength: 64000
             )

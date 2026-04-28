@@ -251,6 +251,7 @@
 "device.tools.location.guidance.services.mac" = "请在 macOS 系统设置 > 隐私与安全性 > 定位服务 中开启系统定位服务。";
 "device.tools.location.guidance.services.ios" = "请在 iOS 设置 > 隐私与安全性 > 定位服务 中开启系统定位服务。";
 "chat.activeAgent.fallbackName" = "助手";
+"chat.activeTeam.fallbackName" = "团队";
 "chat.selectedModel.notSelected" = "未选择";
 "chat.command.runHeartbeatNow" = "运行一次心跳";
 "chat.command.focusInput" = "聚焦输入框";

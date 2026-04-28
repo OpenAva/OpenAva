@@ -5,7 +5,7 @@
 //  Preconfigured OpenAI-compatible client for DeepSeek API.
 //  Handles `reasoning_content` field natively via ChatCompletionChunk.
 //
-//  Note: DeepSeek V3.2 introduced thinking-integrated tool-use.
+//  Note: DeepSeek V4 introduced thinking-integrated tool-use.
 //  Rules for reasoning_content in follow-up requests:
 //  - Assistant messages that contain thinking text should send it back using
 //    reasoning_content in follow-up requests.
@@ -18,7 +18,7 @@ import Foundation
 
 open class DeepSeekClient: OpenAICompatibleClient, @unchecked Sendable {
     public convenience init(
-        model: String = "deepseek-reasoner",
+        model: String = "deepseek-v4-flash",
         apiKey: String? = nil
     ) {
         self.init(

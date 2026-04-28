@@ -54,9 +54,9 @@ enum TokenCostCalculator {
         ("gemini-1.5-flash", ModelCostTier(inputPerMillion: 0.075, outputPerMillion: 0.3, cacheReadPerMillion: 0.02, cacheWritePerMillion: 0)),
         ("gemini-1.5-pro", ModelCostTier(inputPerMillion: 1.25, outputPerMillion: 5, cacheReadPerMillion: 0.31, cacheWritePerMillion: 0)),
 
-        // DeepSeek
-        ("deepseek-reasoner", ModelCostTier(inputPerMillion: 0.55, outputPerMillion: 2.19, cacheReadPerMillion: 0.14, cacheWritePerMillion: 0)),
-        ("deepseek-chat", ModelCostTier(inputPerMillion: 0.27, outputPerMillion: 1.1, cacheReadPerMillion: 0.07, cacheWritePerMillion: 0)),
+        // DeepSeek V4
+        ("deepseek-v4-flash", ModelCostTier(inputPerMillion: 0.14, outputPerMillion: 0.28, cacheReadPerMillion: 0.0028, cacheWritePerMillion: 0)),
+        ("deepseek-v4-pro", ModelCostTier(inputPerMillion: 1.74, outputPerMillion: 3.48, cacheReadPerMillion: 0.0145, cacheWritePerMillion: 0)),
 
         // xAI Grok
         ("grok-3-mini", ModelCostTier(inputPerMillion: 0.3, outputPerMillion: 0.5, cacheReadPerMillion: 0, cacheWritePerMillion: 0)),

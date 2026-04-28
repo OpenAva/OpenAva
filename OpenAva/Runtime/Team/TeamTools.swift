@@ -20,13 +20,13 @@ final class TeamTools: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "team_message_send",
                 command: "team.message.send",
-                description: "Send a direct team message between the coordinator and teammates, or between teammates.",
+                description: "Send a direct team message to a named teammate, or between teammates.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
                         "to": [
                             "type": "string",
-                            "description": "Recipient name, such as coordinator or a teammate name",
+                            "description": "Recipient teammate name",
                         ],
                         "message": [
                             "type": "string",

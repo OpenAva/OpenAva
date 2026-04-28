@@ -37,7 +37,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .openai: return "https://api.openai.com/v1"
         case .anthropic: return "https://api.anthropic.com"
         case .google: return "https://generativelanguage.googleapis.com/v1beta"
-        case .deepseek: return "https://api.deepseek.com/v1"
+        case .deepseek: return "https://api.deepseek.com"
         case .grok: return "https://api.x.ai/v1"
         case .moonshot: return "https://api.moonshot.cn/v1"
         case .openrouter: return "https://openrouter.ai/api/v1"
@@ -94,8 +94,8 @@ enum LLMProvider: String, CaseIterable, Identifiable {
             ]
         case .deepseek:
             return [
-                .init(id: "deepseek-reasoner", displayName: "DeepSeek Reasoner", maxContextTokens: 131_000),
-                .init(id: "deepseek-chat", displayName: "DeepSeek Chat", maxContextTokens: 131_000),
+                .init(id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash", maxContextTokens: 1_000_000),
+                .init(id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro", maxContextTokens: 1_000_000),
             ]
         case .grok:
             return [
