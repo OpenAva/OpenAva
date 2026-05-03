@@ -109,3 +109,9 @@ public protocol ToolProvider: AnyObject, Sendable {
         parameters: String
     ) async throws -> ToolResult
 }
+
+@MainActor
+protocol ToolPermissionScopeProviding: AnyObject {
+    var toolPermissionWorkspaceRootURL: URL? { get }
+    var toolPermissionReadableRootURLs: [URL] { get }
+}

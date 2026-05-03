@@ -24,6 +24,9 @@ public final class MessageListView: UIView {
     }
 
     lazy var dataSource: ListViewDiffableDataSource<Entry> = .init(listView: listView)
+    /// Per-entry horizontal content inset computed when building entries.
+    /// Keyed by `Entry.id`; decoupled from message identity.
+    var entryLeadingInsets: [String: CGFloat] = [:]
     let toolResultSectionMetricsCache: NSCache<NSString, NSValue> = {
         let cache = NSCache<NSString, NSValue>()
         cache.countLimit = 256
@@ -60,6 +63,13 @@ public final class MessageListView: UIView {
             }
             guard oldValue != showsInterruptedRetryAction else { return }
             updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: loadingMessage)
+        }
+    }
+
+    public var isTeamChat: Bool = false {
+        didSet {
+            guard oldValue != isTeamChat else { return }
+            listView.reloadData()
         }
     }
 

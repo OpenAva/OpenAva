@@ -5,6 +5,50 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.day1-labs.openava", category: "chat.stop.execute")
 
+private struct ExecutionErrorPresentation {
+    let title: String
+    let message: String
+    let details: String
+}
+
+private func executionErrorPresentation(for error: Error) -> ExecutionErrorPresentation {
+    let rawDescription = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    let nsError = error as NSError
+    let technicalDetails = [
+        rawDescription,
+        nsError.domain.isEmpty ? nil : "Domain: \(nsError.domain)",
+        nsError.code == 0 ? nil : "Code: \(nsError.code)",
+    ]
+    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n")
+
+    if case QueryExecutionError.noResponseFromModel = error {
+        return .init(
+            title: String.localized("Request failed"),
+            message: String.localized("The model did not return any displayable content, and no provider error details were received. Check the selected model, API key/quota, network, or provider status, then try again."),
+            details: technicalDetails
+        )
+    }
+
+    let message: String
+    if isPromptTooLongError(error) {
+        message = String.localized("The conversation is over the model context limit. Compact earlier messages or start a shorter request, then try again.")
+    } else if nsError.domain == NSURLErrorDomain {
+        message = String.localized("Network connection failed. Check your network or proxy settings, then try again.")
+    } else if rawDescription.isEmpty {
+        message = String.localized("The model provider returned an error, but did not include a readable message. Copy the details below for debugging.")
+    } else {
+        message = String(format: String.localized("The model provider returned an error: %@"), rawDescription)
+    }
+
+    return .init(
+        title: String.localized("Request failed"),
+        message: message,
+        details: technicalDetails
+    )
+}
+
 public extension ConversationSession {
     /// Input object representing what the user typed/attached.
     struct PromptInput: Sendable {
@@ -126,7 +170,7 @@ public extension ConversationSession {
                     notifyMessagesDidChange()
                     persistMessages()
 
-                    let persistedMessages = messages
+                    let persistedMessages = transcriptPersistableMessages()
                     let sessionID = id
                     Task { [sessionDelegate = self.sessionDelegate] in
                         await sessionDelegate?.sessionDidPersistMessages(persistedMessages, for: sessionID)
@@ -191,8 +235,14 @@ public extension ConversationSession {
                     logger.error(
                         "submit prompt failed session=\(self.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
                     )
+                    let presentation = executionErrorPresentation(for: error)
                     _ = appendNewMessage(role: .assistant) { msg in
-                        msg.textContent = "```\n\(error.localizedDescription)\n```"
+                        msg.textContent = presentation.message
+                        msg.finishReason = .error
+                        msg.isTransientExecutionError = true
+                        msg.executionErrorTitle = presentation.title
+                        msg.executionErrorMessage = presentation.message
+                        msg.executionErrorDetails = presentation.details
                     }
                     sessionDelegate?.sessionExecutionDidFinish(
                         for: id,

@@ -68,6 +68,30 @@ public extension ConversationMessage {
         }
     }
 
+    /// Marks a failed model execution message that is only meant for the current UI session.
+    var isTransientExecutionError: Bool {
+        get { metadata["transientExecutionError"] == "true" }
+        set { metadata["transientExecutionError"] = newValue ? "true" : nil }
+    }
+
+    /// User-facing title for a transient execution error card.
+    var executionErrorTitle: String? {
+        get { metadata["executionErrorTitle"] }
+        set { metadata["executionErrorTitle"] = newValue }
+    }
+
+    /// User-facing summary for a transient execution error card.
+    var executionErrorMessage: String? {
+        get { metadata["executionErrorMessage"] }
+        set { metadata["executionErrorMessage"] = newValue }
+    }
+
+    /// Technical details for copying/debugging a transient execution error.
+    var executionErrorDetails: String? {
+        get { metadata["executionErrorDetails"] }
+        set { metadata["executionErrorDetails"] = newValue }
+    }
+
     /// The reasoning content of this message (first reasoning part), if any.
     var reasoningContent: String? {
         get {

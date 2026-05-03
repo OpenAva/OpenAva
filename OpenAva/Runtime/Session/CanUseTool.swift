@@ -52,6 +52,7 @@ enum ToolPermissionMatcher: Codable, Equatable {
     case pathPrefix(String)
     case commandPrefix(String)
     case argumentContains(String)
+    case argumentsEqual(String)
 }
 
 enum BashCommandRisk: String, Codable, Equatable {
@@ -73,19 +74,32 @@ struct ToolPermissionDecision: Equatable {
     let behavior: ToolPermissionBehavior
     let message: String?
     let reason: String?
+    let approvedReadableRootURL: URL?
+
+    init(
+        behavior: ToolPermissionBehavior,
+        message: String?,
+        reason: String?,
+        approvedReadableRootURL: URL? = nil
+    ) {
+        self.behavior = behavior
+        self.message = message
+        self.reason = reason
+        self.approvedReadableRootURL = approvedReadableRootURL
+    }
 
     var allowsExecution: Bool {
         behavior == .allow
     }
 
-    static let allow = ToolPermissionDecision(behavior: .allow, message: nil, reason: nil)
+    static let allow = ToolPermissionDecision(behavior: .allow, message: nil, reason: nil, approvedReadableRootURL: nil)
 
     static func deny(message: String? = nil, reason: String? = nil) -> ToolPermissionDecision {
-        ToolPermissionDecision(behavior: .deny, message: message, reason: reason)
+        ToolPermissionDecision(behavior: .deny, message: message, reason: reason, approvedReadableRootURL: nil)
     }
 
-    static func ask(message: String? = nil, reason: String? = nil) -> ToolPermissionDecision {
-        ToolPermissionDecision(behavior: .ask, message: message, reason: reason)
+    static func ask(message: String? = nil, reason: String? = nil, approvedReadableRootURL: URL? = nil) -> ToolPermissionDecision {
+        ToolPermissionDecision(behavior: .ask, message: message, reason: reason, approvedReadableRootURL: approvedReadableRootURL)
     }
 }
 
@@ -112,6 +126,14 @@ func defaultToolPermissionPolicy(_ request: ToolRequest, _ tool: any ToolExecuto
 
     if let parameterDecision = parameterAwarePermissionDecision(for: request) {
         return parameterDecision
+    }
+
+    if let internalStateDecision = internalStateToolPermissionDecision(for: request) {
+        return internalStateDecision
+    }
+
+    if let fileReadDecision = fileReadPermissionDecision(for: request, context: context) {
+        return fileReadDecision
     }
 
     if tool.isReadOnly {
@@ -145,10 +167,23 @@ func defaultToolPermissionPolicy(_ request: ToolRequest, _ tool: any ToolExecuto
         )
     }
 
-    return .deny(
-        message: String.localized("Tool execution was denied because this tool is not approved by the default policy."),
-        reason: "unclassified_mutating_tool_denied"
+    return .ask(
+        message: String.localized("Tool execution requires approval because this tool can modify local app state or invoke additional instructions."),
+        reason: "unclassified_mutating_tool_requires_approval"
     )
+}
+
+private func internalStateToolPermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
+    switch request.name {
+    case SessionTodoTools.functionName, "TodoWrite":
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "internal_todo_state_update"
+        )
+    default:
+        return nil
+    }
 }
 
 private func defaultTeamToolPermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
@@ -242,7 +277,74 @@ private func toolPermissionRule(_ rule: ToolPermissionRule, matches request: Too
         return command.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(prefix)
     case let .argumentContains(value):
         return request.arguments.localizedCaseInsensitiveContains(value)
+    case let .argumentsEqual(arguments):
+        return normalizedPermissionArguments(request.arguments) == normalizedPermissionArguments(arguments)
     }
+}
+
+private func normalizedPermissionArguments(_ arguments: String) -> String {
+    guard let data = arguments.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data),
+          JSONSerialization.isValidJSONObject(object),
+          let normalizedData = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+          let normalizedText = String(data: normalizedData, encoding: .utf8)
+    else {
+        return arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return normalizedText
+}
+
+private func fileReadPermissionDecision(for request: ToolRequest, context: ToolExecutionContext) -> ToolPermissionDecision? {
+    guard isFileReadTool(request.name) else {
+        return nil
+    }
+
+    let path = permissionArgumentString(for: ["path", "file_path", "filePath"], in: request.arguments) ?? "."
+    let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedPath.hasPrefix("/") else {
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "read_only_tool"
+        )
+    }
+
+    guard let scopeProvider = context.toolProvider as? ToolPermissionScopeProviding else {
+        return .ask(
+            message: String.localized("Tool execution requires approval because it reads an absolute path outside the known workspace scope."),
+            reason: "absolute_read_path_requires_approval"
+        )
+    }
+
+    let resolvedPath = normalizedPermissionPath(trimmedPath)
+    let readableRoots = scopeProvider.toolPermissionReadableRootURLs.map { $0.standardizedFileURL.path }
+    if readableRoots.contains(where: { isPermissionPath(resolvedPath, withinRoot: $0) }) {
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "read_only_tool"
+        )
+    }
+
+    return .ask(
+        message: String.localized("Tool execution requires approval because it reads an absolute path outside the allowed working directories."),
+        reason: "absolute_read_path_requires_approval",
+        approvedReadableRootURL: URL(fileURLWithPath: resolvedPath)
+    )
+}
+
+private func isFileReadTool(_ name: String) -> Bool {
+    ["fs_read", "fs_list", "fs_find", "fs_grep"].contains(name)
+}
+
+private func isPermissionPath(_ path: String, withinRoot root: String) -> Bool {
+    let normalizedPath = normalizedPermissionPath(path)
+    let normalizedRoot = normalizedPermissionPath(root)
+    if normalizedPath == normalizedRoot {
+        return true
+    }
+    let rootWithSeparator = normalizedRoot.hasSuffix("/") ? normalizedRoot : normalizedRoot + "/"
+    return normalizedPath.hasPrefix(rootWithSeparator)
 }
 
 private func parameterAwarePermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {

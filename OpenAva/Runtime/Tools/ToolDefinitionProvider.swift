@@ -31,14 +31,14 @@ extension ToolDefinitionProvider {
 struct ToolHandlerRegistrationContext {
     let workspaceRootURL: URL?
     let modelConfig: AppConfig.LLMModel?
-    let activeRuntimeRootURLProvider: @Sendable () -> URL?
+    let activeSupportRootURLProvider: @Sendable () -> URL?
     let toolInvoker: @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
     let teamToolContextProvider: @Sendable () -> TeamSwarmCoordinator.ToolContext
 
     init(
         workspaceRootURL: URL? = nil,
         modelConfig: AppConfig.LLMModel? = nil,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL? = { nil },
+        activeSupportRootURLProvider: @escaping @Sendable () -> URL? = { nil },
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse = { request, _ in
             BridgeInvokeResponse(
                 id: request.id,
@@ -52,7 +52,7 @@ struct ToolHandlerRegistrationContext {
     ) {
         self.workspaceRootURL = workspaceRootURL
         self.modelConfig = modelConfig
-        self.activeRuntimeRootURLProvider = activeRuntimeRootURLProvider
+        self.activeSupportRootURLProvider = activeSupportRootURLProvider
         self.toolInvoker = toolInvoker
         self.teamToolContextProvider = teamToolContextProvider
     }

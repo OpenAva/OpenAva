@@ -270,6 +270,11 @@ extension FileSystemService: ToolDefinitionProvider {
             return ([resolvedPath] + itemLines).joined(separator: "\n")
         }
 
+        func successResponse(id: String, payload: String, targetPath: String) throws -> BridgeInvokeResponse {
+            let payloadWithContext = try payloadWithNestedWorkspaceAgentsIfNeeded(payload, targetPath: targetPath)
+            return ToolInvocationHelpers.successResponse(id: id, payload: payloadWithContext)
+        }
+
         switch request.command {
         case "fs.read":
             struct Params: Codable {
@@ -287,7 +292,7 @@ extension FileSystemService: ToolDefinitionProvider {
             if result.truncated {
                 text += "\n\n... (truncated — file is \(result.totalChars) chars, limit 128000)"
             }
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.write":
             struct Params: Codable {
@@ -304,7 +309,7 @@ extension FileSystemService: ToolDefinitionProvider {
             let resolvedPath = try await resolvedPathText(params.path)
             let verb = result.created ? "created" : "updated"
             let text = "OK: \(verb) \(result.size) bytes -> \(resolvedPath)"
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.replace":
             struct Params: Codable {
@@ -320,7 +325,7 @@ extension FileSystemService: ToolDefinitionProvider {
             )
             let resolvedPath = try await resolvedPathText(params.path)
             let text = "OK: replaced \(result.occurrences) occurrence\(result.occurrences == 1 ? "" : "s") -> \(resolvedPath)"
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.append":
             struct Params: Codable {
@@ -334,7 +339,7 @@ extension FileSystemService: ToolDefinitionProvider {
             )
             let resolvedPath = try await resolvedPathText(params.path)
             let text = "OK: appended \(result.appendedSize) bytes -> \(resolvedPath)"
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.list":
             struct Params: Codable {
@@ -344,7 +349,7 @@ extension FileSystemService: ToolDefinitionProvider {
             let result = try await listDirectory(path: params.path)
             let resolvedPath = try await resolvedPathText(params.path)
             let text = conciseListText(for: result, resolvedPath: resolvedPath)
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.mkdir":
             struct Params: Codable {
@@ -361,7 +366,7 @@ extension FileSystemService: ToolDefinitionProvider {
             let resolvedPath = try await resolvedPathText(params.path)
             let verb = result.created ? "created" : "already exists"
             let text = "OK: \(verb) directory -> \(resolvedPath)"
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.delete":
             struct Params: Codable {
@@ -371,7 +376,7 @@ extension FileSystemService: ToolDefinitionProvider {
             let result = try await delete(path: params.path)
             let resolvedPath = try await resolvedPathText(params.path)
             let text = "OK: deleted -> \(resolvedPath)"
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path)
 
         case "fs.find":
             struct Params: Codable {
@@ -389,7 +394,7 @@ extension FileSystemService: ToolDefinitionProvider {
                 "[FILE] \(item.path) (\(item.size ?? 0) bytes)"
             }
             let text = itemLines.isEmpty ? "No files matching '\(result.pattern)'" : itemLines.joined(separator: "\n")
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path ?? ".")
 
         case "fs.grep":
             struct Params: Codable {
@@ -411,7 +416,7 @@ extension FileSystemService: ToolDefinitionProvider {
                 "\(match.path):\(match.lineNumber): \(match.line)"
             }
             let text = matchLines.isEmpty ? "No matches for '\(result.pattern)'" : matchLines.joined(separator: "\n")
-            return ToolInvocationHelpers.successResponse(id: request.id, payload: text)
+            return try successResponse(id: request.id, payload: text, targetPath: params.path ?? ".")
 
         default:
             return ToolInvocationHelpers.invalidRequest(id: request.id, "unknown command")

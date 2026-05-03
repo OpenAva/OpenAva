@@ -7,6 +7,7 @@ actor FileSystemService {
     private let maxReadChars: Int
     private let writableBaseDirectoryURL: URL?
     private let readableRootURLs: [URL]
+    private var nestedWorkspaceAgentsSourcePathsBySession: [String: Set<String>] = [:]
 
     init(
         baseDirectoryURL: URL? = nil,
@@ -488,6 +489,40 @@ actor FileSystemService {
         )
     }
 
+    /// Prepend newly discovered nested AGENTS.md workspace instructions to a tool payload.
+    func payloadWithNestedWorkspaceAgentsIfNeeded(_ payload: String, targetPath: String) throws -> String {
+        let metadata = try pathMetadata(path: targetPath)
+        let targetURL = URL(fileURLWithPath: metadata.resolvedPath).standardizedFileURL
+        let workspaceURL = try writableWorkspaceDirectoryURL().standardizedFileURL
+        let sessionKey = ToolRuntime.InvocationContext.sessionID ?? "__default__"
+        let alreadyLoadedSourcePaths = nestedWorkspaceAgentsSourcePathsBySession[sessionKey] ?? []
+        let documents = AgentContextLoader.loadNestedWorkspaceAgentsDocuments(
+            for: targetURL,
+            workspaceRootURL: workspaceURL,
+            alreadyLoadedSourcePaths: alreadyLoadedSourcePaths,
+            fileManager: fileManager
+        )
+
+        guard !documents.isEmpty else {
+            return payload
+        }
+
+        let newlyLoadedSourcePaths = Set(documents.compactMap(\.sourcePath))
+        nestedWorkspaceAgentsSourcePathsBySession[sessionKey] = alreadyLoadedSourcePaths.union(newlyLoadedSourcePaths)
+        let formattedDocuments = documents
+            .map(AgentPromptBuilder.formatInjectedWorkspaceDocument)
+            .joined(separator: "\n\n")
+        let escapedTargetPath = ToolInvocationHelpers.xmlEscaped(targetURL.path)
+
+        return """
+        <workspace-files source="dynamic-agents" reason="Loaded because the preceding file-system tool accessed \(escapedTargetPath). Follow these workspace instructions for subsequent work under this path.">
+        \(formattedDocuments)
+        </workspace-files>
+
+        \(payload)
+        """
+    }
+
     /// Resolve and validate a path for read-only operations.
     private func resolveReadablePath(_ path: String) throws -> URL {
         let workspaceURL = try writableWorkspaceDirectoryURL().standardizedFileURL
@@ -563,7 +598,8 @@ actor FileSystemService {
 
     private func isWithinReadableRoots(_ url: URL, resolveSymlinks: Bool = false) -> Bool {
         let normalizedURL = resolveSymlinks ? resolveSymlinkAwarePath(url) : url.standardizedFileURL
-        return readableRootURLs.contains { rootURL in
+        let roots = readableRootURLs + ToolRuntime.InvocationContext.approvedReadableRootURLs
+        return roots.contains { rootURL in
             let normalizedRootURL = resolveSymlinks ? resolveSymlinkAwarePath(rootURL) : rootURL.standardizedFileURL
             return isPathWithinRoot(normalizedURL, root: normalizedRootURL)
         }

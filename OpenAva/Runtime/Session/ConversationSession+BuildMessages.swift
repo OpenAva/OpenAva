@@ -35,6 +35,7 @@ extension ConversationSession {
         messages
             .getMessagesAfterCompactBoundary(includingBoundary: false)
             .filter { !$0.isCompactBoundary }
+            .filter { !$0.isTransientExecutionError }
     }
 
     func buildRequestMessages(

@@ -162,12 +162,14 @@ open class ChatViewController: UIViewController {
         public var agentEmoji: String?
         public var modelName: String
         public var providerName: String?
+        public var teamMemberCount: Int?
 
-        public init(agentName: String, agentEmoji: String? = nil, modelName: String, providerName: String? = nil) {
+        public init(agentName: String, agentEmoji: String? = nil, modelName: String, providerName: String? = nil, teamMemberCount: Int? = nil) {
             self.agentName = agentName
             self.agentEmoji = agentEmoji
             self.modelName = modelName
             self.providerName = providerName
+            self.teamMemberCount = teamMemberCount
         }
     }
 
@@ -249,7 +251,7 @@ open class ChatViewController: UIViewController {
 
     private lazy var avatarButton: UIButton = .init(type: .system)
     private weak var currentSession: ConversationSession?
-    private var headerState: HeaderState = .init(agentName: "Assistant", agentEmoji: nil, modelName: "Not Selected")
+    private var headerState: HeaderState = .init(agentName: "Assistant", agentEmoji: nil, modelName: "Not Selected", providerName: nil, teamMemberCount: nil)
     private lazy var dismissKeyboardTapGesture: UITapGestureRecognizer = {
         let gesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTapToDismiss))
         gesture.cancelsTouchesInView = false
@@ -261,12 +263,38 @@ open class ChatViewController: UIViewController {
     private var keyboardHeight: CGFloat = 0
     private var latestContextUsageSnapshot: ContextUsageSnapshot?
     private var contextUsageRefreshTask: Task<Void, Never>?
+    private var presentedToolPermissionRequestID: String?
 
     private var draftInputObject: ChatInputContent?
     private var providedSession: ConversationSession?
     var promptSubmissionHandler: ConversationPromptSubmissionHandler?
 
     private lazy var titleBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: self, action: #selector(handleTitleTap))
+
+    private lazy var customTitleView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 2
+
+        let titleLabel = UILabel()
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.tag = 101
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.font = .systemFont(ofSize: 12)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.tag = 102
+
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(subtitleLabel)
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTitleTap))
+        stack.addGestureRecognizer(tap)
+        stack.isUserInteractionEnabled = true
+
+        return stack
+    }()
 
     #if targetEnvironment(macCatalyst)
         private lazy var catalystTitlebarToolbarCoordinator = CatalystTitlebarToolbarCoordinator(
@@ -576,6 +604,7 @@ open class ChatViewController: UIViewController {
             let publishers = [
                 NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification),
                 NotificationCenter.default.publisher(for: NSNotification.Name("NSApplicationDidBecomeActiveNotification")),
+                NotificationCenter.default.publisher(for: NSNotification.Name("NSApplicationDidChangeScreenParametersNotification")),
             ]
             Publishers.MergeMany(publishers)
                 .sink { [weak self] _ in
@@ -587,10 +616,6 @@ open class ChatViewController: UIViewController {
                         self.chatInputView.setNeedsLayout()
                         self.chatInputView.layoutIfNeeded()
                         self.chatInputView.setNeedsDisplay()
-
-                        self.messageListView.setNeedsLayout()
-                        self.messageListView.layoutIfNeeded()
-                        self.messageListView.setNeedsDisplay()
 
                         self.view.setNeedsLayout()
                         self.view.layoutIfNeeded()
@@ -658,6 +683,15 @@ open class ChatViewController: UIViewController {
                 }
             }
             .store(in: &sessionCancellables)
+        session.pendingToolPermissionsDidChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak session] requests in
+                guard let self, let session else { return }
+                guard self.currentSession === session else { return }
+                self.presentNextToolPermissionRequestIfNeeded(requests, session: session)
+            }
+            .store(in: &sessionCancellables)
+        presentNextToolPermissionRequestIfNeeded(session.pendingToolPermissionRequests, session: session)
         session.usageDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -665,6 +699,75 @@ open class ChatViewController: UIViewController {
             }
             .store(in: &sessionCancellables)
         scheduleContextUsageRefresh()
+    }
+
+    private func presentNextToolPermissionRequestIfNeeded(
+        _ requests: [ConversationSession.PendingToolPermissionRequest],
+        session: ConversationSession
+    ) {
+        guard isViewLoaded, currentSession === session else { return }
+        guard let request = requests.first else {
+            presentedToolPermissionRequestID = nil
+            return
+        }
+        guard presentedToolPermissionRequestID == nil else { return }
+        guard presentedViewController == nil else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak session] in
+                guard let self, let session, self.currentSession === session else { return }
+                self.presentNextToolPermissionRequestIfNeeded(session.pendingToolPermissionRequests, session: session)
+            }
+            return
+        }
+
+        presentedToolPermissionRequestID = request.id
+
+        let message = request.message ?? ""
+        let apiName = request.apiName
+        let formattedArguments = formattedToolPermissionArguments(request.arguments)
+
+        let controller = ChatToolPermissionViewController(
+            toolName: request.toolName,
+            message: message,
+            apiName: apiName,
+            argumentsText: formattedArguments
+        )
+
+        controller.delegate = self
+
+        // Save request for delegate callback
+        self.activeToolPermissionRequest = request
+
+        present(controller, animated: true)
+    }
+
+    private var activeToolPermissionRequest: ConversationSession.PendingToolPermissionRequest?
+
+    private func finishPresentedToolPermissionRequest(
+        session: ConversationSession,
+        resolve: () -> Void
+    ) {
+        presentedToolPermissionRequestID = nil
+        activeToolPermissionRequest = nil
+        resolve()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self, weak session] in
+            guard let self, let session, self.currentSession === session else { return }
+            self.presentNextToolPermissionRequestIfNeeded(session.pendingToolPermissionRequests, session: session)
+        }
+    }
+
+    private func formattedToolPermissionArguments(_ arguments: String) -> String? {
+        guard let data = arguments.data(using: .utf8) else { return nil }
+        guard let object = try? JSONSerialization.jsonObject(with: data) else {
+            let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard JSONSerialization.isValidJSONObject(object),
+              let prettyData = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let prettyText = String(data: prettyData, encoding: .utf8)
+        else {
+            return nil
+        }
+        return prettyText
     }
 
     /// Updates `autoCompactEnabled` on the active session's chat model without recreating the session.
@@ -876,6 +979,7 @@ open class ChatViewController: UIViewController {
     public func updateHeader(_ state: HeaderState) {
         guard headerState != state else { return }
         headerState = state
+        messageListView.isTeamChat = (state.teamMemberCount != nil)
         applyHeaderStateToNavigationTitle()
         chatInputView.selectedModelName = headerState.modelName
     }
@@ -891,7 +995,20 @@ open class ChatViewController: UIViewController {
             modelName: headerState.modelName
         ).principalTitleText
 
-        navigationItem.title = title
+        if let titleLabel = customTitleView.viewWithTag(101) as? UILabel {
+            titleLabel.text = title
+        }
+
+        if let subtitleLabel = customTitleView.viewWithTag(102) as? UILabel {
+            if let count = headerState.teamMemberCount, count > 0 {
+                subtitleLabel.text = "\(count) Members Online"
+                subtitleLabel.isHidden = false
+            } else {
+                subtitleLabel.isHidden = true
+            }
+        }
+
+        navigationItem.titleView = customTitleView
         titleBarButtonItem.title = title
         if isViewLoaded {
             view.setNeedsLayout()
@@ -1013,6 +1130,49 @@ extension ChatViewController: ChatInputDelegate {
         }
         input.refill(withText: prompt, attachments: [])
         input.focus()
+    }
+}
+
+extension ChatViewController: ChatToolPermissionViewControllerDelegate {
+    func toolPermissionViewController(_ controller: ChatToolPermissionViewController, didSelectAction action: ChatToolPermissionViewController.Action) {
+        controller.dismiss(animated: true) { [weak self] in
+            guard let self = self,
+                  let session = self.currentSession,
+                  let request = self.activeToolPermissionRequest else { return }
+
+            switch action {
+            case .allowOnce:
+                self.finishPresentedToolPermissionRequest(session: session) {
+                    session.approveToolPermissionRequest(id: request.id)
+                }
+            case .alwaysAllowExact:
+                self.finishPresentedToolPermissionRequest(session: session) {
+                    session.addPersistedToolPermissionRule(
+                        ToolPermissionRule(
+                            behavior: .allow,
+                            toolName: request.apiName,
+                            matcher: .argumentsEqual(request.arguments)
+                        )
+                    )
+                    session.approveToolPermissionRequest(id: request.id)
+                }
+            case .alwaysAllowTool:
+                self.finishPresentedToolPermissionRequest(session: session) {
+                    session.addPersistedToolPermissionRule(
+                        ToolPermissionRule(
+                            behavior: .allow,
+                            toolName: request.apiName,
+                            matcher: .tool
+                        )
+                    )
+                    session.approveToolPermissionRequest(id: request.id)
+                }
+            case .deny:
+                self.finishPresentedToolPermissionRequest(session: session) {
+                    session.rejectToolPermissionRequest(id: request.id)
+                }
+            }
+        }
     }
 }
 

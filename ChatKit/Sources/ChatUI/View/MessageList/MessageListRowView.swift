@@ -18,8 +18,19 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         }
     }
 
+    static let agentAvatarSize: CGFloat = 32
+    static let agentAvatarSpacing: CGFloat = 10
+    static let agentHeaderHeight: CGFloat = agentAvatarSize
+    static let agentContentLeadingOffset = agentAvatarSize + agentAvatarSpacing
+
     let contentView = UIView()
     var contextMenuProvider: ((CGPoint) -> UIMenu?)?
+
+    /// Horizontal inset applied to `contentView` within the row's safe area.
+    /// Set by the data source per entry; decoupled from message identity.
+    var contentLeadingInset: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
 
     /// Tiny transparent anchor used as UITargetedPreview target so no content
     /// is lifted/zoomed during context menu presentation.
@@ -33,6 +44,7 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = false // tool tip will extend out
+
         addSubview(contentView)
         contentView.isUserInteractionEnabled = true
         contentView.addSubview(contextMenuAnchor)
@@ -50,11 +62,13 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
         super.layoutSubviews()
 
         let insets = MessageListView.listRowInsets
+        let leftOffset = contentLeadingInset
+
         contentView.frame = CGRect(
-            x: insets.left,
+            x: insets.left + leftOffset,
             y: 0,
-            width: bounds.width - insets.horizontal,
-            height: bounds.height - insets.bottom
+            width: bounds.width - insets.horizontal - leftOffset,
+            height: max(0, bounds.height - insets.bottom)
         )
     }
 
@@ -63,6 +77,7 @@ class MessageListRowView: ListRowView, UIContextMenuInteractionDelegate {
     override func prepareForReuse() {
         super.prepareForReuse()
         contextMenuProvider = nil
+        contentLeadingInset = 0
 
         // clear any LTXLabel selection
         var queue = subviews

@@ -9,6 +9,16 @@ import Foundation
 import MarkdownView
 
 extension MessageListView {
+    static func hasAgentIdentity(name: String?, emoji: String?) -> Bool {
+        if let agentName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !agentName.isEmpty {
+            return true
+        }
+        if let agentEmoji = emoji?.trimmingCharacters(in: .whitespacesAndNewlines), !agentEmoji.isEmpty {
+            return true
+        }
+        return false
+    }
+
     /// Describes where a visible turn came from so one transcript can carry
     /// human, automation, and team-originated messages without splitting flows.
     struct MessageSourceRepresentation: Hashable {
@@ -119,6 +129,39 @@ extension MessageListView {
         var thinkingDuration: TimeInterval
         var agentName: String?
         var agentEmoji: String?
+    }
+
+    struct AgentHeaderRepresentation: Hashable {
+        let id: String
+        let messageID: String
+        let createdAt: Date
+        let name: String?
+        let emoji: String?
+
+        var displayName: String {
+            if let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedName.isEmpty {
+                return trimmedName
+            }
+            return "Assistant"
+        }
+
+        var displayEmoji: String {
+            if let trimmedEmoji = emoji?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedEmoji.isEmpty {
+                return trimmedEmoji
+            }
+            return "🤖"
+        }
+    }
+
+    struct ExecutionErrorRepresentation: Hashable {
+        let id: String
+        let messageID: String
+        let createdAt: Date
+        let title: String
+        let message: String
+        let details: String?
+        let agentName: String?
+        let agentEmoji: String?
     }
 
     struct Attachments: Hashable {
@@ -255,8 +298,10 @@ extension MessageListView {
     enum Entry: Hashable, Identifiable {
         case userContent(String, MessageRepresentation)
         case userAttachment(String, Attachments)
+        case agentHeader(String, AgentHeaderRepresentation)
         case reasoningContent(String, MessageRepresentation)
         case responseContent(String, MessageRepresentation)
+        case executionError(String, ExecutionErrorRepresentation)
         case hint(String, String)
         case toolCallHint(String, ToolCallRepresentation)
         case toolResultContent(String, ToolResultRepresentation)
@@ -273,8 +318,10 @@ extension MessageListView {
             switch self {
             case let .userContent(id, _): "user-\(id)"
             case let .userAttachment(id, _): "user-attachment-\(id)"
+            case let .agentHeader(id, _): "agent-header-\(id)"
             case let .reasoningContent(id, _): "reasoning-\(id)"
             case let .responseContent(id, _): "response-\(id)"
+            case let .executionError(id, _): "execution-error-\(id)"
             case let .hint(id, _): "hint-\(id)"
             case let .toolCallHint(id, _): "tool-\(id)"
             case let .toolResultContent(id, _): "tool-result-\(id)"
@@ -295,6 +342,21 @@ extension MessageListView {
         var entries: [Entry] = []
         var latestDisplayedDay: Date?
         var inlineRenderedToolResultIDs: Set<String> = []
+
+        // Reset per-entry leading inset table; rebuilt as entries are emitted.
+        entryLeadingInsets.removeAll(keepingCapacity: true)
+
+        // Current horizontal inset applied to subsequent entries.
+        // Pushed to `agentContentLeadingOffset` while inside an agent turn
+        // (i.e., after an agent header), reset to 0 on non-agent boundaries.
+        var currentLeadingInset: CGFloat = 0
+
+        func append(_ entry: Entry, leadingInset: CGFloat) {
+            entries.append(entry)
+            if leadingInset != 0 {
+                entryLeadingInsets[entry.id] = leadingInset
+            }
+        }
 
         func shouldDisplayInTranscript(_ message: ConversationMessage) -> Bool {
             if message.isCompactSummary {
@@ -357,6 +419,65 @@ extension MessageListView {
             return hasVisibleReasoning
         }
 
+        func normalizedAgentIdentity(for message: ConversationMessage) -> String? {
+            let trimmedName = message.metadata["agentName"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let trimmedEmoji = message.metadata["agentEmoji"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedName.isEmpty || !trimmedEmoji.isEmpty else { return nil }
+
+            return "\(trimmedName.lowercased())|\(trimmedEmoji)"
+        }
+
+        func agentHeaderRepresentation(for message: ConversationMessage) -> AgentHeaderRepresentation? {
+            let name = message.metadata["agentName"]
+            let emoji = message.metadata["agentEmoji"]
+            let hasName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let hasEmoji = emoji?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            guard hasName || hasEmoji else { return nil }
+
+            return AgentHeaderRepresentation(
+                id: "\(message.id).agent-header",
+                messageID: message.id,
+                createdAt: message.createdAt,
+                name: name,
+                emoji: emoji
+            )
+        }
+
+        func isTodoWriteToolName(_ name: String?) -> Bool {
+            let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed == "TodoWrite" || trimmed == "todo_write"
+        }
+
+        func isTodoWriteToolCall(_ toolCall: ToolCallContentPart) -> Bool {
+            isTodoWriteToolName(toolCall.toolName) || isTodoWriteToolName(toolCall.apiName)
+        }
+
+        func assistantMessageHasVisibleContent(_ message: ConversationMessage) -> Bool {
+            if message.isTransientExecutionError {
+                return true
+            }
+
+            for part in message.parts {
+                switch part {
+                case let .reasoning(reasoningPart):
+                    if !reasoningPart.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return true
+                    }
+                case let .text(textPart):
+                    if !textPart.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return true
+                    }
+                case let .toolCall(toolCall):
+                    if !isTodoWriteToolCall(toolCall) {
+                        return true
+                    }
+                case .toolResult, .image, .audio, .file:
+                    return true
+                }
+            }
+            return false
+        }
+
         func assistantMessageID(forToolResult toolCallID: String, startingAt index: Int) -> String? {
             if index > 0 {
                 for i in stride(from: index - 1, through: 0, by: -1) {
@@ -390,6 +511,8 @@ extension MessageListView {
             return nil
         }
 
+        var activeAgentIdentity: String?
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
 
@@ -398,10 +521,11 @@ extension MessageListView {
 
         func checkAddDateHint(_ date: Date) {
             if let latestDisplayedDay, Calendar.current.isDate(date, inSameDayAs: latestDisplayedDay) { return }
+            activeAgentIdentity = nil
             latestDisplayedDay = date
             let hintText = dateFormatter.string(from: date)
             let dayKey = dayKeyFormatter.string(from: date)
-            entries.append(.hint("date.\(dayKey)", hintText))
+            append(.hint("date.\(dayKey)", hintText), leadingInset: 0)
         }
 
         for (messageIndex, message) in messages.enumerated() {
@@ -410,6 +534,37 @@ extension MessageListView {
             }
 
             checkAddDateHint(message.createdAt)
+
+            // Determine the content leading inset for entries produced by this message.
+            // Agent-branded assistant turns (and their associated tool rows) are
+            // indented to align with the agent header's content column.
+            let messageLeadingInset: CGFloat
+            switch message.role {
+            case .assistant:
+                messageLeadingInset = MessageListView.hasAgentIdentity(
+                    name: message.metadata["agentName"],
+                    emoji: message.metadata["agentEmoji"]
+                ) ? MessageListRowView.agentContentLeadingOffset : 0
+            case .tool:
+                // Tool results are visually part of the owning assistant turn.
+                if let toolResult = message.parts.compactMap({ part -> ToolResultContentPart? in
+                    guard case let .toolResult(value) = part else { return nil }
+                    return value
+                }).first,
+                    let assistantID = assistantMessageID(forToolResult: toolResult.toolCallID, startingAt: messageIndex),
+                    let assistantMessage = messages.first(where: { $0.id == assistantID })
+                {
+                    messageLeadingInset = MessageListView.hasAgentIdentity(
+                        name: assistantMessage.metadata["agentName"],
+                        emoji: assistantMessage.metadata["agentEmoji"]
+                    ) ? MessageListRowView.agentContentLeadingOffset : 0
+                } else {
+                    messageLeadingInset = 0
+                }
+            default:
+                messageLeadingInset = 0
+            }
+            currentLeadingInset = messageLeadingInset
 
             let textContent = message.textContent
             let isThinking = isReasoningStillStreaming(in: message)
@@ -436,6 +591,47 @@ extension MessageListView {
                 agentName: message.metadata["agentName"],
                 agentEmoji: message.metadata["agentEmoji"]
             )
+
+            let hasVisibleAssistantContent = message.role == .assistant && assistantMessageHasVisibleContent(message)
+            if hasVisibleAssistantContent,
+               let agentIdentity = normalizedAgentIdentity(for: message),
+               let agentHeader = agentHeaderRepresentation(for: message)
+            {
+                if agentIdentity != activeAgentIdentity {
+                    // The agent header itself owns the avatar column; do not indent it.
+                    append(.agentHeader(agentHeader.id, agentHeader), leadingInset: 0)
+                }
+                activeAgentIdentity = agentIdentity
+            } else if message.role == .user || message.role == .system || hasVisibleAssistantContent {
+                activeAgentIdentity = nil
+            }
+
+            if message.isTransientExecutionError {
+                let errorID = "\(message.id).execution-error"
+                let title = message.executionErrorTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = message.executionErrorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let errorInset: CGFloat = MessageListView.hasAgentIdentity(
+                    name: message.metadata["agentName"],
+                    emoji: message.metadata["agentEmoji"]
+                ) ? MessageListRowView.agentContentLeadingOffset : 0
+                append(
+                    .executionError(
+                        errorID,
+                        ExecutionErrorRepresentation(
+                            id: errorID,
+                            messageID: message.id,
+                            createdAt: message.createdAt,
+                            title: title?.isEmpty == false ? title! : String.localized("Request failed"),
+                            message: summary?.isEmpty == false ? summary! : textContent,
+                            details: message.executionErrorDetails,
+                            agentName: message.metadata["agentName"],
+                            agentEmoji: message.metadata["agentEmoji"]
+                        )
+                    ),
+                    leadingInset: errorInset
+                )
+                continue
+            }
 
             switch message.role {
             case .user:
@@ -469,10 +665,10 @@ extension MessageListView {
                     }
                 }
                 if !attachmentItems.isEmpty {
-                    entries.append(.userAttachment(message.id, .init(items: attachmentItems, isTrailingAligned: true)))
+                    append(.userAttachment(message.id, .init(items: attachmentItems, isTrailingAligned: true)), leadingInset: currentLeadingInset)
                 }
                 if !textContent.isEmpty {
-                    entries.append(.userContent(message.id, representation))
+                    append(.userContent(message.id, representation), leadingInset: currentLeadingInset)
                 }
 
             case .assistant:
@@ -494,11 +690,17 @@ extension MessageListView {
                             agentName: message.metadata["agentName"],
                             agentEmoji: message.metadata["agentEmoji"]
                         )
-                        entries.append(.reasoningContent(reasoningPart.id, reasoningRep))
+                        append(.reasoningContent(reasoningPart.id, reasoningRep), leadingInset: currentLeadingInset)
                     case let .toolCall(tc):
                         let matchingToolResultMessage = firstToolResultMessage(for: tc.id)
                         let matchingResult = matchingToolResultMessage?.result
-                        entries.append(
+                        if isTodoWriteToolCall(tc) {
+                            if let matchingResult {
+                                inlineRenderedToolResultIDs.insert(matchingResult.id)
+                            }
+                            continue
+                        }
+                        append(
                             .toolCallHint(
                                 tc.id,
                                 ToolCallRepresentation(
@@ -507,7 +709,8 @@ extension MessageListView {
                                     hasResult: matchingResult != nil,
                                     isExpanded: !(matchingResult?.isCollapsed ?? true)
                                 )
-                            )
+                            ),
+                            leadingInset: currentLeadingInset
                         )
                         if let matchingResult, !matchingResult.isCollapsed {
                             let representation = ToolResultRepresentation(
@@ -515,7 +718,10 @@ extension MessageListView {
                                 result: matchingResult.result
                             )
                             if !representation.isEmpty {
-                                entries.append(.toolResultContent(matchingResult.id, representation))
+                                append(
+                                    .toolResultContent(matchingResult.id, representation),
+                                    leadingInset: currentLeadingInset
+                                )
                                 inlineRenderedToolResultIDs.insert(matchingResult.id)
                             }
                         }
@@ -552,7 +758,7 @@ extension MessageListView {
                                                     agentName: message.metadata["agentName"],
                                                     agentEmoji: message.metadata["agentEmoji"]
                                                 )
-                                                entries.append(.responseContent(segmentID, textRep))
+                                                append(.responseContent(segmentID, textRep), leadingInset: currentLeadingInset)
                                             case let .media(media):
                                                 let mediaID = "\(textPart.id).media.\(index).\(nestedIndex).\(mediaIndex)"
                                                 let mediaRep = MediaRepresentation(
@@ -563,7 +769,7 @@ extension MessageListView {
                                                     url: media.url,
                                                     altText: media.altText
                                                 )
-                                                entries.append(.mediaContent(mediaID, mediaRep))
+                                                append(.mediaContent(mediaID, mediaRep), leadingInset: currentLeadingInset)
                                             case let .chart(spec, rawBlock):
                                                 let chartID = "\(textPart.id).chart.\(index).\(nestedIndex).\(mediaIndex)"
                                                 let chartRep = ChartRepresentation(
@@ -573,7 +779,7 @@ extension MessageListView {
                                                     spec: spec,
                                                     rawBlock: rawBlock
                                                 )
-                                                entries.append(.chartContent(chartID, chartRep))
+                                                append(.chartContent(chartID, chartRep), leadingInset: currentLeadingInset)
                                             case let .map(spec, rawBlock):
                                                 let mapID = "\(textPart.id).map.\(index).\(nestedIndex).\(mediaIndex)"
                                                 let mapRep = MapRepresentation(
@@ -583,7 +789,7 @@ extension MessageListView {
                                                     spec: spec,
                                                     rawBlock: rawBlock
                                                 )
-                                                entries.append(.mapContent(mapID, mapRep))
+                                                append(.mapContent(mapID, mapRep), leadingInset: currentLeadingInset)
                                             }
                                         }
                                     case let .map(spec, rawBlock):
@@ -595,7 +801,7 @@ extension MessageListView {
                                             spec: spec,
                                             rawBlock: rawBlock
                                         )
-                                        entries.append(.mapContent(mapID, mapRep))
+                                        append(.mapContent(mapID, mapRep), leadingInset: currentLeadingInset)
                                     case let .chart(spec, rawBlock):
                                         let chartID = "\(textPart.id).chart.\(index).\(nestedIndex)"
                                         let chartRep = ChartRepresentation(
@@ -605,7 +811,7 @@ extension MessageListView {
                                             spec: spec,
                                             rawBlock: rawBlock
                                         )
-                                        entries.append(.chartContent(chartID, chartRep))
+                                        append(.chartContent(chartID, chartRep), leadingInset: currentLeadingInset)
                                     case let .media(media):
                                         let mediaID = "\(textPart.id).media.\(index).\(nestedIndex)"
                                         let mediaRep = MediaRepresentation(
@@ -616,7 +822,7 @@ extension MessageListView {
                                             url: media.url,
                                             altText: media.altText
                                         )
-                                        entries.append(.mediaContent(mediaID, mediaRep))
+                                        append(.mediaContent(mediaID, mediaRep), leadingInset: currentLeadingInset)
                                     }
                                 }
                             case let .chart(spec, rawBlock):
@@ -628,7 +834,7 @@ extension MessageListView {
                                     spec: spec,
                                     rawBlock: rawBlock
                                 )
-                                entries.append(.chartContent(chartID, chartRep))
+                                append(.chartContent(chartID, chartRep), leadingInset: currentLeadingInset)
                             case let .map(spec, rawBlock):
                                 let mapID = "\(textPart.id).map.\(index)"
                                 let mapRep = MapRepresentation(
@@ -638,7 +844,7 @@ extension MessageListView {
                                     spec: spec,
                                     rawBlock: rawBlock
                                 )
-                                entries.append(.mapContent(mapID, mapRep))
+                                append(.mapContent(mapID, mapRep), leadingInset: currentLeadingInset)
                             case let .media(media):
                                 let mediaID = "\(textPart.id).media.\(index)"
                                 let mediaRep = MediaRepresentation(
@@ -649,7 +855,7 @@ extension MessageListView {
                                     url: media.url,
                                     altText: media.altText
                                 )
-                                entries.append(.mediaContent(mediaID, mediaRep))
+                                append(.mediaContent(mediaID, mediaRep), leadingInset: currentLeadingInset)
                             }
                         }
                     case let .file(filePart):
@@ -665,11 +871,12 @@ extension MessageListView {
                             storageFilename: storageFilename,
                             sourceFilePath: filePart.sourceFilePath
                         )
-                        entries.append(
+                        append(
                             .userAttachment(
                                 "\(message.id).file.\(filePart.id)",
                                 .init(items: [attachment], isTrailingAligned: false)
-                            )
+                            ),
+                            leadingInset: currentLeadingInset
                         )
                     case let .toolResult(toolResult):
                         continue
@@ -688,7 +895,8 @@ extension MessageListView {
                 guard !toolResult.isCollapsed else { break }
                 guard !inlineRenderedToolResultIDs.contains(toolResult.id) else { break }
                 let assistantID = assistantMessageID(forToolResult: toolResult.toolCallID, startingAt: messageIndex) ?? message.id
-                let toolCall = messages.first(where: { $0.id == assistantID })?.parts.first { part in
+                let assistantMessage = messages.first(where: { $0.id == assistantID })
+                let toolCall = assistantMessage?.parts.first { part in
                     guard case let .toolCall(value) = part else { return false }
                     return value.id == toolResult.toolCallID
                 }
@@ -696,16 +904,19 @@ extension MessageListView {
                     guard case let .toolCall(value)? = toolCall else { return "" }
                     return value.parameters
                 }()
+                if case let .toolCall(value)? = toolCall, isTodoWriteToolCall(value) {
+                    break
+                }
                 let representation = ToolResultRepresentation(
                     parameters: parameters,
                     result: toolResult.result
                 )
                 guard !representation.isEmpty else { break }
-                entries.append(.toolResultContent(toolResult.id, representation))
+                append(.toolResultContent(toolResult.id, representation), leadingInset: currentLeadingInset)
 
             case .system:
                 if message.isTodoList, let metadata = message.todoListMetadata {
-                    entries.append(
+                    append(
                         .todoList(
                             message.id,
                             TodoListRepresentation(
@@ -714,13 +925,14 @@ extension MessageListView {
                                 createdAt: message.createdAt,
                                 metadata: metadata
                             )
-                        )
+                        ),
+                        leadingInset: currentLeadingInset
                     )
                     continue
                 }
 
                 if message.isSubAgentTask, let metadata = message.subAgentTaskMetadata {
-                    entries.append(
+                    append(
                         .subAgentTask(
                             message.id,
                             SubAgentTaskRepresentation(
@@ -741,13 +953,14 @@ extension MessageListView {
                                 recentActivities: metadata.recentActivities ?? [],
                                 isExpanded: expandedSubAgentMessageIDs.contains(message.id)
                             )
-                        )
+                        ),
+                        leadingInset: currentLeadingInset
                     )
                     continue
                 }
 
                 guard message.isCompactBoundary else { break }
-                entries.append(
+                append(
                     .compactBoundary(
                         message.id,
                         CompactBoundaryRepresentation(
@@ -756,7 +969,8 @@ extension MessageListView {
                             title: compactBoundaryTitle(for: message.compactBoundaryMetadata),
                             detail: compactBoundaryDetail(for: message.compactBoundaryMetadata)
                         )
-                    )
+                    ),
+                    leadingInset: currentLeadingInset
                 )
 
             default:
@@ -765,7 +979,7 @@ extension MessageListView {
         }
 
         if showsInterruptedRetryAction {
-            entries.append(.interruptionRetry(String.localized("Task execution interrupted, please retry.")))
+            append(.interruptionRetry(String.localized("Task execution interrupted, please retry.")), leadingInset: 0)
         }
 
         return entries

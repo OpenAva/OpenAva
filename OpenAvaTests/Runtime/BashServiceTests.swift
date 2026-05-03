@@ -1,3 +1,4 @@
+import Darwin
 import OpenClawKit
 import XCTest
 @testable import OpenAva
@@ -8,7 +9,7 @@ final class BashServiceTests: XCTestCase {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -39,7 +40,7 @@ final class BashServiceTests: XCTestCase {
             try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -65,7 +66,7 @@ final class BashServiceTests: XCTestCase {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -93,7 +94,7 @@ final class BashServiceTests: XCTestCase {
                 try? FileManager.default.removeItem(at: outsideURL)
             }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -115,7 +116,7 @@ final class BashServiceTests: XCTestCase {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -137,7 +138,7 @@ final class BashServiceTests: XCTestCase {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -171,7 +172,7 @@ final class BashServiceTests: XCTestCase {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 
@@ -190,11 +191,107 @@ final class BashServiceTests: XCTestCase {
             XCTAssertTrue(response.error?.message.contains("too complex") == true)
         }
 
+        func testBashExecuteHandlerAddsUserNodeBinsToPath() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            let homeURL = makeTemporaryDirectory(named: "bash-service-home")
+            defer {
+                try? FileManager.default.removeItem(at: workspaceURL)
+                try? FileManager.default.removeItem(at: homeURL)
+            }
+
+            let fakeBinURL = homeURL
+                .appendingPathComponent(".nvm", isDirectory: true)
+                .appendingPathComponent("versions", isDirectory: true)
+                .appendingPathComponent("node", isDirectory: true)
+                .appendingPathComponent("v22.22.2", isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+            let fakeToolURL = fakeBinURL.appendingPathComponent("openava-fake-node-cli", isDirectory: false)
+            try "#!/bin/sh\nprintf fake-node-cli".write(to: fakeToolURL, atomically: true, encoding: .utf8)
+            chmod(fakeToolURL.path, 0o755)
+
+            let service = BashService(
+                workspaceRootURL: workspaceURL,
+                supportRootURL: workspaceURL,
+                environmentProvider: {
+                    [
+                        "HOME": homeURL.path,
+                        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                        "SHELL": "/bin/zsh",
+                    ]
+                },
+                homeDirectoryURL: homeURL
+            )
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let response = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-user-node-bin",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"openava-fake-node-cli"}"#
+                )
+            )
+
+            XCTAssertTrue(response.ok)
+            let payloadText = try payloadText(from: response)
+            XCTAssertTrue(payloadText.contains("- status: completed"))
+            XCTAssertTrue(payloadText.contains("- exit_code: 0"))
+            XCTAssertTrue(payloadText.contains("fake-node-cli"))
+        }
+
+        func testBashExecuteHandlerLoadsShellSnapshotAliasesAndFunctions() async throws {
+            let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
+            let homeURL = makeTemporaryDirectory(named: "bash-service-home")
+            defer {
+                try? FileManager.default.removeItem(at: workspaceURL)
+                try? FileManager.default.removeItem(at: homeURL)
+            }
+
+            let zshrcURL = homeURL.appendingPathComponent(".zshrc", isDirectory: false)
+            try """
+            alias openava_snapshot_alias='printf alias-from-snapshot'
+            openava_snapshot_function() { printf function-from-snapshot; }
+            """.write(to: zshrcURL, atomically: true, encoding: .utf8)
+
+            let service = BashService(
+                workspaceRootURL: workspaceURL,
+                supportRootURL: workspaceURL,
+                environmentProvider: {
+                    [
+                        "HOME": homeURL.path,
+                        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                        "SHELL": "/bin/zsh",
+                    ]
+                },
+                homeDirectoryURL: homeURL
+            )
+            var handlers: [String: ToolHandler] = [:]
+            service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
+
+            let handler = try XCTUnwrap(handlers["bash.execute"])
+            let response = try await handler(
+                BridgeInvokeRequest(
+                    id: "bash-shell-snapshot",
+                    command: "bash.execute",
+                    paramsJSON: #"{"command":"openava_snapshot_alias && openava_snapshot_function"}"#
+                )
+            )
+
+            XCTAssertTrue(response.ok)
+            let payloadText = try payloadText(from: response)
+            XCTAssertTrue(payloadText.contains("- status: completed"))
+            XCTAssertTrue(payloadText.contains("- exit_code: 0"))
+            XCTAssertTrue(payloadText.contains("alias-from-snapshot"))
+            XCTAssertTrue(payloadText.contains("function-from-snapshot"))
+        }
+
         func testBashExecuteHandlerSupportsBackgroundExecution() async throws {
             let workspaceURL = makeTemporaryDirectory(named: "bash-service-tests")
             defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
-            let service = BashService(workspaceRootURL: workspaceURL, runtimeRootURL: workspaceURL)
+            let service = BashService(workspaceRootURL: workspaceURL, supportRootURL: workspaceURL)
             var handlers: [String: ToolHandler] = [:]
             service.registerHandlers(into: &handlers, context: .init(workspaceRootURL: workspaceURL))
 

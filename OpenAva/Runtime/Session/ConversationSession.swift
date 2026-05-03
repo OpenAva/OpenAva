@@ -65,19 +65,22 @@ public final class ConversationSession: Identifiable, Sendable {
         public let delegate: SessionDelegate?
         public let systemPromptProvider: SystemPromptProvider
         public let collapseReasoningWhenComplete: Bool
+        public let toolPermissionRulesRootURL: URL?
 
         public init(
             storage: StorageProvider,
             tools: ToolProvider? = nil,
             delegate: SessionDelegate? = nil,
             systemPromptProvider: @escaping SystemPromptProvider = { "You are a helpful assistant." },
-            collapseReasoningWhenComplete: Bool = true
+            collapseReasoningWhenComplete: Bool = true,
+            toolPermissionRulesRootURL: URL? = nil
         ) {
             self.storage = storage
             self.tools = tools
             self.delegate = delegate
             self.systemPromptProvider = systemPromptProvider
             self.collapseReasoningWhenComplete = collapseReasoningWhenComplete
+            self.toolPermissionRulesRootURL = toolPermissionRulesRootURL
         }
     }
 
@@ -94,6 +97,7 @@ public final class ConversationSession: Identifiable, Sendable {
     var sessionDelegate: SessionDelegate?
     var systemPromptProvider: SystemPromptProvider
     var collapseReasoningWhenComplete: Bool
+    private var toolPermissionRulesRootURL: URL?
 
     // MARK: - Reactive
 
@@ -147,30 +151,68 @@ public final class ConversationSession: Identifiable, Sendable {
 
     var toolPermissionMode: ToolPermissionMode = .default
     private(set) var sessionToolPermissionRules: [ToolPermissionRule] = []
+    private(set) var sessionApprovedReadableRootURLs: [URL] = []
+
+    func addSessionApprovedReadableRootURL(_ url: URL) {
+        let standardizedURL = url.standardizedFileURL
+        guard !sessionApprovedReadableRootURLs.contains(where: { $0.path == standardizedURL.path }) else {
+            return
+        }
+        sessionApprovedReadableRootURLs.append(standardizedURL)
+    }
 
     func setToolPermissionMode(_ mode: ToolPermissionMode) {
         toolPermissionMode = mode
     }
 
     func addSessionToolPermissionRule(_ rule: ToolPermissionRule) {
-        let sessionRule = ToolPermissionRule(
+        upsertToolPermissionRule(
+            ToolPermissionRule(
+                id: rule.id,
+                behavior: rule.behavior,
+                scope: .session,
+                toolName: rule.toolName,
+                matcher: rule.matcher,
+                createdAt: rule.createdAt
+            )
+        )
+    }
+
+    func addPersistedToolPermissionRule(_ rule: ToolPermissionRule) {
+        let persistedRule = ToolPermissionRule(
             id: rule.id,
             behavior: rule.behavior,
-            scope: .session,
+            scope: .project,
             toolName: rule.toolName,
             matcher: rule.matcher,
             createdAt: rule.createdAt
         )
-        sessionToolPermissionRules.removeAll { existing in
-            existing.scope == sessionRule.scope
-                && existing.toolName == sessionRule.toolName
-                && existing.matcher == sessionRule.matcher
-        }
-        sessionToolPermissionRules.append(sessionRule)
+        upsertToolPermissionRule(persistedRule)
+        guard let toolPermissionRulesRootURL else { return }
+        AgentStore.saveToolPermissionRules(
+            sessionToolPermissionRules.filter { $0.scope == .project },
+            workspaceRootURL: toolPermissionRulesRootURL
+        )
     }
 
     func clearSessionToolPermissionRules() {
-        sessionToolPermissionRules.removeAll()
+        sessionToolPermissionRules.removeAll { $0.scope == .session }
+    }
+
+    private func upsertToolPermissionRule(_ rule: ToolPermissionRule) {
+        sessionToolPermissionRules.removeAll { existing in
+            existing.scope == rule.scope
+                && existing.toolName == rule.toolName
+                && existing.matcher == rule.matcher
+        }
+        sessionToolPermissionRules.append(rule)
+    }
+
+    private func reloadPersistedToolPermissionRules(from rootURL: URL?) {
+        toolPermissionRulesRootURL = rootURL
+        sessionToolPermissionRules.removeAll { $0.scope == .project }
+        guard let rootURL else { return }
+        AgentStore.loadToolPermissionRules(workspaceRootURL: rootURL).forEach(upsertToolPermissionRule)
     }
 
     // MARK: - Tool Permission Approvals
@@ -182,6 +224,7 @@ public final class ConversationSession: Identifiable, Sendable {
         let arguments: String
         let message: String?
         let reason: String?
+        let approvedReadableRootURL: URL?
         let createdAt: Date
     }
 
@@ -205,6 +248,7 @@ public final class ConversationSession: Identifiable, Sendable {
             arguments: request.arguments,
             message: trimmedPermissionMessage(decision),
             reason: decision.reason,
+            approvedReadableRootURL: decision.approvedReadableRootURL,
             createdAt: Date()
         )
 
@@ -232,6 +276,10 @@ public final class ConversationSession: Identifiable, Sendable {
     }
 
     func approveToolPermissionRequest(id requestID: String) {
+        let approvedReadableRootURL = pendingToolPermissionRequests.first(where: { $0.id == requestID })?.approvedReadableRootURL
+        if let approvedReadableRootURL {
+            addSessionApprovedReadableRootURL(approvedReadableRootURL)
+        }
         resolveToolPermissionRequest(
             id: requestID,
             decision: ToolPermissionDecision(
@@ -292,6 +340,7 @@ public final class ConversationSession: Identifiable, Sendable {
         systemPromptProvider = configuration.systemPromptProvider
         collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
         models = .init()
+        reloadPersistedToolPermissionRules(from: configuration.toolPermissionRulesRootURL)
         refreshContentsFromDatabase()
         showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
     }
@@ -302,6 +351,7 @@ public final class ConversationSession: Identifiable, Sendable {
         sessionDelegate = configuration.delegate
         systemPromptProvider = configuration.systemPromptProvider
         collapseReasoningWhenComplete = configuration.collapseReasoningWhenComplete
+        reloadPersistedToolPermissionRules(from: configuration.toolPermissionRulesRootURL)
         showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
     }
 
@@ -325,8 +375,12 @@ public final class ConversationSession: Identifiable, Sendable {
         notifyMessagesDidChange(scrolling: scrolling)
     }
 
+    func transcriptPersistableMessages() -> [ConversationMessage] {
+        messages.filter { !$0.isTransientExecutionError }
+    }
+
     func persistMessages() {
-        storageProvider.save(messages)
+        storageProvider.save(transcriptPersistableMessages())
     }
 
     /// Persist a single message snapshot immediately.
@@ -482,5 +536,94 @@ public final class ConversationSession: Identifiable, Sendable {
     func stopThinking(for messageID: String) {
         thinkingDurationTimer[messageID]?.invalidate()
         thinkingDurationTimer.removeValue(forKey: messageID)
+    }
+}
+
+private enum ToolPermissionLocalSettingsStore {
+    private static let settingsDirectoryName = ".openava"
+    private static let settingsFileName = "settings.local.json"
+
+    static func load(rootURL: URL) -> [ToolPermissionRule] {
+        let url = fileURL(rootURL: rootURL)
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        guard let settings = try? decoder.decode(Settings.self, from: data) else {
+            return []
+        }
+        return settings.permissions.allRules.map { rule in
+            ToolPermissionRule(
+                id: rule.id,
+                behavior: rule.behavior,
+                scope: .project,
+                toolName: rule.toolName,
+                matcher: rule.matcher,
+                createdAt: rule.createdAt
+            )
+        }
+    }
+
+    static func save(_ rules: [ToolPermissionRule], rootURL: URL) {
+        var settings = Settings()
+        for rule in rules {
+            settings.permissions.upsert(rule)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(settings) else {
+            return
+        }
+
+        let url = fileURL(rootURL: rootURL)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            return
+        }
+    }
+
+    private static func fileURL(rootURL: URL) -> URL {
+        rootURL.standardizedFileURL
+            .appendingPathComponent(settingsDirectoryName, isDirectory: true)
+            .appendingPathComponent(settingsFileName, isDirectory: false)
+    }
+
+    private struct Settings: Codable {
+        var permissions = Permissions()
+    }
+
+    private struct Permissions: Codable {
+        var allow: [ToolPermissionRule] = []
+        var deny: [ToolPermissionRule] = []
+        var ask: [ToolPermissionRule] = []
+
+        var allRules: [ToolPermissionRule] {
+            allow + deny + ask
+        }
+
+        mutating func upsert(_ rule: ToolPermissionRule) {
+            removeMatching(rule)
+            switch rule.behavior {
+            case .allow:
+                allow.append(rule)
+            case .deny:
+                deny.append(rule)
+            case .ask:
+                ask.append(rule)
+            }
+        }
+
+        private mutating func removeMatching(_ rule: ToolPermissionRule) {
+            allow.removeAll { Self.matches($0, rule) }
+            deny.removeAll { Self.matches($0, rule) }
+            ask.removeAll { Self.matches($0, rule) }
+        }
+
+        private static func matches(_ lhs: ToolPermissionRule, _ rhs: ToolPermissionRule) -> Bool {
+            lhs.toolName == rhs.toolName && lhs.matcher == rhs.matcher
+        }
     }
 }

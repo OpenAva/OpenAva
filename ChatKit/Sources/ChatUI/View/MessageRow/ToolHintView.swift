@@ -7,8 +7,8 @@ import UIKit
 
 final class ToolHintView: MessageListRowView {
     // Inline, lightweight style to match reasoning tile.
-    private static let chevronSymbolPointSize: CGFloat = 13
-    private static let chevronSymbolWeight: UIImage.SymbolWeight = .medium
+    private static let chevronSymbolPointSize: CGFloat = 11
+    private static let chevronSymbolWeight: UIImage.SymbolWeight = .semibold
 
     var text: String?
 
@@ -37,7 +37,7 @@ final class ToolHintView: MessageListRowView {
     var clickHandler: (() -> Void)?
 
     private let label: ShimmerTextLabel = .init().with {
-        $0.font = UIFont.preferredFont(forTextStyle: .body)
+        $0.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
         $0.textColor = .label
         $0.minimumScaleFactor = 0.5
         $0.adjustsFontForContentSizeCategory = true
@@ -53,7 +53,7 @@ final class ToolHintView: MessageListRowView {
     }
 
     private let chevronView: UIImageView = .init().with {
-        $0.contentMode = .scaleAspectFit
+        $0.contentMode = .center
         $0.tintColor = .tertiaryLabel
         $0.isHidden = true
     }
@@ -108,7 +108,7 @@ final class ToolHintView: MessageListRowView {
 
     override func themeDidUpdate() {
         super.themeDidUpdate()
-        label.font = theme.fonts.body
+        label.font = UIFont.systemFont(ofSize: theme.fonts.body.pointSize, weight: .regular)
         chevronView.tintColor = .tertiaryLabel
     }
 

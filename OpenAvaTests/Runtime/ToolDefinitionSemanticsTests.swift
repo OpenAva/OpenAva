@@ -1,4 +1,5 @@
 import CoreLocation
+import Foundation
 import OpenClawKit
 import XCTest
 @testable import OpenAva
@@ -60,6 +61,44 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
         XCTAssertEqual(byName["fs_grep"]?.maxResultSizeChars, 24 * 1024)
     }
 
+    @MainActor
+    func testDefaultRuntimeAllowsReadOnlyAccessToSharedOpenAvaWorkspace() async throws {
+        await ToolRegistry.shared.clear()
+        defer { Task { await ToolRegistry.shared.clear() } }
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ToolRuntimeReadableRootTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let supportURL = rootURL
+            .appendingPathComponent(".openava", isDirectory: true)
+            .appendingPathComponent("agents", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try "fixture".write(
+            to: rootURL.appendingPathComponent("Agent-Infra.md", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let runtime = ToolRuntime.makeDefault(
+            workspaceRootURL: rootURL,
+            supportRootURL: supportURL
+        )
+        let response = await runtime.handle(
+            BridgeInvokeRequest(
+                id: "find-agent-root",
+                command: "fs.find",
+                paramsJSON: #"{"glob":"*Agent-Infra*","path":"\#(rootURL.path)"}"#
+            )
+        )
+
+        XCTAssertTrue(response.ok, response.error?.message ?? "")
+        let payload = try XCTUnwrap(response.payload)
+        XCTAssertTrue(payload.contains("Agent-Infra.md"), payload)
+    }
+
     func testExplicitSemanticsAreUsedDirectly() {
         let weather = ToolDefinition(
             functionName: "weather_get",
@@ -96,6 +135,78 @@ final class ToolDefinitionSemanticsTests: XCTestCase {
         XCTAssertEqual(byName["memory_transcript_search"]?.isReadOnly, true)
         XCTAssertEqual(byName["memory_upsert"]?.isDestructive, true)
         XCTAssertEqual(byName["memory_forget"]?.isDestructive, true)
+    }
+
+    func testSessionTodoDefinitionUsesOpenAvaNameAndClaudeStyleSchema() throws {
+        let definitions = SessionTodoTools().toolDefinitions()
+        let definition = try XCTUnwrap(definitions.first { $0.functionName == "todo_write" })
+
+        XCTAssertEqual(definition.command, "todo.write")
+        XCTAssertEqual(definition.isReadOnly, false)
+        XCTAssertEqual(definition.isDestructive, false)
+        XCTAssertEqual(definition.isConcurrencySafe, false)
+        XCTAssertEqual(definition.maxResultSizeChars, 100 * 1024)
+        XCTAssertTrue(definition.description.contains("exactly one task in_progress"))
+
+        let schema = try XCTUnwrap(definition.parametersSchema.value as? [String: Any])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        let todos = try XCTUnwrap(properties["todos"] as? [String: Any])
+        let item = try XCTUnwrap(todos["items"] as? [String: Any])
+        let itemProperties = try XCTUnwrap(item["properties"] as? [String: Any])
+        XCTAssertNotNil(itemProperties["activeForm"])
+        XCTAssertEqual(item["required"] as? [String], ["content", "status", "activeForm"])
+    }
+
+    @MainActor
+    func testSessionTodoWriteHandlerUpsertsTodoListMessageForUIRendering() async throws {
+        await ToolRegistry.shared.clear()
+        ConversationSessionManager.shared.removeAllSessions()
+        defer {
+            ConversationSessionManager.shared.removeAllSessions()
+            Task { await ToolRegistry.shared.clear() }
+        }
+
+        let sessionID = "todo-handler-ui-test"
+        let session = ConversationSessionManager.shared.session(
+            for: sessionID,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        let runtime = makeRuntime()
+
+        let writeResponse = await runtime.handle(
+            BridgeInvokeRequest(
+                id: "todo-write-1",
+                command: "todo.write",
+                paramsJSON: #"{"todos":[{"content":"Review UI path","status":"in_progress","activeForm":"Reviewing UI path"},{"content":"Run tests","status":"pending","activeForm":"Running tests"}]}"#
+            ),
+            sessionID: sessionID
+        )
+
+        XCTAssertTrue(writeResponse.ok)
+        let todoMessage = try XCTUnwrap(session.messages.first(where: \.isTodoListContainer))
+        XCTAssertEqual(todoMessage.role, .system)
+        XCTAssertEqual(todoMessage.textContent, "")
+        XCTAssertTrue(todoMessage.isTodoList)
+
+        let metadata = try XCTUnwrap(todoMessage.todoListMetadata)
+        XCTAssertEqual(metadata.items.map(\.content), ["Review UI path", "Run tests"])
+        XCTAssertEqual(metadata.items.map(\.status), ["in_progress", "pending"])
+        XCTAssertEqual(metadata.items.map(\.activeForm), ["Reviewing UI path", "Running tests"])
+        XCTAssertNotNil(metadata.updatedAt)
+
+        let clearResponse = await runtime.handle(
+            BridgeInvokeRequest(
+                id: "todo-write-2",
+                command: "todo.write",
+                paramsJSON: #"{"todos":[{"content":"Review UI path","status":"completed","activeForm":"Reviewing UI path"}]}"#
+            ),
+            sessionID: sessionID
+        )
+
+        XCTAssertTrue(clearResponse.ok)
+        let clearedTodoMessage = try XCTUnwrap(session.messages.first(where: \.isTodoListContainer))
+        XCTAssertEqual(clearedTodoMessage.subtype, nil)
+        XCTAssertNil(clearedTodoMessage.todoListMetadata)
     }
 
     @MainActor

@@ -13,9 +13,17 @@ extension ToolDefinition: ToolExecutor {
 }
 
 /// ToolProvider implementation that adapts ToolRegistry to the session tool interface.
-final class ToolRegistryProvider: ToolProvider {
+final class ToolRegistryProvider: ToolProvider, ToolPermissionScopeProviding {
     private let toolRuntime: ToolRuntime
     private let invocationSessionID: String
+
+    var toolPermissionWorkspaceRootURL: URL? {
+        toolRuntime.toolPermissionWorkspaceRootURL
+    }
+
+    var toolPermissionReadableRootURLs: [URL] {
+        toolRuntime.toolPermissionReadableRootURLs
+    }
 
     init(toolRuntime: ToolRuntime, invocationSessionID: String) {
         self.toolRuntime = toolRuntime
@@ -50,7 +58,14 @@ final class ToolRegistryProvider: ToolProvider {
             "registry provider execute start session=\(self.invocationSessionID, privacy: .public) command=\(definition.command, privacy: .public) requestID=\(request.id, privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"
         )
 
-        let response = await toolRuntime.handle(request, sessionID: invocationSessionID)
+        let approvedReadableRootURLs = await MainActor.run {
+            ConversationSessionManager.shared.cachedSession(for: invocationSessionID)?.sessionApprovedReadableRootURLs ?? []
+        }
+        let response = await toolRuntime.handle(
+            request,
+            sessionID: invocationSessionID,
+            approvedReadableRootURLs: approvedReadableRootURLs
+        )
 
         logger.notice(
             "registry provider execute end session=\(self.invocationSessionID, privacy: .public) command=\(definition.command, privacy: .public) requestID=\(request.id, privacy: .public) ok=\(String(response.ok), privacy: .public) cancelled=\(String(Task.isCancelled), privacy: .public)"

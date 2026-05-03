@@ -11,7 +11,8 @@ extension MemoryTools {
             handlers[command] = { request in
                 try await Self.handleMemoryInvoke(
                     request,
-                    activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider
+                    workspaceRootURL: context.workspaceRootURL,
+                    activeSupportRootURLProvider: context.activeSupportRootURLProvider
                 )
             }
         }
@@ -19,17 +20,18 @@ extension MemoryTools {
 
     private static func handleMemoryInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        workspaceRootURL: URL?,
+        activeSupportRootURLProvider: @escaping @Sendable () -> URL?
     ) async throws -> BridgeInvokeResponse {
         switch request.command {
         case "memory.recall":
-            return try await handleMemoryRecallInvoke(request, activeRuntimeRootURLProvider: activeRuntimeRootURLProvider)
+            return try await handleMemoryRecallInvoke(request, workspaceRootURL: workspaceRootURL)
         case "memory.upsert":
-            return try await handleMemoryUpsertInvoke(request, activeRuntimeRootURLProvider: activeRuntimeRootURLProvider)
+            return try await handleMemoryUpsertInvoke(request, workspaceRootURL: workspaceRootURL)
         case "memory.forget":
-            return try await handleMemoryForgetInvoke(request, activeRuntimeRootURLProvider: activeRuntimeRootURLProvider)
+            return try await handleMemoryForgetInvoke(request, workspaceRootURL: workspaceRootURL)
         case "memory.transcript_search":
-            return try await handleMemoryTranscriptSearchInvoke(request, activeRuntimeRootURLProvider: activeRuntimeRootURLProvider)
+            return try await handleMemoryTranscriptSearchInvoke(request, activeSupportRootURLProvider: activeSupportRootURLProvider)
         default:
             return BridgeInvokeResponse(
                 id: request.id,
@@ -39,9 +41,13 @@ extension MemoryTools {
         }
     }
 
+    private static func memoryStore(workspaceRootURL: URL?) -> AgentMemoryStore {
+        AgentMemoryStore(supportRootURL: AgentStore.memorySupportRootURL(workspaceRootURL: workspaceRootURL))
+    }
+
     private static func handleMemoryRecallInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
+        workspaceRootURL: URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var query: String
@@ -49,7 +55,7 @@ extension MemoryTools {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+        let store = memoryStore(workspaceRootURL: workspaceRootURL)
         let hits = try await store.recall(query: params.query, limit: min(max(params.limit ?? 5, 1), 20))
         let lines = hits.map { hit in
             """
@@ -67,7 +73,7 @@ extension MemoryTools {
 
     private static func handleMemoryUpsertInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
+        workspaceRootURL: URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var name: String
@@ -88,7 +94,7 @@ extension MemoryTools {
             )
         }
 
-        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+        let store = memoryStore(workspaceRootURL: workspaceRootURL)
         let entry = try await store.upsert(
             name: params.name,
             type: type,
@@ -105,14 +111,14 @@ extension MemoryTools {
 
     private static func handleMemoryForgetInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
+        workspaceRootURL: URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var slug: String
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        let store = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+        let store = memoryStore(workspaceRootURL: workspaceRootURL)
         let removed = try await store.forget(slug: params.slug)
         let text = removed
             ? "## Memory Forget\n- status: removed\n- slug: \(params.slug)"
@@ -122,7 +128,7 @@ extension MemoryTools {
 
     private static func handleMemoryTranscriptSearchInvoke(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?
+        activeSupportRootURLProvider: @escaping @Sendable () -> URL?
     ) async throws -> BridgeInvokeResponse {
         struct Params: Decodable {
             var query: String
@@ -132,15 +138,15 @@ extension MemoryTools {
         }
 
         let params = try ToolInvocationHelpers.decodeParams(Params.self, from: request.paramsJSON)
-        guard let runtimeRootURL = activeRuntimeRootURLProvider() else {
+        guard let supportRootURL = activeSupportRootURLProvider() else {
             return BridgeInvokeResponse(
                 id: request.id,
                 ok: false,
-                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent runtime")
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active agent context")
             )
         }
 
-        let service = AgentTranscriptSearchService(runtimeRootURL: runtimeRootURL)
+        let service = AgentTranscriptSearchService(supportRootURL: supportRootURL)
         let hits = try service.search(
             query: params.query,
             sessionID: params.sessionID,

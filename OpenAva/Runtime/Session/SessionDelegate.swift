@@ -52,8 +52,8 @@ public protocol SessionDelegate: AnyObject, Sendable {
     /// Called after messages have been persisted for the session.
     func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async
 
-    /// Provide the active runtime root used for request-scoped dynamic memory recall.
-    func activeRuntimeRootURL() -> URL?
+    /// Provide the active support root used for request-scoped dynamic memory recall.
+    func activeSupportRootURL() -> URL?
 }
 
 // MARK: - Default Implementations
@@ -72,7 +72,7 @@ public extension SessionDelegate {
     func sessionDidReportUsage(_: TokenUsage, for _: String) {}
     func sessionDidPersistMessages(_: [ConversationMessage], for _: String) async {}
 
-    func activeRuntimeRootURL() -> URL? {
+    func activeSupportRootURL() -> URL? {
         nil
     }
 }

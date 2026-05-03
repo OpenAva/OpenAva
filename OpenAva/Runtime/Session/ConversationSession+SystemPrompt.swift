@@ -22,7 +22,7 @@ extension ConversationSession {
     }
 
     private func dynamicMemoryRecallSection(for requestMessages: [ChatRequestBody.Message]) async -> String? {
-        guard let runtimeRootURL = sessionDelegate?.activeRuntimeRootURL(),
+        guard let supportRootURL = sessionDelegate?.activeSupportRootURL(),
               let query = latestUserQuery(from: requestMessages)
         else {
             return nil
@@ -30,7 +30,7 @@ extension ConversationSession {
 
         let modelConfig = (models.chat?.client as? LLMChatClient)?.modelConfig
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             modelConfig: modelConfig
         )
         return await builder.contextSection(

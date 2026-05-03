@@ -11,6 +11,7 @@ final class ToolRuntime: @unchecked Sendable {
         /// Session identifier propagated from chat layer for tool state isolation.
         @TaskLocal static var sessionID: String?
         @TaskLocal static var teamContext: TeamInvocationContext?
+        @TaskLocal static var approvedReadableRootURLs: [URL] = []
     }
 
     struct TeamInvocationContext {
@@ -42,7 +43,8 @@ final class ToolRuntime: @unchecked Sendable {
     private let fileSystemService: FileSystemService
     private let bashService: BashService
     private let workspaceRootURL: URL?
-    private let runtimeRootURL: URL?
+    private let supportRootURL: URL?
+    private let additionalReadableRootURLs: [URL]
     private let modelConfig: AppConfig.LLMModel?
     private let weatherService: WeatherService
     private let yahooFinanceService: YahooFinanceService
@@ -92,14 +94,14 @@ final class ToolRuntime: @unchecked Sendable {
 
     static func makeDefault(
         workspaceRootURL: URL? = nil,
-        runtimeRootURL: URL? = nil,
+        supportRootURL: URL? = nil,
         teamsRootURL: URL? = nil,
         modelConfig: AppConfig.LLMModel? = nil,
         configureTeamSwarm: Bool = false,
         agentCount: Int = 1
     ) -> ToolRuntime {
         let effectiveConfigureTeamSwarm = configureTeamSwarm || agentCount > 1
-        let builtInSkillRoots = AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
+        let additionalReadableRoots = defaultAdditionalReadableRootURLs(workspaceRootURL: workspaceRootURL)
         let notificationCenter = LiveNotificationCenter()
         let cameraService = CameraController()
         let screenRecordingService = ScreenRecordService()
@@ -117,11 +119,11 @@ final class ToolRuntime: @unchecked Sendable {
         let cronService = CronService()
         let fileSystemService = FileSystemService(
             baseDirectoryURL: workspaceRootURL,
-            additionalReadableRootURLs: builtInSkillRoots
+            additionalReadableRootURLs: additionalReadableRoots
         )
         let bashService = BashService(
             workspaceRootURL: workspaceRootURL,
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             notificationCenter: notificationCenter
         )
 
@@ -157,10 +159,14 @@ final class ToolRuntime: @unchecked Sendable {
             arxivSearchService: ArxivSearchService(),
             xService: XService(),
             workspaceRootURL: workspaceRootURL,
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             teamsRootURL: teamsRootURL,
             configureTeamSwarm: effectiveConfigureTeamSwarm
         )
+    }
+
+    static func defaultAdditionalReadableRootURLs(workspaceRootURL _: URL?) -> [URL] {
+        AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
     }
 
     init(
@@ -195,7 +201,7 @@ final class ToolRuntime: @unchecked Sendable {
         arxivSearchService: ArxivSearchService = ArxivSearchService(),
         xService: XService = XService(),
         workspaceRootURL: URL? = nil,
-        runtimeRootURL: URL? = nil,
+        supportRootURL: URL? = nil,
         teamsRootURL: URL? = nil,
         configureTeamSwarm: Bool = false
     ) {
@@ -224,7 +230,8 @@ final class ToolRuntime: @unchecked Sendable {
         self.fileSystemService = fileSystemService
         self.bashService = bashService
         self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
-        self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
+        self.supportRootURL = supportRootURL?.standardizedFileURL
+        self.additionalReadableRootURLs = Self.defaultAdditionalReadableRootURLs(workspaceRootURL: workspaceRootURL)
         self.modelConfig = modelConfig
         self.weatherService = weatherService
         self.yahooFinanceService = yahooFinanceService
@@ -282,8 +289,8 @@ final class ToolRuntime: @unchecked Sendable {
         ToolHandlerRegistrationContext(
             workspaceRootURL: workspaceRootURL,
             modelConfig: modelConfig,
-            activeRuntimeRootURLProvider: { [weak self] in
-                self?.executionRuntimeRootURL()
+            activeSupportRootURLProvider: { [weak self] in
+                self?.executionSupportRootURL()
             },
             toolInvoker: { [weak self] request, sessionID in
                 guard let self else {
@@ -362,8 +369,18 @@ final class ToolRuntime: @unchecked Sendable {
     }
 
     func handle(_ request: BridgeInvokeRequest, sessionID: String?) async -> BridgeInvokeResponse {
+        await handle(request, sessionID: sessionID, approvedReadableRootURLs: [])
+    }
+
+    func handle(
+        _ request: BridgeInvokeRequest,
+        sessionID: String?,
+        approvedReadableRootURLs: [URL]
+    ) async -> BridgeInvokeResponse {
         await InvocationContext.$sessionID.withValue(sessionID) {
-            await self.handle(request)
+            await InvocationContext.$approvedReadableRootURLs.withValue(approvedReadableRootURLs) {
+                await self.handle(request)
+            }
         }
     }
 
@@ -374,7 +391,9 @@ final class ToolRuntime: @unchecked Sendable {
     ) async -> BridgeInvokeResponse {
         await InvocationContext.$sessionID.withValue(sessionID) {
             await InvocationContext.$teamContext.withValue(teamContext) {
-                await self.handle(request)
+                await InvocationContext.$approvedReadableRootURLs.withValue([]) {
+                    await self.handle(request)
+                }
             }
         }
     }
@@ -459,12 +478,25 @@ final class ToolRuntime: @unchecked Sendable {
         return directoryURL
     }
 
+    nonisolated var toolPermissionWorkspaceRootURL: URL? {
+        workspaceRootURL
+    }
+
+    nonisolated var toolPermissionReadableRootURLs: [URL] {
+        var roots: [URL] = []
+        if let workspaceRootURL {
+            roots.append(workspaceRootURL)
+        }
+        roots.append(contentsOf: additionalReadableRootURLs)
+        return roots
+    }
+
     private nonisolated func executionWorkspaceRootURL() -> URL? {
         workspaceRootURL
     }
 
-    private nonisolated func executionRuntimeRootURL() -> URL? {
-        runtimeRootURL
+    private nonisolated func executionSupportRootURL() -> URL? {
+        supportRootURL
     }
 
     // MARK: - Response Helpers

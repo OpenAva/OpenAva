@@ -132,6 +132,30 @@ final class FileSystemServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outsideURL.appendingPathComponent("leak.txt").path))
     }
 
+    func testNestedWorkspaceAgentsPayloadIsInjectedOncePerSession() async throws {
+        try writeFile("Sources/Feature/AGENTS.md", content: "Feature dynamic rule")
+        try writeFile("Sources/Feature/Nested.swift", content: "struct Nested {}")
+
+        let firstPayload = try await ToolRuntime.InvocationContext.$sessionID.withValue("nested-agents-session") {
+            try await service.payloadWithNestedWorkspaceAgentsIfNeeded(
+                "tool payload",
+                targetPath: "Sources/Feature/Nested.swift"
+            )
+        }
+        let secondPayload = try await ToolRuntime.InvocationContext.$sessionID.withValue("nested-agents-session") {
+            try await service.payloadWithNestedWorkspaceAgentsIfNeeded(
+                "tool payload",
+                targetPath: "Sources/Feature/Nested.swift"
+            )
+        }
+
+        XCTAssertTrue(firstPayload.contains("<workspace-files source=\"dynamic-agents\""), firstPayload)
+        XCTAssertTrue(firstPayload.contains("Feature dynamic rule"), firstPayload)
+        XCTAssertTrue(firstPayload.hasSuffix("tool payload"), firstPayload)
+        XCTAssertFalse(secondPayload.contains("Feature dynamic rule"), secondPayload)
+        XCTAssertEqual(secondPayload, "tool payload")
+    }
+
     private func createFixtureTree() throws {
         try writeFile("root.swift")
         try writeFile("README.md")

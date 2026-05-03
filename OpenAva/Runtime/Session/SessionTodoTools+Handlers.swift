@@ -49,15 +49,13 @@ extension SessionTodoTools {
             )
         }
 
-        let oldItems = await MainActor.run { currentItems(in: session) }
         let activeItems = normalizedItems.allSatisfy { $0.status == "completed" } ? [] : normalizedItems
 
         await MainActor.run {
             upsertTodoMessage(in: session, items: activeItems)
         }
 
-        let payload = renderPayload(oldItems: oldItems, newItems: activeItems)
-        return ToolInvocationHelpers.successResponse(id: request.id, payload: payload)
+        return ToolInvocationHelpers.successResponse(id: request.id, payload: successMessage)
     }
 
     private static func normalize(_ items: [TodoWriteParams.Item]) throws -> [TodoListMetadata.Item] {
@@ -91,21 +89,20 @@ extension SessionTodoTools {
     }
 
     @MainActor
-    private static func currentItems(in session: ConversationSession) -> [TodoListMetadata.Item] {
-        session.messages
-            .first(where: \.isTodoListContainer)?
-            .todoListMetadata?.items ?? []
-    }
-
-    @MainActor
     private static func upsertTodoMessage(in session: ConversationSession, items: [TodoListMetadata.Item]) {
         let metadata = items.isEmpty ? nil : TodoListMetadata(items: items, updatedAt: timestampFormatter.string(from: Date()))
-        let message = session.messages.first(where: \.isTodoListContainer)
-            ?? session.appendNewMessage(role: .system) { msg in
+        let message: ConversationMessage
+        if let existingIndex = session.messages.firstIndex(where: \.isTodoListContainer) {
+            message = session.messages.remove(at: existingIndex)
+            session.messages.append(message)
+        } else {
+            message = session.appendNewMessage(role: .system) { msg in
                 msg.isTodoListContainer = true
                 msg.textContent = ""
             }
+        }
 
+        message.createdAt = Date()
         message.isTodoListContainer = true
         message.textContent = ""
         message.subtype = items.isEmpty ? nil : "todo_list"
@@ -130,26 +127,7 @@ extension SessionTodoTools {
         return suffix.isEmpty ? trimmed : suffix
     }
 
-    private static func renderPayload(oldItems: [TodoListMetadata.Item], newItems: [TodoListMetadata.Item]) -> String {
-        var lines = ["## Session todo list"]
-        lines.append("- previous_count: \(oldItems.count)")
-        lines.append("- current_count: \(newItems.count)")
-
-        if newItems.isEmpty {
-            lines.append("- status: cleared")
-            lines.append("")
-            lines.append("All tasks are completed, so the session checklist is now cleared.")
-            return lines.joined(separator: "\n")
-        }
-
-        let inProgress = newItems.first(where: { $0.status == "in_progress" })
-        lines.append("- in_progress: \(inProgress?.activeForm ?? "none")")
-        lines.append("")
-        for (index, item) in newItems.enumerated() {
-            lines.append("\(index + 1). [\(item.status)] \(item.content) — \(item.activeForm)")
-        }
-        return lines.joined(separator: "\n")
-    }
+    private static let successMessage = "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable"
 
     private static let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

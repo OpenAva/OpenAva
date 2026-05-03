@@ -43,7 +43,7 @@ final class SubAgentTaskCardView: MessageListRowView {
         resultTitleLabel.numberOfLines = 1
         resultLabel.numberOfLines = 0
 
-        chevronView.contentMode = .scaleAspectFit
+        chevronView.contentMode = .center
         chevronView.tintColor = .secondaryLabel
 
         containerView.layer.cornerRadius = ChatUIDesign.Radius.card
@@ -101,7 +101,7 @@ final class SubAgentTaskCardView: MessageListRowView {
         resultTitleLabel.text = task.isExpanded ? Self.resultSectionTitle(for: task) : nil
         resultLabel.text = task.isExpanded ? Self.expandedResultText(for: task) : nil
         chevronView.isHidden = !task.hasExpandedContent
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         chevronView.image = UIImage(systemName: "chevron.right", withConfiguration: symbolConfig)
         chevronView.transform = task.isExpanded ? .init(rotationAngle: .pi / 2) : .identity
 

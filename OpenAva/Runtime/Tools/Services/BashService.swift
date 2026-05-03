@@ -43,6 +43,16 @@ actor BashService {
         let noOutputExpected: Bool
     }
 
+    private struct ShellSnapshot {
+        let shellPath: String
+        let fileURL: URL?
+    }
+
+    private struct ShellInvocation {
+        let shellPath: String
+        let arguments: [String]
+    }
+
     private struct BackgroundTaskRecord: Codable {
         enum Status: String, Codable {
             case running
@@ -185,17 +195,31 @@ actor BashService {
     ]
 
     private let workspaceRootURL: URL?
-    private let runtimeRootURL: URL?
+    private let supportRootURL: URL?
     private let notificationCenter: any NotificationCentering
+    private let environmentProvider: @Sendable () -> [String: String]
+    private let homeDirectoryURL: URL
+    private var cachedSearchPath: String?
+    private var cachedShellSnapshot: ShellSnapshot?
 
     init(
         workspaceRootURL: URL? = nil,
-        runtimeRootURL: URL? = nil,
-        notificationCenter: any NotificationCentering = LiveNotificationCenter()
+        supportRootURL: URL? = nil,
+        notificationCenter: any NotificationCentering = LiveNotificationCenter(),
+        environmentProvider: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment },
+        homeDirectoryURL: URL = {
+            #if os(macOS)
+                return FileManager.default.homeDirectoryForCurrentUser
+            #else
+                return URL(fileURLWithPath: NSHomeDirectory())
+            #endif
+        }()
     ) {
         self.workspaceRootURL = workspaceRootURL?.standardizedFileURL
-        self.runtimeRootURL = runtimeRootURL?.standardizedFileURL
+        self.supportRootURL = supportRootURL?.standardizedFileURL
         self.notificationCenter = notificationCenter
+        self.environmentProvider = environmentProvider
+        self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
     }
 
     func execute(request: Request) async throws -> ExecutionPayload {
@@ -648,7 +672,8 @@ actor BashService {
     }
 
     private func makeEnvironment(workingDirectoryURL: URL) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+        var environment = environmentProvider()
+        environment["PATH"] = resolvedSearchPath(from: environment)
         environment["PWD"] = workingDirectoryURL.path
         environment["TERM"] = "dumb"
         environment["CLICOLOR"] = "0"
@@ -661,8 +686,206 @@ actor BashService {
         return environment
     }
 
-    private func runtimeDirectoryURL(named directoryName: String) -> URL {
-        let baseURL = runtimeRootURL ?? workspaceRootURL ?? FileManager.default.temporaryDirectory
+    private func resolvedSearchPath(from environment: [String: String]) -> String {
+        if let cachedSearchPath {
+            return cachedSearchPath
+        }
+
+        let searchPath = Self.mergeSearchPaths([
+            captureUserShellSearchPath(baseEnvironment: environment),
+            environment["PATH"],
+            wellKnownSearchPath(),
+        ])
+        cachedSearchPath = searchPath
+        return searchPath
+    }
+
+    private func wellKnownSearchPath() -> String {
+        var paths = [
+            homeDirectoryURL.appendingPathComponent(".local/bin", isDirectory: true).path,
+            homeDirectoryURL.appendingPathComponent("go/bin", isDirectory: true).path,
+            homeDirectoryURL.appendingPathComponent(".bun/bin", isDirectory: true).path,
+            homeDirectoryURL.appendingPathComponent(".cargo/bin", isDirectory: true).path,
+            homeDirectoryURL.appendingPathComponent(".npm-global/bin", isDirectory: true).path,
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
+        paths.append(contentsOf: nvmNodeBinDirectories())
+        return paths.joined(separator: ":")
+    }
+
+    private func nvmNodeBinDirectories() -> [String] {
+        let versionsURL = homeDirectoryURL
+            .appendingPathComponent(".nvm", isDirectory: true)
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent("node", isDirectory: true)
+        guard let versionNames = try? FileManager.default.contentsOfDirectory(atPath: versionsURL.path) else {
+            return []
+        }
+        return versionNames
+            .sorted(by: >)
+            .map { versionsURL.appendingPathComponent($0, isDirectory: true).appendingPathComponent("bin", isDirectory: true).path }
+    }
+
+    private func captureUserShellSearchPath(baseEnvironment: [String: String]) -> String? {
+        guard let shellPath = preferredShellPath(from: baseEnvironment) else {
+            return nil
+        }
+
+        let configPath = shellConfigPath(for: shellPath)
+        let script = [
+            "if [ -f \(shellSingleQuoted(configPath)) ]; then . \(shellSingleQuoted(configPath)) >/dev/null 2>&1 || true; fi",
+            "printf '%s' \"$PATH\"",
+        ].joined(separator: "; ")
+
+        var environment = baseEnvironment
+        environment["HOME"] = homeDirectoryURL.path
+        environment["SHELL"] = shellPath
+        environment["GIT_EDITOR"] = "true"
+
+        guard let output = runShellForOutput(shellPath: shellPath, arguments: ["-lc", script], environment: environment, timeoutMs: 5000) else {
+            return nil
+        }
+        let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    private func preferredShellPath(from environment: [String: String]) -> String? {
+        let candidates = [
+            environment["SHELL"],
+            "/bin/zsh",
+            "/bin/bash",
+            "/usr/bin/zsh",
+            "/usr/bin/bash",
+            "/opt/homebrew/bin/zsh",
+            "/usr/local/bin/bash",
+        ].compactMap { $0 }
+
+        return candidates.first { path in
+            (path.contains("zsh") || path.contains("bash")) && FileManager.default.isExecutableFile(atPath: path)
+        }
+    }
+
+    private func shellConfigPath(for shellPath: String) -> String {
+        if shellPath.contains("zsh") {
+            return homeDirectoryURL.appendingPathComponent(".zshrc", isDirectory: false).path
+        }
+        if shellPath.contains("bash") {
+            return homeDirectoryURL.appendingPathComponent(".bashrc", isDirectory: false).path
+        }
+        return homeDirectoryURL.appendingPathComponent(".profile", isDirectory: false).path
+    }
+
+    private static func mergeSearchPaths(_ pathValues: [String?]) -> String {
+        var seen = Set<String>()
+        var merged: [String] = []
+        for pathValue in pathValues.compactMap({ $0 }) {
+            for path in pathValue.split(separator: ":", omittingEmptySubsequences: true).map(String.init) {
+                guard !seen.contains(path) else { continue }
+                seen.insert(path)
+                merged.append(path)
+            }
+        }
+        return merged.joined(separator: ":")
+    }
+
+    private func runShellForOutput(
+        shellPath: String,
+        arguments: [String],
+        environment: [String: String],
+        timeoutMs: Int
+    ) -> String? {
+        var stdoutPipeFDs: [Int32] = [0, 0]
+        guard pipe(&stdoutPipeFDs) == 0 else { return nil }
+
+        let devNullFD = open("/dev/null", O_RDWR)
+        guard devNullFD >= 0 else {
+            close(stdoutPipeFDs[0])
+            close(stdoutPipeFDs[1])
+            return nil
+        }
+
+        var fileActions: posix_spawn_file_actions_t? = nil
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+            close(stdoutPipeFDs[0])
+            close(stdoutPipeFDs[1])
+            close(devNullFD)
+            return nil
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        guard posix_spawn_file_actions_adddup2(&fileActions, devNullFD, STDIN_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&fileActions, stdoutPipeFDs[1], STDOUT_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&fileActions, devNullFD, STDERR_FILENO) == 0
+        else {
+            close(stdoutPipeFDs[0])
+            close(stdoutPipeFDs[1])
+            close(devNullFD)
+            return nil
+        }
+
+        let argv = [shellPath] + arguments
+        let environmentEntries = environment.map { "\($0.key)=\($0.value)" }
+        var processIdentifier: pid_t = 0
+        let spawnStatus = Self.withCStringArray(argv) { argumentsPointer in
+            Self.withCStringArray(environmentEntries) { environmentPointer in
+                posix_spawn(&processIdentifier, shellPath, &fileActions, nil, argumentsPointer, environmentPointer)
+            }
+        }
+
+        close(stdoutPipeFDs[1])
+        close(devNullFD)
+
+        guard spawnStatus == 0 else {
+            close(stdoutPipeFDs[0])
+            return nil
+        }
+
+        let exitCode = Self.blockingWaitForPID(processIdentifier, timeoutMs: timeoutMs)
+        let accumulator = LockedDataAccumulator(maxBytes: 64 * 1024)
+        Self.readAllFromDescriptor(stdoutPipeFDs[0], accumulator: accumulator)
+        guard exitCode == 0 else {
+            return nil
+        }
+        return String(decoding: accumulator.snapshot().data, as: UTF8.self)
+    }
+
+    private nonisolated static func blockingWaitForPID(_ processIdentifier: pid_t, timeoutMs: Int) -> Int32 {
+        let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+        var status: Int32 = 0
+        while true {
+            let result = waitpid(processIdentifier, &status, WNOHANG)
+            if result == processIdentifier {
+                if didExit(status) {
+                    return exitStatus(status)
+                }
+                if wasSignaled(status) {
+                    return terminatingSignal(status)
+                }
+                return status
+            }
+            if result == -1, errno != EINTR {
+                return 1
+            }
+            if Date() >= deadline {
+                _ = kill(processIdentifier, SIGTERM)
+                usleep(100_000)
+                if isProcessRunning(processIdentifier) {
+                    _ = kill(processIdentifier, SIGKILL)
+                }
+                _ = waitpid(processIdentifier, &status, 0)
+                return Int32(SIGTERM)
+            }
+            usleep(20000)
+        }
+    }
+
+    private func storageDirectoryURL(named directoryName: String) -> URL {
+        let baseURL = supportRootURL ?? workspaceRootURL ?? FileManager.default.temporaryDirectory
         return baseURL
             .appendingPathComponent(directoryName, isDirectory: true)
             .standardizedFileURL
@@ -673,16 +896,116 @@ actor BashService {
         return String(text.prefix(Self.inlineOutputLimit)) + "\n...\nOutput truncated."
     }
 
-    private func makeShellCommand(for request: NormalizedRequest) -> String {
-        "cd -- \(shellSingleQuoted(request.workingDirectoryURL.path)) && \(request.command)"
+    private func makeShellInvocation(for request: NormalizedRequest, environment: [String: String]) -> ShellInvocation {
+        let snapshot = shellSnapshot(baseEnvironment: environment)
+        let command = makeShellCommand(for: request, snapshotURL: snapshot.fileURL)
+        if snapshot.fileURL != nil {
+            return ShellInvocation(shellPath: snapshot.shellPath, arguments: ["-c", command])
+        }
+        return ShellInvocation(shellPath: snapshot.shellPath, arguments: ["-lc", command])
+    }
+
+    private func makeShellCommand(for request: NormalizedRequest, snapshotURL: URL?) -> String {
+        var commands: [String] = []
+        if let snapshotURL {
+            commands.append(". \(shellSingleQuoted(snapshotURL.path))")
+        }
+        commands.append("cd -- \(shellSingleQuoted(request.workingDirectoryURL.path))")
+        commands.append("eval \(shellSingleQuoted(request.command))")
+        return commands.joined(separator: " && ")
+    }
+
+    private func shellSnapshot(baseEnvironment: [String: String]) -> ShellSnapshot {
+        if let cachedShellSnapshot {
+            if let fileURL = cachedShellSnapshot.fileURL,
+               !FileManager.default.fileExists(atPath: fileURL.path)
+            {
+                self.cachedShellSnapshot = nil
+            } else {
+                return cachedShellSnapshot
+            }
+        }
+
+        let shellPath = preferredShellPath(from: baseEnvironment) ?? "/bin/bash"
+        let snapshotURL = createShellSnapshot(shellPath: shellPath, baseEnvironment: baseEnvironment)
+        let snapshot = ShellSnapshot(shellPath: shellPath, fileURL: snapshotURL)
+        cachedShellSnapshot = snapshot
+        return snapshot
+    }
+
+    private func createShellSnapshot(shellPath: String, baseEnvironment: [String: String]) -> URL? {
+        let snapshotsDirectoryURL = storageDirectoryURL(named: "shell-snapshots")
+        do {
+            try FileManager.default.createDirectory(at: snapshotsDirectoryURL, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+
+        let snapshotURL = snapshotsDirectoryURL
+            .appendingPathComponent("snapshot-\(UUID().uuidString)", isDirectory: false)
+            .appendingPathExtension("sh")
+        let configPath = shellConfigPath(for: shellPath)
+        let script = makeShellSnapshotCreationScript(snapshotPath: snapshotURL.path, configPath: configPath)
+
+        var environment = baseEnvironment
+        environment["HOME"] = homeDirectoryURL.path
+        environment["SHELL"] = shellPath
+        environment["GIT_EDITOR"] = "true"
+        environment["OPENAVA_SHELL_SNAPSHOT"] = "1"
+
+        guard runShellForOutput(shellPath: shellPath, arguments: ["-lc", script], environment: environment, timeoutMs: 5000) != nil,
+              FileManager.default.fileExists(atPath: snapshotURL.path),
+              ((try? FileManager.default.attributesOfItem(atPath: snapshotURL.path)[.size] as? NSNumber)?.intValue ?? 0) > 0
+        else {
+            try? FileManager.default.removeItem(at: snapshotURL)
+            return nil
+        }
+        return snapshotURL
+    }
+
+    private func makeShellSnapshotCreationScript(snapshotPath: String, configPath: String) -> String {
+        let quotedSnapshotPath = shellSingleQuoted(snapshotPath)
+        let quotedConfigPath = shellSingleQuoted(configPath)
+        return """
+        SNAPSHOT_FILE=\(quotedSnapshotPath)
+        CONFIG_FILE=\(quotedConfigPath)
+        if [ -f "$CONFIG_FILE" ]; then . "$CONFIG_FILE" </dev/null >/dev/null 2>&1 || true; fi
+        {
+          printf '%s\\n' '# Snapshot file'
+          printf '%s\\n' 'unalias -a 2>/dev/null || true'
+          printf '%s\\n' 'shopt -s expand_aliases 2>/dev/null || true'
+          printf '%s\\n' 'setopt aliases 2>/dev/null || true'
+          printf '%s\\n' ''
+          printf '%s\\n' '# Functions'
+          if [ -n "${BASH_VERSION:-}" ]; then
+            declare -f 2>/dev/null || true
+          elif [ -n "${ZSH_VERSION:-}" ]; then
+            typeset -f 2>/dev/null || true
+          else
+            typeset -f 2>/dev/null || declare -f 2>/dev/null || true
+          fi
+          printf '%s\\n' ''
+          printf '%s\\n' '# Aliases'
+          if [ -n "${ZSH_VERSION:-}" ]; then
+            alias -L 2>/dev/null || true
+          else
+            alias 2>/dev/null || true
+          fi
+          printf '%s\\n' ''
+          escaped_path=$(printf '%s' "$PATH" | sed "s/'/'\\\\''/g")
+          printf "export PATH='%s'\\n" "$escaped_path"
+        } >| "$SNAPSHOT_FILE"
+        test -s "$SNAPSHOT_FILE"
+        """
     }
 
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
 
-    private func spawnBashProcess(
-        command: String,
+    private func spawnShellProcess(
+        shellPath: String,
+        arguments: [String],
         environment: [String: String],
         stdinFD: Int32,
         stdoutFD: Int32,
@@ -710,10 +1033,11 @@ actor BashService {
         }
 
         let environmentEntries = environment.map { "\($0.key)=\($0.value)" }
+        let argv = [shellPath] + arguments
         var processIdentifier: pid_t = 0
-        let spawnStatus = try Self.withCStringArray(["/bin/bash", "-lc", command]) { argumentsPointer in
+        let spawnStatus = try Self.withCStringArray(argv) { argumentsPointer in
             try Self.withCStringArray(environmentEntries) { environmentPointer in
-                posix_spawn(&processIdentifier, "/bin/bash", &fileActions, nil, argumentsPointer, environmentPointer)
+                posix_spawn(&processIdentifier, shellPath, &fileActions, nil, argumentsPointer, environmentPointer)
             }
         }
 
@@ -802,7 +1126,7 @@ actor BashService {
     }
 
     private func writePersistedOutput(command: String, cwd: String, stdout: String, stderr: String) throws -> URL {
-        let directoryURL = runtimeDirectoryURL(named: Self.foregroundDirectoryName)
+        let directoryURL = storageDirectoryURL(named: Self.foregroundDirectoryName)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         let fileURL = directoryURL.appendingPathComponent(UUID().uuidString).appendingPathExtension("txt")
@@ -849,9 +1173,12 @@ actor BashService {
 
             let processIdentifier: pid_t
             do {
-                processIdentifier = try spawnBashProcess(
-                    command: makeShellCommand(for: request),
-                    environment: makeEnvironment(workingDirectoryURL: request.workingDirectoryURL),
+                let environment = makeEnvironment(workingDirectoryURL: request.workingDirectoryURL)
+                let invocation = makeShellInvocation(for: request, environment: environment)
+                processIdentifier = try spawnShellProcess(
+                    shellPath: invocation.shellPath,
+                    arguments: invocation.arguments,
+                    environment: environment,
                     stdinFD: devNullFD,
                     stdoutFD: stdoutPipeFDs[1],
                     stderrFD: stderrPipeFDs[1]
@@ -922,7 +1249,7 @@ actor BashService {
 
         private func executeInBackground(_ request: NormalizedRequest) async throws -> ExecutionPayload {
             let taskID = UUID().uuidString
-            let taskDirectoryURL = runtimeDirectoryURL(named: Self.backgroundDirectoryName)
+            let taskDirectoryURL = storageDirectoryURL(named: Self.backgroundDirectoryName)
             try FileManager.default.createDirectory(at: taskDirectoryURL, withIntermediateDirectories: true)
 
             let outputURL = taskDirectoryURL.appendingPathComponent(taskID).appendingPathExtension("log")
@@ -954,9 +1281,12 @@ actor BashService {
 
             let processIdentifier: pid_t
             do {
-                processIdentifier = try spawnBashProcess(
-                    command: makeShellCommand(for: request),
-                    environment: makeEnvironment(workingDirectoryURL: request.workingDirectoryURL),
+                let environment = makeEnvironment(workingDirectoryURL: request.workingDirectoryURL)
+                let invocation = makeShellInvocation(for: request, environment: environment)
+                processIdentifier = try spawnShellProcess(
+                    shellPath: invocation.shellPath,
+                    arguments: invocation.arguments,
+                    environment: environment,
                     stdinFD: devNullFD,
                     stdoutFD: outputFD,
                     stderrFD: outputFD

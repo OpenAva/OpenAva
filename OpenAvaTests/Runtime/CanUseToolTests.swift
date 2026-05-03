@@ -16,6 +16,50 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertNil(decision.message)
     }
 
+    func testDefaultToolPermissionPolicyAsksForAbsoluteReadPathOutsideAllowedRoots() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-read-absolute", name: "fs_read", arguments: #"{"path":"/tmp/outside.txt"}"#),
+            makeTool(functionName: "fs_read", isReadOnly: true),
+            makeContext(toolProvider: PermissionScopeToolProvider(
+                workspaceRootURL: URL(fileURLWithPath: "/workspace"),
+                readableRootURLs: [URL(fileURLWithPath: "/workspace")]
+            ))
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "absolute_read_path_requires_approval")
+        XCTAssertEqual(decision.message, "Tool execution requires approval because it reads an absolute path outside the allowed working directories.")
+    }
+
+    func testDefaultToolPermissionPolicyDeniesAbsoluteReadPathAfterRememberedRejection() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.addSessionToolPermissionRule(
+            ToolPermissionRule(
+                behavior: .deny,
+                toolName: "fs_read",
+                matcher: .pathPrefix("/tmp")
+            )
+        )
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-read-denied", name: "fs_read", arguments: #"{"path":"/tmp/outside.txt"}"#),
+            makeTool(functionName: "fs_read", isReadOnly: true),
+            makeContext(
+                session: session,
+                toolProvider: PermissionScopeToolProvider(
+                    workspaceRootURL: URL(fileURLWithPath: "/workspace"),
+                    readableRootURLs: [URL(fileURLWithPath: "/workspace")]
+                )
+            )
+        )
+
+        XCTAssertEqual(decision.behavior, .deny)
+        XCTAssertEqual(decision.reason, "permission_rule_deny_session")
+    }
+
     func testDefaultToolPermissionPolicyAllowsTeamStatus() async throws {
         let definitions = TeamTools().toolDefinitions()
         let teamStatus = try XCTUnwrap(definitions.first { $0.functionName == "team_status" })
@@ -71,6 +115,20 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertEqual(decision.behavior, .ask)
         XCTAssertEqual(decision.reason, "team_shutdown_requires_approval")
         XCTAssertEqual(decision.message, "Stopping a teammate requires approval.")
+    }
+
+    func testDefaultToolPermissionPolicyAllowsTodoWriteWithoutPrompt() async throws {
+        let tool = try XCTUnwrap(SessionTodoTools().toolDefinitions().first { $0.functionName == "todo_write" })
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-todo", name: "todo_write", arguments: #"{"todos":[]}"#),
+            tool,
+            makeContext()
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "internal_todo_state_update")
+        XCTAssertNil(decision.message)
     }
 
     func testDefaultToolPermissionPolicyAsksForDestructiveTools() async {
@@ -239,16 +297,119 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertTrue(session.pendingToolPermissionRequests.isEmpty)
     }
 
-    func testDefaultToolPermissionPolicyDeniesUnclassifiedMutableTools() async {
+    func testDefaultToolPermissionPolicyAsksForUnclassifiedMutableTools() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-js", name: "javascript_execute", arguments: "{}"),
             makeTool(functionName: "javascript_execute"),
             makeContext()
         )
 
-        XCTAssertEqual(decision.behavior, .deny)
-        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_denied")
-        XCTAssertEqual(decision.message, "Tool execution was denied because this tool is not approved by the default policy.")
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_requires_approval")
+        XCTAssertEqual(decision.message, "Tool execution requires approval because this tool can modify local app state or invoke additional instructions.")
+    }
+
+    func testDefaultToolPermissionPolicyAsksForSkillInvokeThroughGenericUnclassifiedPolicy() async throws {
+        let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-skill", name: "skill_invoke", arguments: #"{"name":"commit"}"#),
+            skillInvoke,
+            makeContext()
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_requires_approval")
+        XCTAssertEqual(decision.message, "Tool execution requires approval because this tool can modify local app state or invoke additional instructions.")
+    }
+
+    func testDefaultToolPermissionPolicyUsesSessionExactArgumentsAllowRule() async throws {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.addSessionToolPermissionRule(
+            ToolPermissionRule(
+                behavior: .allow,
+                toolName: "skill_invoke",
+                matcher: .argumentsEqual(#"{"name":"commit"}"#)
+            )
+        )
+        let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-skill", name: "skill_invoke", arguments: #"{"name":"commit"}"#),
+            skillInvoke,
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "permission_rule_allow_session")
+    }
+
+    func testDefaultToolPermissionPolicyNormalizesExactArgumentsAllowRule() async throws {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.addSessionToolPermissionRule(
+            ToolPermissionRule(
+                behavior: .allow,
+                toolName: "skill_invoke",
+                matcher: .argumentsEqual(#"{"task":"now","name":"commit"}"#)
+            )
+        )
+        let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-skill", name: "skill_invoke", arguments: #"{"name":"commit","task":"now"}"#),
+            skillInvoke,
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "permission_rule_allow_session")
+    }
+
+    func testPersistedToolPermissionRuleLoadsForNewSession() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpenAvaPermissionTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let firstSession = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                toolPermissionRulesRootURL: rootURL
+            )
+        )
+        firstSession.addPersistedToolPermissionRule(
+            ToolPermissionRule(
+                behavior: .allow,
+                toolName: "skill_invoke",
+                matcher: .argumentsEqual(#"{"name":"commit"}"#)
+            )
+        )
+
+        let secondSession = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(
+                storage: DisposableStorageProvider(),
+                toolPermissionRulesRootURL: rootURL
+            )
+        )
+        let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-skill", name: "skill_invoke", arguments: #"{"name":"commit"}"#),
+            skillInvoke,
+            makeContext(session: secondSession)
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "permission_rule_allow_project")
     }
 
     private func waitForPendingToolPermission(
@@ -266,13 +427,16 @@ final class CanUseToolTests: XCTestCase {
         XCTFail("Timed out waiting for pending tool permission request \(requestID)")
     }
 
-    private func makeContext(session: ConversationSession? = nil) -> ToolExecutionContext {
+    private func makeContext(
+        session: ConversationSession? = nil,
+        toolProvider: ToolProvider? = nil
+    ) -> ToolExecutionContext {
         ToolExecutionContext(
             session: session ?? ConversationSession(
                 id: UUID().uuidString,
                 configuration: .init(storage: DisposableStorageProvider())
             ),
-            toolProvider: nil,
+            toolProvider: toolProvider,
             canUseTool: allowAllTools
         )
     }
@@ -290,5 +454,28 @@ final class CanUseToolTests: XCTestCase {
             isReadOnly: isReadOnly,
             isDestructive: isDestructive
         )
+    }
+}
+
+@MainActor
+private final class PermissionScopeToolProvider: ToolProvider, ToolPermissionScopeProviding {
+    let toolPermissionWorkspaceRootURL: URL?
+    let toolPermissionReadableRootURLs: [URL]
+
+    init(workspaceRootURL: URL?, readableRootURLs: [URL]) {
+        toolPermissionWorkspaceRootURL = workspaceRootURL
+        toolPermissionReadableRootURLs = readableRootURLs
+    }
+
+    func enabledTools() async -> [ChatRequestBody.Tool] {
+        []
+    }
+
+    func findTool(for _: ToolRequest) async -> ToolExecutor? {
+        nil
+    }
+
+    func executeTool(_: ToolExecutor, parameters _: String) async throws -> ToolResult {
+        ToolResult(text: "{}")
     }
 }

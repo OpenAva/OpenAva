@@ -9,15 +9,23 @@ import UIKit
 
 final class ReasoningContentView: MessageListRowView {
     private lazy var indicator: UIView = .init()
+    private lazy var textContainer: UIView = .init().with {
+        $0.backgroundColor = .secondarySystemFill.withAlphaComponent(0.08)
+        $0.layer.cornerRadius = 8
+        $0.layer.cornerCurve = .continuous
+    }
+
     private lazy var textView: LTXLabel = .init().with {
         $0.isSelectable = true
+        $0.backgroundColor = .clear
     }
 
     private lazy var thinkingTile: ThinkingTile = .init()
 
     static let paragraphStyle: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = 3
+        style.lineSpacing = 4
+        style.lineBreakMode = .byCharWrapping
         return style
     }()
 
@@ -37,28 +45,26 @@ final class ReasoningContentView: MessageListRowView {
 
     var isRevealed: Bool = false {
         didSet {
-            doWithAnimation { [self] in
-                thinkingTile.isRevealed = isRevealed
-                setNeedsLayout()
-                layoutIfNeeded()
-            }
+            thinkingTile.isRevealed = isRevealed
+            setNeedsLayout()
+            layoutIfNeeded()
         }
     }
 
     var isThinking: Bool = false {
-        didSet { doWithAnimation { [self] in
+        didSet {
             thinkingTile.isThinking = isThinking
             setNeedsLayout()
             layoutIfNeeded()
-        } }
+        }
     }
 
     var text: String? {
         didSet {
             if let text {
                 textView.attributedText = .init(string: text, attributes: [
-                    .font: theme.fonts.footnote,
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .font: theme.fonts.code,
+                    .foregroundColor: theme.colors.code,
                     .paragraphStyle: Self.paragraphStyle,
                 ])
             } else {
@@ -87,8 +93,8 @@ final class ReasoningContentView: MessageListRowView {
         indicator.alpha = 1.0
         contentView.addSubview(indicator)
 
-        textView.backgroundColor = .clear
-        contentView.addSubview(textView)
+        contentView.addSubview(textContainer)
+        textContainer.addSubview(textView)
     }
 
     @available(*, unavailable)
@@ -98,7 +104,8 @@ final class ReasoningContentView: MessageListRowView {
 
     override func themeDidUpdate() {
         super.themeDidUpdate()
-        thinkingTile.titleLabel.font = theme.fonts.body
+        thinkingTile.titleLabel.font = UIFont.systemFont(ofSize: theme.fonts.body.pointSize, weight: .regular)
+        textView.selectionBackgroundColor = theme.colors.selectionBackground
     }
 
     override func layoutSubviews() {
@@ -127,19 +134,48 @@ final class ReasoningContentView: MessageListRowView {
             indicator.frame = .zero
         }
 
-        let textViewOrigin = CGPoint(
+        let containerOrigin = CGPoint(
             x: contentLeading,
             y: indicatorY
         )
-        let textWidth = max(0, contentView.bounds.width - textViewOrigin.x)
+        let containerWidth = max(0, contentView.bounds.width - containerOrigin.x)
+        let textWidth = max(0, containerWidth - 16)
+
         textView.preferredMaxLayoutWidth = textWidth
-        textView.frame = .init(
-            x: textViewOrigin.x,
-            y: textViewOrigin.y,
-            width: textWidth,
-            height: ceil(textView.intrinsicContentSize.height)
+
+        let codeHeight: CGFloat
+        if let text = text, text.count > 5000 {
+            let font = theme.fonts.code
+            let charWidth = font.pointSize * 0.6
+            let charsPerLine = max(1, Int(textWidth / charWidth))
+            let lineHeight = font.lineHeight + 4
+            var totalLines = 0
+            text.enumerateLines { line, _ in
+                let lineLength = max(1, line.count)
+                totalLines += Int(ceil(Double(lineLength) / Double(charsPerLine)))
+            }
+            codeHeight = ceil(CGFloat(totalLines) * lineHeight)
+        } else {
+            codeHeight = ceil(textView.intrinsicContentSize.height)
+        }
+
+        let containerHeight = codeHeight + 16
+
+        textContainer.frame = .init(
+            x: containerOrigin.x,
+            y: containerOrigin.y,
+            width: containerWidth,
+            height: containerHeight
         )
-        textView.alpha = isRevealed ? 1 : 0
+
+        textView.frame = .init(
+            x: 8,
+            y: 8,
+            width: textWidth,
+            height: codeHeight
+        )
+
+        textContainer.alpha = isRevealed ? 1 : 0
     }
 
     @objc
@@ -151,7 +187,8 @@ final class ReasoningContentView: MessageListRowView {
 extension ReasoningContentView {
     final class ThinkingTile: UIView {
         // Keep arrow size stable across collapsed/revealed states.
-        private static let arrowSymbolPointSize: CGFloat = 13
+        private static let arrowSymbolPointSize: CGFloat = 11
+        private static let arrowSymbolWeight: UIImage.SymbolWeight = .semibold
         private static let arrowFrameSize: CGFloat = 14
 
         var thinkingDuration: TimeInterval = 0 {
@@ -173,8 +210,8 @@ extension ReasoningContentView {
             }
         }
 
-        lazy var titleLabel: GlyphixTextLabel = .init().with {
-            $0.isBlurEffectEnabled = false
+        lazy var titleLabel: UILabel = .init().with {
+            $0.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
         }
 
         private lazy var symbolView: UIImageView = .init(image: UIImage(systemName: "sparkles")).with {
@@ -187,12 +224,13 @@ extension ReasoningContentView {
         }
 
         private lazy var loadingSymbol: LoadingSymbol = .init()
-        private lazy var arrowView: UIImageView = .init(image: UIImage(systemName: "chevron.right")).with {
-            $0.contentMode = .scaleAspectFit
+        private lazy var arrowView: UIImageView = .init().with {
+            $0.contentMode = .center
             $0.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
                 pointSize: Self.arrowSymbolPointSize,
-                weight: .medium
+                weight: Self.arrowSymbolWeight
             )
+            $0.image = UIImage(systemName: "chevron.right")
         }
 
         override init(frame: CGRect) {
@@ -200,7 +238,7 @@ extension ReasoningContentView {
 
             addSubview(symbolView)
 
-            titleLabel.textAlignment = .leading
+            titleLabel.textAlignment = .left
             titleLabel.textColor = .label
             addSubview(titleLabel)
 

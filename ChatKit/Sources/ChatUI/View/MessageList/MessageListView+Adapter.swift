@@ -12,8 +12,10 @@ private extension MessageListView {
     enum RowType {
         case userContent
         case userAttachment
+        case agentHeader
         case reasoningContent
         case responseContent
+        case executionError
         case mediaContent
         case hint
         case compactBoundary
@@ -61,13 +63,19 @@ extension MessageListView: ListViewAdapter {
         dataSource.snapshot().item(at: index)
     }
 
+    private func contentWidth(for entry: Entry, containerWidth: CGFloat) -> CGFloat {
+        max(0, containerWidth - (entryLeadingInsets[entry.id] ?? 0))
+    }
+
     public func listView(_: ListView, rowKindFor _: any Identifiable, at index: Int) -> any Hashable {
         guard let entry = entryForRow(at: index) else { return RowType.hint }
         return switch entry {
         case .userContent: RowType.userContent
         case .userAttachment: RowType.userAttachment
+        case .agentHeader: RowType.agentHeader
         case .reasoningContent: RowType.reasoningContent
         case .responseContent: RowType.responseContent
+        case .executionError: RowType.executionError
         case .mediaContent: RowType.mediaContent
         case .hint: RowType.hint
         case .compactBoundary: RowType.compactBoundary
@@ -90,10 +98,14 @@ extension MessageListView: ListViewAdapter {
             UserMessageView()
         case .userAttachment:
             UserAttachmentView()
+        case .agentHeader:
+            AgentHeaderView()
         case .reasoningContent:
             ReasoningContentView()
         case .responseContent:
             ResponseView()
+        case .executionError:
+            ExecutionErrorCardView()
         case .mediaContent:
             MediaMessageView()
         case .hint:
@@ -150,9 +162,13 @@ extension MessageListView: ListViewAdapter {
                 return height + UserMessageView.textPadding * 2 + sourceHeight
             case .userAttachment:
                 return AttachmentsBar.itemHeight
+            case .agentHeader:
+                return MessageListRowView.agentHeaderHeight
             case let .reasoningContent(_, message):
+                let availableContentWidth = contentWidth(for: entry, containerWidth: containerWidth)
+
                 if message.isRevealed {
-                    let availableWidth = containerWidth - 16
+                    let availableWidth = max(0, availableContentWidth - 38)
                     let cacheKey = NSString(string: "reasoning-\(message.id)|\(Int(availableWidth.rounded()))")
 
                     let textHeight: CGFloat
@@ -160,7 +176,7 @@ extension MessageListView: ListViewAdapter {
                         textHeight = CGFloat(cached.floatValue)
                     } else {
                         let attributedContent = NSAttributedString(string: message.content, attributes: [
-                            .font: theme.fonts.footnote,
+                            .font: theme.fonts.code,
                             .paragraphStyle: ReasoningContentView.paragraphStyle,
                         ])
                         textHeight = boundingSize(with: availableWidth, for: attributedContent).height
@@ -168,6 +184,7 @@ extension MessageListView: ListViewAdapter {
                     }
 
                     return textHeight
+                        + 16
                         + ReasoningContentView.spacing
                         + ReasoningContentView.revealedTileHeight
                         + 2
@@ -175,16 +192,16 @@ extension MessageListView: ListViewAdapter {
                     return ReasoningContentView.unrevealedTileHeight
                 }
             case let .responseContent(_, message):
+                let availableContentWidth = contentWidth(for: entry, containerWidth: containerWidth)
                 markdownViewForSizeCalculation.theme = theme
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 markdownViewForSizeCalculation.setMarkdownManually(package)
-                var height = ceil(markdownViewForSizeCalculation.boundingSize(for: containerWidth).height)
-                if message.agentName != nil {
-                    height += 20 // 16 labelHeight + 4 padding
-                }
-                return height
+                return ceil(markdownViewForSizeCalculation.boundingSize(for: availableContentWidth).height)
+            case let .executionError(_, error):
+                let availableContentWidth = contentWidth(for: entry, containerWidth: containerWidth)
+                return ExecutionErrorCardView.contentHeight(for: error, theme: theme, maxWidth: availableContentWidth)
             case let .mediaContent(_, media):
-                return MediaMessageView.contentHeight(for: media, containerWidth: containerWidth)
+                return MediaMessageView.contentHeight(for: media, containerWidth: contentWidth(for: entry, containerWidth: containerWidth))
             case .hint:
                 return ceil(theme.fonts.footnote.lineHeight + 16)
             case let .compactBoundary(_, boundary):
@@ -194,7 +211,7 @@ extension MessageListView: ListViewAdapter {
             case let .subAgentTask(_, task):
                 return SubAgentTaskCardView.contentHeight(for: task, theme: theme, maxWidth: containerWidth)
             case let .toolResultContent(_, toolResult):
-                let textWidth = max(0, containerWidth - 14)
+                let textWidth = max(0, contentWidth(for: entry, containerWidth: containerWidth) - 14)
                 var totalHeight: CGFloat = 0
 
                 if toolResult.hasParameters {
@@ -224,9 +241,9 @@ extension MessageListView: ListViewAdapter {
 
                 return min(totalHeight, 360)
             case let .chartContent(_, chart):
-                return ChartMessageView.contentHeight(for: chart.spec, containerWidth: containerWidth)
+                return ChartMessageView.contentHeight(for: chart.spec, containerWidth: contentWidth(for: entry, containerWidth: containerWidth))
             case let .mapContent(_, map):
-                return MapMessageView.contentHeight(for: map.spec, containerWidth: containerWidth)
+                return MapMessageView.contentHeight(for: map.spec, containerWidth: contentWidth(for: entry, containerWidth: containerWidth))
             case let .activityReporting(content):
                 let textHeight = boundingSize(with: .greatestFiniteMagnitude, for: NSAttributedString(string: content, attributes: [
                     .font: theme.fonts.body,
@@ -244,6 +261,9 @@ extension MessageListView: ListViewAdapter {
 
     public func listView(_: ListView, configureRowView rowView: ListRowView, for _: any Identifiable, at index: Int) {
         guard let entry = entryForRow(at: index) else { return }
+        if let messageRowView = rowView as? MessageListRowView {
+            messageRowView.contentLeadingInset = entryLeadingInsets[entry.id] ?? 0
+        }
 
         if let userMessageView = rowView as? UserMessageView {
             if case let .userContent(_, message) = entry {
@@ -283,10 +303,14 @@ extension MessageListView: ListViewAdapter {
                 userAttachmentView.previewHandler = onOpenAttachment
                 userAttachmentView.update(with: attachments)
             }
+        } else if let agentHeaderView = rowView as? AgentHeaderView {
+            if case let .agentHeader(_, header) = entry {
+                agentHeaderView.theme = theme
+                agentHeaderView.configure(with: header)
+            }
         } else if let responseView = rowView as? ResponseView {
             if case let .responseContent(_, message) = entry {
                 responseView.theme = theme
-                responseView.configure(agentName: message.agentName, agentEmoji: message.agentEmoji)
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 responseView.markdownView.setMarkdown(package)
                 // Copy / Select All menu
@@ -308,6 +332,11 @@ extension MessageListView: ListViewAdapter {
                         self?.compactConversationMenu(messageID: message.messageID),
                     ].compactMap { $0 })
                 }
+            }
+        } else if let executionErrorCardView = rowView as? ExecutionErrorCardView {
+            if case let .executionError(_, error) = entry {
+                executionErrorCardView.theme = theme
+                executionErrorCardView.configure(with: error)
             }
         } else if let mediaMessageView = rowView as? MediaMessageView {
             if case let .mediaContent(_, media) = entry {
