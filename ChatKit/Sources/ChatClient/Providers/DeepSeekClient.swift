@@ -17,6 +17,10 @@
 import Foundation
 
 open class DeepSeekClient: OpenAICompatibleClient, @unchecked Sendable {
+    override open var apiProvider: APIProvider {
+        .deepSeek
+    }
+
     public convenience init(
         model: String = "deepseek-v4-flash",
         apiKey: String? = nil
@@ -29,39 +33,11 @@ open class DeepSeekClient: OpenAICompatibleClient, @unchecked Sendable {
         )
     }
 
-    /// Keep assistant reasoning as internal canonical field; it will be mapped
-    /// to `reasoning_content` in `makeURLRequest(body:)` for DeepSeek.
-    ///
-    /// Also ensures `content` is "" (not absent) when tool_calls are present.
-    ///
-    /// See: https://api-docs.deepseek.com/guides/reasoning_model
-    ///      https://api-docs.deepseek.com/guides/tool_calls
-    override func applyModelSettings(to body: ChatRequestBody, streaming: Bool) -> ChatRequestBody {
-        var requestBody = body
-        requestBody.model = model
-        requestBody.stream = streaming
-        requestBody.messages = requestBody.messages.map { message in
-            switch message {
-            case let .assistant(content, toolCalls, reasoning, thinkingBlocks):
-                let hasToolCalls = toolCalls != nil && !toolCalls!.isEmpty
-                // Ensure content field is present when tool_calls exist.
-                let resolvedContent: ChatRequestBody.Message.MessageContent<String, [String]>? = if hasToolCalls, content == nil {
-                    .text("")
-                } else {
-                    content
-                }
-                return .assistant(
-                    content: resolvedContent,
-                    toolCalls: toolCalls,
-                    reasoning: reasoning,
-                    thinkingBlocks: thinkingBlocks
-                )
-            default:
-                return message
-            }
-        }
-        return requestBody
-    }
+    // Keep assistant reasoning as internal canonical field; it will be mapped
+    // to `reasoning_content` in `makeURLRequest(body:)` for DeepSeek.
+    //
+    // See: https://api-docs.deepseek.com/guides/reasoning_model
+    //      https://api-docs.deepseek.com/guides/tool_calls
 
     override func makeURLRequest(body: ChatRequestBody) throws -> URLRequest {
         var request = try super.makeURLRequest(body: body)

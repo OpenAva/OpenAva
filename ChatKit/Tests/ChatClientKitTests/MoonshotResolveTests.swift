@@ -16,6 +16,15 @@ import Testing
 @testable import ChatClient
 
 struct MoonshotResolveTests {
+    private func prepareForAPI(
+        _ client: MoonshotClient,
+        body: ChatRequestBody,
+        streaming: Bool
+    ) -> ChatRequestBody {
+        try! client.applyModelSettings(to: body, streaming: streaming)
+            .preparingForAPI(.init(provider: client.apiProvider))
+    }
+
     // MARK: - No tool calls → strip reasoning
 
     @Test("Moonshot resolve strips reasoning from plain assistant messages (no tool calls)")
@@ -31,7 +40,7 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
 
         #expect(resolved.model == "kimi-k2.5")
         #expect(resolved.stream == true)
@@ -68,7 +77,7 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
 
         if case let .assistant(content, resolvedToolCalls, reasoning, _) = resolved.messages[0] {
             #expect(resolvedToolCalls?.count == 1, "Tool calls should be preserved")
@@ -105,7 +114,7 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         if case let .assistant(content, resolvedToolCalls, reasoning, _) = resolved.messages[0] {
             if case let .text(text) = content {
@@ -130,7 +139,7 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         if case let .assistant(_, toolCalls, reasoning, _) = resolved.messages[0] {
             let hasToolCalls = toolCalls != nil && !toolCalls!.isEmpty
@@ -141,8 +150,8 @@ struct MoonshotResolveTests {
         }
     }
 
-    @Test("Moonshot resolve does not inject content when assistant has no tool calls")
-    func noContentInjectionWithoutToolCalls() {
+    @Test("Moonshot resolve backfills empty content when assistant has no tool calls")
+    func emptyContentBackfillWithoutToolCalls() {
         let client = MoonshotClient(model: "kimi-k2.5", apiKey: "test-key")
 
         let body = ChatRequestBody(
@@ -151,10 +160,14 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
 
         if case let .assistant(content, _, reasoning, _) = resolved.messages[0] {
-            #expect(content == nil, "Content should remain nil when there are no tool calls")
+            if case let .text(text) = content {
+                #expect(text.isEmpty, "API-bound assistant content should be present as an empty string")
+            } else {
+                #expect(Bool(false), "Expected assistant content to be .text")
+            }
             #expect(reasoning == nil, "Reasoning should be stripped when no tool calls")
         } else {
             #expect(Bool(false), "Expected assistant message")
@@ -180,7 +193,7 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         // Index 1: assistant with tool calls → reasoning preserved
         if case let .assistant(_, toolCalls1, reasoning1, _) = resolved.messages[1] {
@@ -194,8 +207,8 @@ struct MoonshotResolveTests {
         }
     }
 
-    @Test("Moonshot resolve preserves tool and other message types")
-    func preserveNonAssistantMessages() {
+    @Test("Moonshot resolve drops orphan tool messages at API boundary")
+    func dropsOrphanToolMessages() {
         let client = MoonshotClient(model: "kimi-k2.5", apiKey: "test-key")
 
         let body = ChatRequestBody(
@@ -206,12 +219,11 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
 
-        #expect(resolved.messages.count == 3)
+        #expect(resolved.messages.count == 2)
         #expect(resolved.messages[0].role == "system")
         #expect(resolved.messages[1].role == "user")
-        #expect(resolved.messages[2].role == "tool")
     }
 
     @Test("Moonshot encoded JSON preserves reasoning_content in tool-call assistant message")
@@ -228,11 +240,13 @@ struct MoonshotResolveTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
-        let data = try JSONEncoder().encode(resolved)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
+        let request = try client.makeURLRequest(body: resolved)
+        let data = try #require(request.httpBody)
         let json = try #require(String(data: data, encoding: .utf8))
 
-        #expect(json.contains("\"reasoning\":\"checking time\""), "reasoning field must be present for tool-call messages")
+        #expect(json.contains("\"reasoning_content\":\"checking time\""), "reasoning_content must be present for tool-call messages")
+        #expect(!json.contains("\"reasoning\":"), "legacy reasoning field must not be sent to Moonshot")
         #expect(json.contains("\"content\":\"\""), "content must be empty string not absent")
         #expect(json.contains("\"tool_calls\""), "tool_calls must be present")
     }

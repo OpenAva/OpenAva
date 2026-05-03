@@ -17,6 +17,15 @@ import Testing
 @testable import ChatClient
 
 struct DeepSeekReasoningStrippingTests {
+    private func prepareForAPI(
+        _ client: DeepSeekClient,
+        body: ChatRequestBody,
+        streaming: Bool
+    ) -> ChatRequestBody {
+        try! client.applyModelSettings(to: body, streaming: streaming)
+            .preparingForAPI(.init(provider: client.apiProvider))
+    }
+
     // MARK: - No tool calls → preserve reasoning
 
     @Test("DeepSeek resolve preserves reasoning in plain assistant messages (no tool calls)")
@@ -32,7 +41,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
 
         #expect(resolved.model == "deepseek-v4-flash")
         #expect(resolved.stream == true)
@@ -73,7 +82,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         if case let .assistant(content, resolvedToolCalls, reasoning, _) = resolved.messages[0] {
             #expect(resolvedToolCalls?.count == 1, "Tool calls should be preserved")
@@ -110,7 +119,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         if case let .assistant(content, resolvedToolCalls, reasoning, _) = resolved.messages[0] {
             if case let .text(text) = content {
@@ -134,7 +143,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         if case let .assistant(_, toolCalls, reasoning, _) = resolved.messages[0] {
             let hasToolCalls = toolCalls != nil && !toolCalls!.isEmpty
@@ -164,7 +173,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: false)
+        let resolved = prepareForAPI(client, body: body, streaming: false)
 
         // Index 1: assistant with tool calls → reasoning preserved
         if case let .assistant(_, toolCalls1, reasoning1, _) = resolved.messages[1] {
@@ -192,7 +201,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
         // Validate the final outbound payload shape after provider-specific mapping.
         let request = try client.makeURLRequest(body: resolved)
         let data = try #require(request.httpBody)
@@ -214,7 +223,7 @@ struct DeepSeekReasoningStrippingTests {
             ]
         )
 
-        let resolved = client.applyModelSettings(to: body, streaming: true)
+        let resolved = prepareForAPI(client, body: body, streaming: true)
         let request = try client.makeURLRequest(body: resolved)
         let data = try #require(request.httpBody)
         let json = try #require(String(data: data, encoding: .utf8))

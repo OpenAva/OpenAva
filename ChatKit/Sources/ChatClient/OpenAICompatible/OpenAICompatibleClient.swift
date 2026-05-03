@@ -63,10 +63,15 @@ open class OpenAICompatibleClient: BaseChatClient, @unchecked Sendable {
         super.init(errorCollector: errorCollector)
     }
 
+    override open func prepareStreamingBody(_ body: ChatRequestBody) throws -> ChatRequestBody {
+        try applyModelSettings(to: body, streaming: true)
+            .preparingForAPI(.init(provider: apiProvider))
+    }
+
     /// Non-streaming: sends a single HTTP POST with stream=false and decodes the full response.
     override open func chat(body: ChatRequestBody) async throws -> ChatResponse {
-        let requestBody = applyModelSettings(to: body, streaming: false)
-            .sanitizingOutboundMessages()
+        let requestBody = try applyModelSettings(to: body, streaming: false)
+            .preparingForAPI(.init(provider: apiProvider))
         let request = try makeURLRequest(body: requestBody)
         logger.info("starting non-streaming request to model: \(self.model) with \(body.messages.count) messages")
 
@@ -85,8 +90,7 @@ open class OpenAICompatibleClient: BaseChatClient, @unchecked Sendable {
     override open func provideStreamingChat(
         body: ChatRequestBody
     ) async throws -> AnyAsyncSequence<ChatResponseChunk> {
-        let requestBody = applyModelSettings(to: body, streaming: true)
-        let request = try makeURLRequest(body: requestBody)
+        let request = try makeURLRequest(body: body)
         let this = self
         logger.info("starting streaming request to model: \(this.model) with \(body.messages.count) messages, temperature: \(body.temperature ?? 1.0)")
 

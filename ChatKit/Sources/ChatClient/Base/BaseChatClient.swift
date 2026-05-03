@@ -11,21 +11,27 @@ open class BaseChatClient: ChatClient, @unchecked Sendable {
         self.errorCollector = errorCollector
     }
 
+    open var apiProvider: APIProvider {
+        .openAICompatible
+    }
+
+    open func prepareStreamingBody(_ body: ChatRequestBody) throws -> ChatRequestBody {
+        try body.preparingForAPI(.init(provider: apiProvider))
+    }
+
     open func chat(body: ChatRequestBody) async throws -> ChatResponse {
         try await ChatResponse(chunks: chatChunks(body: body))
     }
 
-    /// Merges adjacent assistant messages then calls `provideStreamingChat(body:)`.
+    /// Normalizes API-bound messages then calls `provideStreamingChat(body:)`.
     /// Subclasses must override `provideStreamingChat(body:)`, not this method.
     public final func streamingChat(body: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
-        let outboundBody = body
-            .mergingAdjacentAssistantMessages()
-            .sanitizingOutboundMessages()
+        let outboundBody = try prepareStreamingBody(body)
         return try await provideStreamingChat(body: outboundBody)
     }
 
     /// Override in subclasses to provide the actual streaming implementation.
-    /// The `body` received here has already had adjacent assistant messages merged.
+    /// The `body` received here has already been normalized for the target API provider.
     open func provideStreamingChat(body _: ChatRequestBody) async throws -> AnyAsyncSequence<ChatResponseChunk> {
         throw Error.notImplemented
     }

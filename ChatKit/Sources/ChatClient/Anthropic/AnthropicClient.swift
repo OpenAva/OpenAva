@@ -29,6 +29,10 @@ open class AnthropicClient: BaseChatClient, @unchecked Sendable {
     open var defaultHeaders: [String: String]
     open var thinkingBudgetTokens: Int
 
+    override open var apiProvider: APIProvider {
+        .anthropic
+    }
+
     public enum Error: Swift.Error {
         case invalidURL
         case invalidApiKey
@@ -84,8 +88,9 @@ open class AnthropicClient: BaseChatClient, @unchecked Sendable {
         let transformer = AnthropicRequestTransformer(
             thinkingBudgetTokens: thinkingBudgetTokens
         )
+        let preparedBody = try body.preparingForAPI(.init(provider: apiProvider))
         let requestBody = transformer.makeRequestBody(
-            from: body,
+            from: preparedBody,
             model: model,
             stream: false
         )

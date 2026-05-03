@@ -21,6 +21,10 @@
 import Foundation
 
 open class MoonshotClient: OpenAICompatibleClient, @unchecked Sendable {
+    override open var apiProvider: APIProvider {
+        .moonshot
+    }
+
     public convenience init(
         model: String = "kimi-k2.5",
         apiKey: String? = nil
@@ -33,41 +37,31 @@ open class MoonshotClient: OpenAICompatibleClient, @unchecked Sendable {
         )
     }
 
-    /// Conditionally strip `reasoning` based on whether the assistant message
-    /// has tool calls (mirrors DeepSeek V3.2 thinking-integrated tool-use rules):
-    /// - With tool_calls → preserve reasoning (required when thinking mode active)
-    /// - Without tool_calls → strip reasoning (causes errors if included)
-    ///
-    /// Also ensures `content` is "" (not absent) when tool_calls are present,
-    /// as required by the Kimi API.
+    /// Map canonical assistant `reasoning` to Moonshot/Kimi's
+    /// `reasoning_content` transport field after API-bound normalization has
+    /// applied the provider-specific preservation rules.
     ///
     /// See: https://platform.moonshot.ai/docs/guide/use-kimi-api-to-complete-tool-calls
-    override func applyModelSettings(to body: ChatRequestBody, streaming: Bool) -> ChatRequestBody {
-        var requestBody = body.mergingAdjacentAssistantMessages()
-        requestBody.model = model
-        requestBody.stream = streaming
-        requestBody.messages = requestBody.messages.map { message in
-            switch message {
-            case let .assistant(content, toolCalls, reasoning, thinkingBlocks):
-                let hasToolCalls = toolCalls != nil && !toolCalls!.isEmpty
-                // Preserve reasoning only when tool_calls are present.
-                let resolvedReasoning = hasToolCalls ? reasoning : nil
-                // Ensure content field is present when tool_calls exist.
-                let resolvedContent: ChatRequestBody.Message.MessageContent<String, [String]>? = if hasToolCalls, content == nil {
-                    .text("")
-                } else {
-                    content
-                }
-                return .assistant(
-                    content: resolvedContent,
-                    toolCalls: toolCalls,
-                    reasoning: resolvedReasoning,
-                    thinkingBlocks: thinkingBlocks
-                )
-            default:
-                return message
+    override func makeURLRequest(body: ChatRequestBody) throws -> URLRequest {
+        var request = try super.makeURLRequest(body: body)
+        guard let httpBody = request.httpBody,
+              var root = try JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+              var messages = root["messages"] as? [[String: Any]]
+        else {
+            return request
+        }
+
+        for index in messages.indices {
+            guard let role = messages[index]["role"] as? String, role == "assistant" else {
+                continue
+            }
+            if let reasoning = messages[index].removeValue(forKey: "reasoning") {
+                messages[index]["reasoning_content"] = reasoning
             }
         }
-        return requestBody
+
+        root["messages"] = messages
+        request.httpBody = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+        return request
     }
 }

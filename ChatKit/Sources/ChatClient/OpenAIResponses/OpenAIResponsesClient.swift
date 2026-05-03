@@ -8,6 +8,10 @@ open class OpenAIResponsesClient: BaseChatClient, @unchecked Sendable {
     open var defaultHeaders: [String: String]
     open var requestCustomization: [String: Any]
 
+    override open var apiProvider: APIProvider {
+        .openAIResponses
+    }
+
     public enum Error: Swift.Error {
         case invalidURL
         case invalidApiKey

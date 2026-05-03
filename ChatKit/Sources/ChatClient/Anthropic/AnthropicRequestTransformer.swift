@@ -30,9 +30,7 @@ struct AnthropicRequestTransformer {
 
             case let .user(content, _):
                 let blocks = mapUserContent(content)
-                if !blocks.isEmpty {
-                    messages.append(.init(role: "user", content: blocks))
-                }
+                appendMessage(role: "user", content: blocks, to: &messages)
 
             case let .assistant(content, toolCalls, _, thinkingBlocks):
                 var blocks: [AnthropicRequestBody.ContentBlock] = []
@@ -65,15 +63,13 @@ struct AnthropicRequestTransformer {
                         ))
                     }
                 }
-                if !blocks.isEmpty {
-                    messages.append(.init(role: "assistant", content: blocks))
-                }
+                appendMessage(role: "assistant", content: blocks, to: &messages)
 
             case let .tool(content, toolCallID):
                 if let text = flattenTextContent(content) {
-                    messages.append(.init(role: "user", content: [
+                    appendMessage(role: "user", content: [
                         .toolResult(toolUseId: toolCallID, content: text),
-                    ]))
+                    ], to: &messages)
                 }
             }
         }
@@ -93,6 +89,20 @@ struct AnthropicRequestTransformer {
             thinking: thinkingConfig,
             tools: chatBody.tools?.map(mapTool)
         )
+    }
+
+    private func appendMessage(
+        role: String,
+        content: [AnthropicRequestBody.ContentBlock],
+        to messages: inout [AnthropicRequestBody.Message]
+    ) {
+        guard !content.isEmpty else { return }
+        if let last = messages.last, last.role == role {
+            messages.removeLast()
+            messages.append(.init(role: role, content: last.content + content))
+        } else {
+            messages.append(.init(role: role, content: content))
+        }
     }
 
     private func flattenTextContent(
