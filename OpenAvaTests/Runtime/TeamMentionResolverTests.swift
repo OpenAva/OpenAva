@@ -75,7 +75,7 @@ final class TeamMentionResolverTests: XCTestCase {
         let storage = DisposableStorageProvider()
         let session = ConversationSession(id: "test", configuration: .init(storage: storage))
         let context = TeamRoomOrchestrator.SubmissionContext(
-            activeContext: .globalTeam,
+            activeContext: .allAgentsTeam,
             teams: [],
             agents: [jett],
             fallbackModelConfig: nil,
@@ -98,7 +98,7 @@ final class TeamMentionResolverTests: XCTestCase {
         let storage = DisposableStorageProvider()
         let session = ConversationSession(id: "test2", configuration: .init(storage: storage))
         let context = TeamRoomOrchestrator.SubmissionContext(
-            activeContext: .globalTeam,
+            activeContext: .allAgentsTeam,
             teams: [],
             agents: [jett, alice],
             fallbackModelConfig: nil, // no model → should broadcast
@@ -122,7 +122,7 @@ final class TeamMentionResolverTests: XCTestCase {
             name: name,
             emoji: "🤖",
             workspacePath: root.appendingPathComponent("workspace", isDirectory: true).path,
-            localRuntimePath: root.appendingPathComponent("runtime", isDirectory: true).path
+            localContextPath: root.path
         )
     }
 }

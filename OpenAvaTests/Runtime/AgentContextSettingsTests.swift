@@ -31,6 +31,22 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertEqual(loaded, "# Identity")
     }
 
+    func testAgentSettingsDocumentKindsExcludeWorkspaceAgentsFile() {
+        XCTAssertFalse(AgentContextDocumentKind.agentSettingsCases.contains(.agents))
+        XCTAssertEqual(
+            AgentContextDocumentKind.agentSettingsCases.map(\.fileName),
+            ["HEARTBEAT.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md"]
+        )
+    }
+
+    @MainActor
+    func testContextSettingsViewModelDoesNotExposeWorkspaceAgentsFile() {
+        let viewModel = ContextSettingsViewModel()
+
+        XCTAssertNil(viewModel.document(for: .agents))
+        XCTAssertFalse(viewModel.documents.contains(where: { $0.kind == .agents }))
+    }
+
     func testTemplateContentLoadsBuiltInAgentGuidance() {
         // Verify built-in templates are loaded correctly.
         let agentsTemplate = AgentContextLoader.templateContent(for: .agents)
@@ -58,6 +74,230 @@ final class AgentContextSettingsTests: XCTestCase {
 
         XCTAssertEqual(loadedA, "A")
         XCTAssertEqual(loadedB, "B")
+    }
+
+    func testWorkspaceAgentsLoaderDiscoversGlobalAncestorProjectLocalRulesAndIncludes() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceAgentsLoaderTests-\(UUID().uuidString)", isDirectory: true)
+        let homeRoot = tempRoot.appendingPathComponent("home", isDirectory: true)
+        let parentRoot = tempRoot.appendingPathComponent("parent", isDirectory: true)
+        let projectRoot = parentRoot.appendingPathComponent("project", isDirectory: true)
+        let sourceRoot = projectRoot.appendingPathComponent("Sources", isDirectory: true)
+        let rulesRoot = projectRoot.appendingPathComponent(".rules", isDirectory: true)
+        let hiddenAgentsRoot = projectRoot.appendingPathComponent(".agents", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: homeRoot.appendingPathComponent(".agents", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rulesRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hiddenAgentsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        try "User global rule".write(
+            to: homeRoot.appendingPathComponent(".agents/AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Parent rule".write(
+            to: parentRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Project rule\n@./included.md".write(
+            to: projectRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Included project rule".write(
+            to: projectRoot.appendingPathComponent("included.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Hidden project rule".write(
+            to: hiddenAgentsRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Local project rule".write(
+            to: projectRoot.appendingPathComponent("AGENTS.local.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "public struct App {}".write(
+            to: sourceRoot.appendingPathComponent("App.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        paths:
+          - Sources/**/*.swift
+        ---
+        Swift-specific rule
+        """.write(
+            to: rulesRoot.appendingPathComponent("swift.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        paths: Tests/**/*.swift
+        ---
+        Test-only rule
+        """.write(
+            to: rulesRoot.appendingPathComponent("tests.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        AgentContextLoader.clearWorkspaceAgentsCache()
+        let context = try XCTUnwrap(
+            AgentContextLoader.load(
+                from: projectRoot,
+                environment: ["HOME": homeRoot.path],
+                fileManager: .default
+            )
+        )
+        let loadedText = context.documents.map(\.content).joined(separator: "\n")
+
+        XCTAssertTrue(loadedText.contains("User global rule"))
+        XCTAssertTrue(loadedText.contains("Parent rule"))
+        XCTAssertTrue(loadedText.contains("Project rule"))
+        XCTAssertTrue(loadedText.contains("Included project rule"))
+        XCTAssertTrue(loadedText.contains("Hidden project rule"))
+        XCTAssertTrue(loadedText.contains("Local project rule"))
+        XCTAssertTrue(loadedText.contains("Swift-specific rule"))
+        XCTAssertFalse(loadedText.contains("Test-only rule"))
+    }
+
+    func testNestedWorkspaceAgentsLoaderIncludesTargetDirectoryButNotSiblings() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceAgentsNestedTests-\(UUID().uuidString)", isDirectory: true)
+        let workspaceRoot = tempRoot.appendingPathComponent("workspace", isDirectory: true)
+        let featureRoot = workspaceRoot.appendingPathComponent("Sources/Feature", isDirectory: true)
+        let siblingRoot = workspaceRoot.appendingPathComponent("Sources/Other", isDirectory: true)
+        let targetURL = featureRoot.appendingPathComponent("View.swift", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: featureRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: siblingRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        try "Workspace root rule".write(
+            to: workspaceRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Feature subdirectory rule".write(
+            to: featureRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Sibling subdirectory rule".write(
+            to: siblingRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "struct View {}".write(to: targetURL, atomically: true, encoding: .utf8)
+
+        let documents = AgentContextLoader.loadNestedWorkspaceAgentsDocuments(
+            for: targetURL,
+            workspaceRootURL: workspaceRoot,
+            alreadyLoadedSourcePaths: [workspaceRoot.appendingPathComponent("AGENTS.md").standardizedFileURL.path],
+            environment: [:],
+            fileManager: .default
+        )
+        let loadedText = documents.map(\.content).joined(separator: "\n")
+
+        XCTAssertFalse(loadedText.contains("Workspace root rule"))
+        XCTAssertTrue(loadedText.contains("Feature subdirectory rule"))
+        XCTAssertFalse(loadedText.contains("Sibling subdirectory rule"))
+    }
+
+    func testWorkspaceAgentsLoaderStripsBlockCommentsAndFrontmatter() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceAgentsCommentTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try """
+        ---
+        paths: **/*.swift
+        ---
+        <!-- hidden block comment -->
+        Keep this rule <!-- keep inline comment text -->
+        """.write(
+            to: rootURL.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "struct Example {}".write(
+            to: rootURL.appendingPathComponent("Example.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        AgentContextLoader.clearWorkspaceAgentsCache()
+        let context = try XCTUnwrap(AgentContextLoader.load(from: rootURL, environment: [:], fileManager: .default))
+        let agentsDocument = try XCTUnwrap(context.documents.first(where: { $0.fileName == "AGENTS.md" }))
+
+        XCTAssertFalse(agentsDocument.content.contains("paths:"))
+        XCTAssertFalse(agentsDocument.content.contains("hidden block comment"))
+        XCTAssertTrue(agentsDocument.content.contains("Keep this rule <!-- keep inline comment text -->"))
+    }
+
+    func testWorkspaceAgentsLoaderPreventsRecursiveIncludeCycles() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceAgentsCycleTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try "Root rule\n@./a.md".write(to: rootURL.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+        try "A rule\n@./b.md".write(to: rootURL.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        try "B rule\n@./a.md".write(to: rootURL.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+
+        AgentContextLoader.clearWorkspaceAgentsCache()
+        let context = try XCTUnwrap(AgentContextLoader.load(from: rootURL, environment: [:], fileManager: .default))
+        let contents = context.documents.map(\.content)
+
+        XCTAssertEqual(contents.filter { $0.contains("A rule") }.count, 1)
+        XCTAssertEqual(contents.filter { $0.contains("B rule") }.count, 1)
+    }
+
+    func testWorkspaceAgentsDocumentsAreInjectedIntoComposedSystemPrompt() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceAgentsPromptTests-\(UUID().uuidString)", isDirectory: true)
+        let workspaceRoot = tempRoot.appendingPathComponent("workspace", isDirectory: true)
+        let homeRoot = tempRoot.appendingPathComponent("home", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        try "Use workspace AGENTS rule & stay focused.\n@./extra.md".write(
+            to: workspaceRoot.appendingPathComponent("AGENTS.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Included prompt rule with <xml> safety.".write(
+            to: workspaceRoot.appendingPathComponent("extra.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        AgentContextLoader.clearWorkspaceAgentsCache()
+        let prompt = try XCTUnwrap(
+            AgentContextLoader.composeSystemPrompt(
+                baseSystemPrompt: nil,
+                workspaceRootURL: workspaceRoot,
+                environment: ["HOME": homeRoot.path],
+                fileManager: .default
+            )
+        )
+
+        XCTAssertTrue(prompt.contains("## Workspace Files (injected)"))
+        XCTAssertTrue(prompt.contains("<workspace-file name=\"AGENTS.md\" purpose=\"Defines workspace rules, guardrails, and operating conventions.\">"))
+        XCTAssertTrue(prompt.contains("Use workspace AGENTS rule &amp; stay focused."))
+        XCTAssertTrue(prompt.contains("<workspace-file name=\"extra.md\" purpose=\"Provides workspace-specific instructions or reference material.\">"))
+        XCTAssertTrue(prompt.contains("Included prompt rule with &lt;xml&gt; safety."))
     }
 
     func testSkillsSummaryReportsMissingRequirements() throws {
@@ -120,67 +360,136 @@ final class AgentContextSettingsTests: XCTestCase {
         XCTAssertEqual(article.emoji, "🔎")
     }
 
-    func testListSkillsIncludesSharedRuntimeSkills() throws {
+    func testListSkillsIgnoresOpenAvaSupportSkills() throws {
         let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let skillName = "shared-\(UUID().uuidString.lowercased())"
-        let sharedSkillURL = AgentStore.sharedRuntimeRootURL()
+        let skillName = "support-\(UUID().uuidString.lowercased())"
+        let supportSkillURL = workspaceRoot
+            .appendingPathComponent(AgentStore.openAvaDirectoryName, isDirectory: true)
             .appendingPathComponent("skills", isDirectory: true)
             .appendingPathComponent(skillName, isDirectory: true)
 
         try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: sharedSkillURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: supportSkillURL, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspaceRoot)
-            try? FileManager.default.removeItem(at: sharedSkillURL)
         }
 
         let content = """
         ---
-        description: Shared runtime skill
+        description: Support directory skill
         ---
-        # Runtime Skill
+        # Support Skill
         """
-        try content.write(to: sharedSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try content.write(to: supportSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
 
         let skills = AgentSkillsLoader.listSkills(filterUnavailable: false, workspaceRootURL: workspaceRoot)
-        let sharedSkill = try XCTUnwrap(skills.first(where: { $0.name == skillName }))
 
-        XCTAssertEqual(sharedSkill.source, "shared")
-        XCTAssertEqual(sharedSkill.description, "Shared runtime skill")
+        XCTAssertNil(skills.first(where: { $0.name == skillName }))
     }
 
-    func testWorkspaceSkillsOverrideSharedRuntimeSkillsWithSameIdentifier() throws {
+    func testListSkillsIncludesUserGlobalSkillsFromHomeAgentsDirectory() throws {
         let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let skillName = "collision-\(UUID().uuidString.lowercased())"
+        let homeRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillName = "global-\(UUID().uuidString.lowercased())"
+        let globalSkillURL = homeRoot
+            .appendingPathComponent(".agents", isDirectory: true)
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+
+        try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: globalSkillURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot)
+            try? FileManager.default.removeItem(at: homeRoot)
+        }
+
+        let content = """
+        ---
+        description: User global skill
+        ---
+        # Global Skill
+        """
+        try content.write(to: globalSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skills = AgentSkillsLoader.listSkills(
+            filterUnavailable: false,
+            workspaceRootURL: workspaceRoot,
+            environment: ["HOME": homeRoot.path]
+        )
+        let globalSkill = try XCTUnwrap(skills.first(where: { $0.name == skillName }))
+
+        XCTAssertEqual(globalSkill.source, "global")
+        XCTAssertEqual(globalSkill.description, "User global skill")
+    }
+
+    func testWorkspaceSkillsOverrideGlobalSkillsWithSameIdentifier() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let homeRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillName = "global-collision-\(UUID().uuidString.lowercased())"
         let workspaceSkillURL = workspaceRoot
             .appendingPathComponent("skills", isDirectory: true)
             .appendingPathComponent(skillName, isDirectory: true)
-        let sharedSkillURL = AgentStore.sharedRuntimeRootURL()
+        let globalSkillURL = homeRoot
+            .appendingPathComponent(".agents", isDirectory: true)
             .appendingPathComponent("skills", isDirectory: true)
             .appendingPathComponent(skillName, isDirectory: true)
 
         try FileManager.default.createDirectory(at: workspaceSkillURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: sharedSkillURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: globalSkillURL, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: workspaceRoot)
-            try? FileManager.default.removeItem(at: sharedSkillURL)
+            try? FileManager.default.removeItem(at: homeRoot)
         }
 
         let workspaceContent = """
         ---
-        description: Workspace wins
+        description: Workspace wins global collision
         ---
         # Workspace Skill
         """
-        let sharedContent = """
+        let globalContent = """
         ---
-        description: Shared fallback
+        description: Global fallback
         ---
-        # Runtime Skill
+        # Global Skill
         """
 
         try workspaceContent.write(to: workspaceSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
-        try sharedContent.write(to: sharedSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try globalContent.write(to: globalSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let skill = try XCTUnwrap(
+            AgentSkillsLoader.resolveSkill(
+                named: skillName,
+                filterUnavailable: false,
+                workspaceRootURL: workspaceRoot,
+                environment: ["HOME": homeRoot.path]
+            )
+        )
+
+        XCTAssertEqual(skill.source, "workspace")
+        XCTAssertEqual(skill.description, "Workspace wins global collision")
+    }
+
+    func testWorkspaceSkillPathResolvesUnderProjectSkillsDirectory() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let skillName = "workspace-path-\(UUID().uuidString.lowercased())"
+        let workspaceSkillURL = workspaceRoot
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+
+        try FileManager.default.createDirectory(at: workspaceSkillURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot)
+        }
+
+        let workspaceContent = """
+        ---
+        description: Workspace skill path
+        ---
+        # Workspace Skill
+        """
+
+        try workspaceContent.write(to: workspaceSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
 
         let skill = try XCTUnwrap(
             AgentSkillsLoader.resolveSkill(
@@ -191,7 +500,7 @@ final class AgentContextSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(skill.source, "workspace")
-        XCTAssertEqual(skill.description, "Workspace wins")
+        XCTAssertEqual(skill.description, "Workspace skill path")
 
         let resolvedSkillPath = URL(fileURLWithPath: skill.path).resolvingSymlinksInPath()
         let expectedSkillPath = workspaceSkillURL

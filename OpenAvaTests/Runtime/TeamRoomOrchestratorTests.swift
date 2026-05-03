@@ -68,7 +68,7 @@ final class TeamRoomOrchestratorTests: XCTestCase {
         )
         let agent = makeAgent(name: "Builder", emoji: "🛠️")
         let context = TeamRoomOrchestrator.SubmissionContext(
-            activeContext: .globalTeam,
+            activeContext: .allAgentsTeam,
             teams: [],
             agents: [agent],
             fallbackModelConfig: nil,
@@ -98,7 +98,7 @@ final class TeamRoomOrchestratorTests: XCTestCase {
             name: name,
             emoji: emoji,
             workspacePath: root.appendingPathComponent("workspace", isDirectory: true).path,
-            localRuntimePath: root.appendingPathComponent("runtime", isDirectory: true).path
+            localContextPath: root.path
         )
     }
 }

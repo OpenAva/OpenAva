@@ -75,7 +75,7 @@ final class HeartbeatRuntimeRegistryTests: XCTestCase {
             name: agentID,
             emoji: "🫀",
             workspacePath: root.appendingPathComponent("workspace", isDirectory: true).path,
-            localRuntimePath: root.appendingPathComponent("runtime", isDirectory: true).path,
+            localContextPath: root.path,
             selectedModelID: nil,
             autoCompactEnabled: true
         )
@@ -86,7 +86,7 @@ final class HeartbeatRuntimeRegistryTests: XCTestCase {
             agentName: profile.name,
             agentEmoji: profile.emoji,
             workspaceRootURL: profile.workspaceURL,
-            runtimeRootURL: profile.runtimeURL,
+            supportRootURL: profile.contextURL,
             modelConfig: AppConfig.LLMModel(
                 name: "Test Model",
                 endpoint: URL(string: "https://example.com/v1"),

@@ -24,16 +24,16 @@ actor AgentMemoryContextBuilder {
         let selected_memories: [String]
     }
 
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let modelConfig: AppConfig.LLMModel?
     private let selector: Selector?
 
     init(
-        runtimeRootURL: URL,
+        supportRootURL: URL,
         modelConfig: AppConfig.LLMModel? = nil,
         selector: Selector? = nil
     ) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+        self.supportRootURL = supportRootURL.standardizedFileURL
         self.modelConfig = modelConfig
         self.selector = selector
     }
@@ -46,7 +46,7 @@ actor AgentMemoryContextBuilder {
         let normalizedQuery = Self.normalizedQuery(query)
         guard !normalizedQuery.isEmpty else { return nil }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRootURL)
+        let store = AgentMemoryStore(supportRootURL: supportRootURL)
         let candidates = ((try? await store.listEntries()) ?? []).filter {
             !alreadySurfacedSlugs.contains($0.slug)
         }

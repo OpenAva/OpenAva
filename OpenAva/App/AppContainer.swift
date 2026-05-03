@@ -30,8 +30,8 @@ struct AppContainer {
         let agentCount = max(AgentStore.load(workspaceRootURL: config.agent.workspaceRootURL).agents.count, 1)
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
-            runtimeRootURL: config.agent.runtimeRootURL,
-            teamsRootURL: try? AgentStore.workspaceRootDirectory(fileManager: .default),
+            supportRootURL: config.agent.supportRootURL,
+            teamsRootURL: TeamStore.storageDirectoryURL(workspaceRootURL: config.agent.workspaceRootURL, createDirectoryIfNeeded: true),
             modelConfig: config.selectedLLMModel,
             agentCount: agentCount
         )

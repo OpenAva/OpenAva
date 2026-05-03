@@ -19,7 +19,7 @@ final class AgentMainSessionRegistryTests: XCTestCase {
         defer {
             AgentMainSessionRegistry.shared.removeAll()
             ConversationSessionManager.shared.removeAllSessions()
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: agent.runtimeURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: agent.contextURL)
             _ = AgentStore.deleteAgent(agent.id, fileManager: .default)
         }
 
@@ -42,7 +42,7 @@ final class AgentMainSessionRegistryTests: XCTestCase {
         defer {
             AgentMainSessionRegistry.shared.removeAll()
             ConversationSessionManager.shared.removeAllSessions()
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: agent.runtimeURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: agent.contextURL)
             _ = AgentStore.deleteAgent(agent.id, fileManager: .default)
         }
 
@@ -74,7 +74,7 @@ final class AgentMainSessionRegistryTests: XCTestCase {
         defer {
             AgentMainSessionRegistry.shared.removeAll()
             ConversationSessionManager.shared.removeAllSessions()
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: agent.runtimeURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: agent.contextURL)
             _ = AgentStore.deleteAgent(agent.id, fileManager: .default)
         }
 

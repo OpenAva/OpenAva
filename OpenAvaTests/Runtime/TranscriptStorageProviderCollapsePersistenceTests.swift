@@ -5,16 +5,37 @@ import XCTest
 
 @MainActor
 final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
-    func testStreamingTextPersistsSingleAssistantTranscriptEntry() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+    func testSupportRootWritesTranscriptToAgentSessionsFile() throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
+        let message = ConversationMessage(sessionID: "main", role: .user)
+        message.textContent = "hello"
+        storage.save(message: message)
+
+        let transcriptURL = supportRootURL
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("main.jsonl", isDirectory: false)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: transcriptURL.path))
+    }
+
+    func testStreamingTextPersistsSingleAssistantTranscriptEntry() async throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let part1 = String(repeating: "甲", count: 300)
@@ -33,10 +54,9 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             prompt: .init(text: "请输出长文本")
         )
 
-        let transcriptURL = runtimeRootURL
+        let transcriptURL = supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("main", isDirectory: true)
-            .appendingPathComponent("transcript.jsonl", isDirectory: false)
+            .appendingPathComponent("main.jsonl", isDirectory: false)
         let transcriptText = try String(contentsOf: transcriptURL, encoding: .utf8)
         let entries = transcriptText
             .split(separator: "\n")
@@ -55,16 +75,52 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(session.messages.map(\.textContent), ["请输出长文本", expectedText])
     }
 
-    func testSubmitPromptDoesNotDuplicateCurrentUserMessageInFirstRequest() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+    func testNoResponseErrorStaysTransientAndDoesNotEnterTranscriptOrHistory() async throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
+        let session = ConversationSession(id: "main", configuration: .init(storage: storage))
+        let client = StreamingStubChatClient(chunks: [])
+
+        await session.submitPrompt(
+            model: .init(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true),
+            prompt: .init(text: "会失败的问题")
+        )
+
+        XCTAssertEqual(session.messages.count, 2)
+        XCTAssertEqual(session.messages[0].role, .user)
+        XCTAssertEqual(session.messages[1].role, .assistant)
+        XCTAssertEqual(session.messages[1].finishReason, .error)
+        XCTAssertTrue(session.messages[1].isTransientExecutionError)
+        XCTAssertEqual(session.historyMessages().map(\.id), [session.messages[0].id])
+
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
+        XCTAssertEqual(entries.filter { ($0["type"] as? String) == MessageRole.user.rawValue }.count, 1)
+        XCTAssertEqual(entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }.count, 0)
+
+        let transcriptURL = supportRootURL
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("main.jsonl", isDirectory: false)
+        let transcriptText = try String(contentsOf: transcriptURL, encoding: .utf8)
+        XCTAssertFalse(transcriptText.contains("No response from model"), transcriptText)
+    }
+
+    func testSubmitPromptDoesNotDuplicateCurrentUserMessageInFirstRequest() async throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let client = StreamingStubChatClient(chunks: [])
 
@@ -86,15 +142,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testSubmitPromptFailsWhenToolCallArrivesWithoutToolProvider() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let client = StreamingStubChatClient(chunks: [
             .tool(.init(id: "tool-call-1", name: "bash", arguments: "{}")),
@@ -118,12 +174,12 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testReadOnlyToolPersistsAllowPermissionMetadata() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let definition = ToolDefinition(
@@ -138,7 +194,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             tool: definition,
             result: ToolResult(text: "read ok")
         )
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(
             id: "main",
             configuration: .init(storage: storage, tools: provider)
@@ -160,7 +216,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "read_only_tool")
         XCTAssertNil(toolMessage.metadata[ToolMessageMetadata.permissionMessage])
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         let persistedToolEntry = try XCTUnwrap(entries.last(where: { ($0["type"] as? String) == MessageRole.tool.rawValue }))
         let persistedMetadata = try XCTUnwrap((persistedToolEntry["message"] as? [String: Any])?["metadata"] as? [String: Any])
         XCTAssertEqual(persistedMetadata[ToolMessageMetadata.permissionBehavior] as? String, ToolPermissionBehavior.allow.rawValue)
@@ -169,12 +225,12 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testDestructiveToolIsBlockedWithAskPermissionMetadata() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let definition = ToolDefinition(
@@ -188,7 +244,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             tool: definition,
             result: ToolResult(text: "should not execute")
         )
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(
             id: "main",
             configuration: .init(storage: storage, tools: provider)
@@ -217,13 +273,13 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertTrue(toolResult.result.contains("requires approval"))
     }
 
-    func testUnclassifiedMutableToolIsDeniedWithPermissionMetadata() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+    func testDeniedToolPersistsPermissionMetadata() async throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let definition = ToolDefinition(
@@ -236,10 +292,17 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             tool: definition,
             result: ToolResult(text: "should not execute")
         )
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(
             id: "main",
             configuration: .init(storage: storage, tools: provider)
+        )
+        session.addSessionToolPermissionRule(
+            ToolPermissionRule(
+                behavior: .deny,
+                toolName: definition.functionName,
+                matcher: .tool
+            )
         )
         let client = SequencedStreamingStubChatClient(chunkSequences: [
             [.tool(.init(id: "tool-call-deny", name: definition.functionName, arguments: "{}"))],
@@ -248,35 +311,35 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         await session.submitPrompt(
             model: .init(client: client, capabilities: [.tool], contextLength: 32000, autoCompactEnabled: true),
-            prompt: .init(text: "调用未分类可变工具")
+            prompt: .init(text: "调用被拒绝的工具")
         )
 
         XCTAssertEqual(provider.executeCallCount, 0)
         let toolMessage = try XCTUnwrap(session.messages.last(where: { $0.role == .tool }))
         XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.toolCallState], ToolCallState.failed.rawValue)
         XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionBehavior], ToolPermissionBehavior.deny.rawValue)
-        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "unclassified_mutating_tool_denied")
-        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionMessage], "Tool execution was denied because this tool is not approved by the default policy.")
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionReason], "permission_rule_deny_session")
+        XCTAssertEqual(toolMessage.metadata[ToolMessageMetadata.permissionMessage], "Tool execution was denied by a remembered permission rule.")
 
         let toolResult = try XCTUnwrap(toolMessage.parts.compactMap { part -> ToolResultContentPart? in
             guard case let .toolResult(value) = part else { return nil }
             return value
         }.first)
-        XCTAssertTrue(toolResult.result.contains("not approved by the default policy"))
+        XCTAssertTrue(toolResult.result.contains("denied by a remembered permission rule"))
     }
 
     func testFileContentPartPersistsSourcePathAndTextAcrossReload() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
-        let sourceFileURL = runtimeRootURL.appendingPathComponent("workspace/report.md", isDirectory: false)
+        let sourceFileURL = supportRootURL.appendingPathComponent("workspace/report.md", isDirectory: false)
         try FileManager.default.createDirectory(at: sourceFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "# Report\n\nSaved content".write(to: sourceFileURL, atomically: true, encoding: .utf8)
 
@@ -295,8 +358,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         }
         session.persistMessages()
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         let reloadedFile = try XCTUnwrap(reloadedMessages.first?.parts.compactMap { part -> FileContentPart? in
@@ -311,15 +374,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testFirstPersistedAssistantUpdateKeepsUserChainAcrossReload() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let userMessage = session.appendNewMessage(role: .user) { message in
@@ -335,8 +398,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         assistantMessage.textContent = "第二次 assistant 更新落盘"
         session.recordMessageInTranscript(assistantMessage)
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         XCTAssertEqual(reloadedMessages.map(\.role), [.user, .assistant])
@@ -344,15 +407,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testIncrementalAssistantUpdatesDoNotAppendDuplicateMessageEntriesBeforeFinalSync() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let userMessage = session.appendNewMessage(role: .user) { message in
@@ -370,7 +433,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         assistantMessage.textContent = "draft 3"
         session.recordMessageInTranscript(assistantMessage)
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
         let assistantUUIDs = assistantEntries.compactMap { entry -> String? in
             (entry["message"] as? [String: Any])?["uuid"] as? String
@@ -382,22 +445,22 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
             "draft 3"
         )
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
         XCTAssertEqual(reloadedMessages.map(\.textContent), ["hello", "draft 3"])
     }
 
     func testPersistMessagesRewritesUpdatedMessageSnapshotWithoutDuplicatingMessageUUIDs() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let userMessage = session.appendNewMessage(role: .user) { message in
@@ -413,12 +476,12 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         assistantMessage.textContent = "final answer"
         session.persistMessages()
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
         XCTAssertEqual(reloadedMessages.map(\.textContent), ["hello", "final answer"])
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
         let assistantUUIDs = assistantEntries.compactMap { entry -> String? in
             (entry["message"] as? [String: Any])?["uuid"] as? String
@@ -432,15 +495,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testDeleteRewritesTranscriptWithoutMessagesDeletedEntries() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let user1 = session.appendNewMessage(role: .user) { message in
@@ -464,7 +527,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         session.delete(assistant2.id)
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         XCTAssertFalse(entries.contains(where: { ($0["type"] as? String) == "messages-deleted" }))
 
         let messageTexts = entries.compactMap { entry -> String? in
@@ -478,8 +541,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let lastPromptEntry = try XCTUnwrap(entries.last(where: { ($0["type"] as? String) == "last-prompt" }))
         XCTAssertEqual(lastPromptEntry["lastPrompt"] as? String, "follow up")
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         XCTAssertEqual(reloadedMessages.map(\.textContent), ["hello", "reply 1", "follow up"])
@@ -487,15 +550,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testCompactionPersistsBoundaryAndSummaryAsChainMessages() async throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let sessionID = "compact-main"
         let session = ConversationSession(id: sessionID, configuration: .init(storage: storage))
 
@@ -511,7 +574,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let model = ConversationSession.Model(client: client, capabilities: [], contextLength: 32000, autoCompactEnabled: true)
         try await session.compactConversation(model: model)
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: sessionID)
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: sessionID)
         XCTAssertFalse(entries.contains(where: { ($0["type"] as? String) == "summary" }))
 
         let boundaryEntries = entries.filter {
@@ -532,15 +595,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testToggleToolResultCollapsePersistsAcrossReload() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let toolCallID = "tool-call-1"
 
@@ -574,8 +637,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         session.toggleToolResultCollapse(for: message.id, toolCallID: toolCallID)
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         guard let reloadedMessage = reloadedMessages.first(where: { $0.role == .tool }) else {
@@ -590,7 +653,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         XCTAssertFalse(toolResult.isCollapsed)
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
         XCTAssertEqual(assistantEntries.count, 1)
         let toolEntries = entries.filter { ($0["type"] as? String) == MessageRole.tool.rawValue }
@@ -598,15 +661,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testToggleReasoningCollapsePersistsAcrossReload() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         let message = session.appendNewMessage(role: .assistant) { message in
@@ -625,8 +688,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         session.toggleReasoningCollapse(for: message.id)
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         guard let reloadedMessage = reloadedMessages.first else {
@@ -641,21 +704,21 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         XCTAssertTrue(reasoning.isCollapsed)
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: "main")
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: "main")
         let assistantEntries = entries.filter { ($0["type"] as? String) == MessageRole.assistant.rawValue }
         XCTAssertEqual(assistantEntries.count, 1)
     }
 
     func testReloadedInterruptedSessionMarksOrphanRunningToolCallFailed() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
         let toolCallID = "tool-call-running"
 
@@ -674,8 +737,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         }
         session.persistMessages()
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedMessages = reloadedStorage.messages(in: "main")
 
         guard let reloadedMessage = reloadedMessages.first else {
@@ -693,15 +756,15 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testReloadedInterruptedSessionShowsRetryAction() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let session = ConversationSession(id: "main", configuration: .init(storage: storage))
 
         _ = session.appendNewMessage(role: .assistant) { message in
@@ -719,29 +782,28 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         }
         session.persistMessages()
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedSession = ConversationSession(id: "main", configuration: .init(storage: reloadedStorage))
 
         XCTAssertTrue(reloadedSession.showsInterruptedRetryAction)
     }
 
     func testLargeTranscriptFullReplayAppliesPreBoundaryMetadataLastWins() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let sessionID = "large-stream-recovery"
-        let transcriptDir = runtimeRootURL
+        let transcriptDir = supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
         try FileManager.default.createDirectory(at: transcriptDir, withIntermediateDirectories: true)
 
-        let transcriptURL = transcriptDir.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcriptURL = transcriptDir.appendingPathComponent("\(sessionID).jsonl", isDirectory: false)
 
         var lines: [String] = []
         var previousEntryUUID: String?
@@ -828,7 +890,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let fileSize = try XCTUnwrap(attrs[.size] as? Int)
         XCTAssertGreaterThan(fileSize, 5 * 1024 * 1024)
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let recoveredMessages = storage.messages(in: sessionID)
 
         XCTAssertEqual(recoveredMessages.map(\.textContent), ["Conversation compacted.", "after-boundary-user", "after-boundary-assistant"])
@@ -836,7 +898,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertEqual(storage.sessionExecutionState(for: sessionID), .idle)
         XCTAssertEqual(storage.title(for: sessionID), "Recovered Large Title")
 
-        let entries = try transcriptEntries(at: runtimeRootURL, sessionID: sessionID)
+        let entries = try transcriptEntries(at: supportRootURL, sessionID: sessionID)
         let customTitleEntry = try XCTUnwrap(entries.last(where: { ($0["type"] as? String) == "custom-title" }))
         XCTAssertNil(customTitleEntry["sessionId"])
         XCTAssertNil(customTitleEntry["timestamp"])
@@ -847,8 +909,8 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
 
         let listedSession = try XCTUnwrap(storage.listSessions().first(where: { $0.key == sessionID }))
         XCTAssertEqual(listedSession.displayName, "Recovered Large Title")
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedSession = try XCTUnwrap(reloadedStorage.listSessions().first(where: { $0.key == sessionID }))
         XCTAssertEqual(reloadedSession.displayName, "Recovered Large Title")
         XCTAssertEqual(reloadedStorage.title(for: sessionID), "Recovered Large Title")
@@ -856,21 +918,20 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testLargeTranscriptStreamLoadDoesNotRecoverPreBoundaryUpdatedSnapshot() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let sessionID = "large-stream-no-preboundary-patch"
-        let transcriptDir = runtimeRootURL
+        let transcriptDir = supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
         try FileManager.default.createDirectory(at: transcriptDir, withIntermediateDirectories: true)
 
-        let transcriptURL = transcriptDir.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcriptURL = transcriptDir.appendingPathComponent("\(sessionID).jsonl", isDirectory: false)
 
         var lines: [String] = []
         var previousEntryUUID: String?
@@ -946,7 +1007,7 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         let fileSize = try XCTUnwrap(attrs[.size] as? Int)
         XCTAssertGreaterThan(fileSize, 5 * 1024 * 1024)
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let recoveredMessages = storage.messages(in: sessionID)
 
         XCTAssertEqual(recoveredMessages.map(\.textContent), ["Conversation compacted.", "after-boundary-user", "after-boundary-assistant"])
@@ -956,43 +1017,42 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
     }
 
     func testProtocolRecorderRoutesTranscriptMetadataIntoSessionLog() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
-        let storage: any StorageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage: any StorageProvider = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let generatedTitle = ConversationTitleMetadata(title: "Protocol Title", avatar: "🧪").storageValue
         storage.setTitle(generatedTitle, for: "main")
         XCTAssertEqual(storage.sessionExecutionState(for: "main"), .idle)
         XCTAssertEqual(ConversationTitleMetadata(storageValue: storage.title(for: "main"))?.title, "Protocol Title")
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
 
         XCTAssertEqual(reloadedStorage.sessionExecutionState(for: "main"), .idle)
         XCTAssertEqual(ConversationTitleMetadata(storageValue: reloadedStorage.title(for: "main"))?.title, "Protocol Title")
     }
 
     func testListSessionsFallsBackToLastPromptWithoutSynthesizingTitleMetadata() throws {
-        let runtimeRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true)
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-            try? FileManager.default.removeItem(at: runtimeRootURL)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
         }
 
         let sessionID = "list-fallback-last-prompt"
-        let transcriptDir = runtimeRootURL
+        let transcriptDir = supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
         try FileManager.default.createDirectory(at: transcriptDir, withIntermediateDirectories: true)
 
-        let transcriptURL = transcriptDir.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcriptURL = transcriptDir.appendingPathComponent("\(sessionID).jsonl", isDirectory: false)
         let lines = try [
             encodeJSONLine(
                 TestTranscriptEntry.message(
@@ -1016,13 +1076,13 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         ]
         try Data(lines.joined(separator: "\n").utf8).write(to: transcriptURL, options: .atomic)
 
-        let storage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let listedSession = try XCTUnwrap(storage.listSessions().first(where: { $0.key == sessionID }))
         XCTAssertEqual(listedSession.displayName, "最近模块改动总结")
         XCTAssertNil(storage.title(for: sessionID))
 
-        TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
-        let reloadedStorage = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        let reloadedStorage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
         let reloadedSession = try XCTUnwrap(reloadedStorage.listSessions().first(where: { $0.key == sessionID }))
         XCTAssertEqual(reloadedSession.displayName, "最近模块改动总结")
         XCTAssertNil(reloadedStorage.title(for: sessionID))
@@ -1039,11 +1099,10 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         return try XCTUnwrap(String(data: data, encoding: .utf8))
     }
 
-    private func transcriptEntries(at runtimeRootURL: URL, sessionID: String) throws -> [[String: Any]] {
-        let transcriptURL = runtimeRootURL
+    private func transcriptEntries(at supportRootURL: URL, sessionID: String) throws -> [[String: Any]] {
+        let transcriptURL = supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
-            .appendingPathComponent("transcript.jsonl", isDirectory: false)
+            .appendingPathComponent("\(sessionID).jsonl", isDirectory: false)
         let transcriptText = try String(contentsOf: transcriptURL, encoding: .utf8)
         return transcriptText
             .split(separator: "\n")

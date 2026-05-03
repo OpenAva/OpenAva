@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 enum ActiveSessionContext: Equatable {
-    case globalTeam
+    case allAgentsTeam
     case team(UUID)
     case agent(UUID)
 }
@@ -14,13 +14,31 @@ final class AppContainerStore {
     private(set) var container: AppContainer
     private(set) var agentState: AgentStateSnapshot
     private(set) var teamState: TeamStateSnapshot
+    private(set) var workspaceState: ProjectWorkspaceState
     private(set) var preferredLanguageCode: String?
     private(set) var resolvedLanguageCode: String
     private(set) var usageSnapshot: UsageSnapshot = .init()
-    var activeSessionContext: ActiveSessionContext = .globalTeam
+    var activeSessionContext: ActiveSessionContext = .allAgentsTeam
+    private let defaults: UserDefaults
     private let fileManager: FileManager
-    private let agentWorkspaceRootURL: URL?
     private var usageCancellable: AnyCancellable?
+
+    private var agentWorkspaceRootURL: URL? {
+        guard let activeProjectWorkspace else { return nil }
+        return ProjectWorkspaceStore.resolvedURL(for: activeProjectWorkspace)
+    }
+
+    var projectWorkspaces: [ProjectWorkspaceProfile] {
+        workspaceState.workspaces
+    }
+
+    var activeProjectWorkspace: ProjectWorkspaceProfile? {
+        workspaceState.activeWorkspace
+    }
+
+    var teamSessionsRootURL: URL? {
+        Self.allAgentsTeamSupportRootURL(workspaceRootURL: agentWorkspaceRootURL)
+    }
 
     var activeAgent: AgentProfile? {
         if case let .agent(id) = activeSessionContext {
@@ -49,17 +67,33 @@ final class AppContainerStore {
         activeAgent?.workspaceURL
     }
 
+    var activeAgentContextURL: URL? {
+        activeAgent?.contextURL
+    }
+
     init(
         container: AppContainer,
-        defaults _: UserDefaults = .standard,
+        defaults: UserDefaults = .standard,
         fileManager: FileManager = .default,
         agentWorkspaceRootURL: URL? = nil
     ) {
         self.container = container
+        self.defaults = defaults
         self.fileManager = fileManager
-        self.agentWorkspaceRootURL = agentWorkspaceRootURL
-        agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
-        teamState = TeamStore.load(fileManager: fileManager)
+        var loadedWorkspaceState = ProjectWorkspaceStore.load(defaults: defaults, fileManager: fileManager)
+        if let agentWorkspaceRootURL,
+           let importedState = try? ProjectWorkspaceStore.importWorkspace(
+               at: agentWorkspaceRootURL,
+               defaults: defaults,
+               fileManager: fileManager
+           )
+        {
+            loadedWorkspaceState = importedState
+        }
+        workspaceState = loadedWorkspaceState
+        let activeWorkspaceRootURL = loadedWorkspaceState.activeWorkspace.map(ProjectWorkspaceStore.resolvedURL(for:))
+        agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: activeWorkspaceRootURL)
+        teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: activeWorkspaceRootURL)
         // Migration: clear stale explicit "en" override left from early development.
         // English is the fallback — storing it explicitly blocks system language negotiation.
         AppLanguagePreference.clearStaleEnglishOverride()
@@ -174,8 +208,9 @@ final class AppContainerStore {
             workspaceRootURL: agentWorkspaceRootURL
         )
         _ = AgentStore.setActiveAgent(profile.id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+        activeSessionContext = .agent(profile.id)
         try AgentTemplateWriter.writeAgentFile(
-            at: profile.workspaceURL,
+            at: profile.contextURL,
             name: profile.name,
             emoji: profile.emoji
         )
@@ -195,16 +230,16 @@ final class AppContainerStore {
                     workspaceRootURL: agentWorkspaceRootURL
                 )
                 try AgentTemplateWriter.writeUserFile(
-                    at: profile.workspaceURL,
+                    at: profile.contextURL,
                     callName: callName,
                     context: context
                 )
                 try AgentTemplateWriter.writeSoulFile(
-                    at: profile.workspaceURL,
+                    at: profile.contextURL,
                     coreTruths: preset.soulCoreTruths
                 )
                 try AgentTemplateWriter.writeAgentFile(
-                    at: profile.workspaceURL,
+                    at: profile.contextURL,
                     name: preset.agentName,
                     emoji: preset.agentEmoji,
                     vibe: preset.agentVibe
@@ -231,6 +266,7 @@ final class AppContainerStore {
 
         if let firstCreated = createdProfiles.first {
             _ = AgentStore.setActiveAgent(firstCreated.id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+            activeSessionContext = .agent(firstCreated.id)
         }
 
         rebuildContainer(with: container.config)
@@ -251,7 +287,8 @@ final class AppContainerStore {
             description: description,
             agentPoolIDs: agentIDs,
             defaultTopology: defaultTopology,
-            fileManager: fileManager
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
         )
         if team != nil {
             reloadTeamState()
@@ -261,7 +298,7 @@ final class AppContainerStore {
 
     @discardableResult
     func updateTeam(_ team: TeamProfile) -> TeamProfile? {
-        let updated = TeamStore.updateTeamProfile(team, fileManager: fileManager)
+        let updated = TeamStore.updateTeamProfile(team, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if updated != nil {
             reloadTeamState()
         }
@@ -270,7 +307,7 @@ final class AppContainerStore {
 
     @discardableResult
     func updateTeam(_ teamID: UUID, name: String, emoji: String, description: String?) -> TeamProfile? {
-        let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, fileManager: fileManager)
+        let team = TeamStore.updateTeam(teamID, name: name, emoji: emoji, description: description, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if team != nil {
             reloadTeamState()
         }
@@ -279,7 +316,7 @@ final class AppContainerStore {
 
     @discardableResult
     func addAgents(_ agentIDs: [UUID], toTeam teamID: UUID) -> TeamProfile? {
-        let team = TeamStore.addAgents(agentIDs, to: teamID, fileManager: fileManager)
+        let team = TeamStore.addAgents(agentIDs, to: teamID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if team != nil {
             reloadTeamState()
         }
@@ -288,7 +325,7 @@ final class AppContainerStore {
 
     @discardableResult
     func removeAgent(_ agentID: UUID, fromTeam teamID: UUID) -> TeamProfile? {
-        let team = TeamStore.removeAgent(agentID, from: teamID, fileManager: fileManager)
+        let team = TeamStore.removeAgent(agentID, from: teamID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if team != nil {
             reloadTeamState()
         }
@@ -296,7 +333,7 @@ final class AppContainerStore {
     }
 
     func deleteTeam(_ teamID: UUID) {
-        TeamStore.deleteTeam(teamID, fileManager: fileManager)
+        TeamStore.deleteTeam(teamID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         reloadTeamState()
     }
 
@@ -335,7 +372,7 @@ final class AppContainerStore {
     func deleteAgent(_ agentID: UUID) -> Bool {
         let changed = AgentStore.deleteAgent(agentID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         if changed {
-            TeamStore.removeAgentReferences(agentID, fileManager: fileManager)
+            TeamStore.removeAgentReferences(agentID, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
             reloadTeamState()
             rebuildContainer(with: container.config)
         }
@@ -358,7 +395,7 @@ final class AppContainerStore {
 
         do {
             try AgentTemplateWriter.syncIdentityName(
-                at: renamedProfile.workspaceURL,
+                at: renamedProfile.contextURL,
                 name: renamedProfile.name
             )
             rebuildContainer(with: container.config)
@@ -376,25 +413,72 @@ final class AppContainerStore {
         }
     }
 
+    @discardableResult
+    func switchProjectWorkspace(_ workspaceID: UUID) -> Bool {
+        guard projectWorkspaces.contains(where: { $0.id == workspaceID }) else { return false }
+        guard workspaceState.activeWorkspaceID != workspaceID else { return false }
+        workspaceState = ProjectWorkspaceStore.setActiveWorkspace(
+            workspaceID,
+            defaults: defaults,
+            fileManager: fileManager
+        )
+        resetRuntimeStateAfterWorkspaceChange()
+        rebuildContainer(with: container.config)
+        return true
+    }
+
+    @discardableResult
+    func importProjectWorkspace(at workspaceURL: URL) throws -> ProjectWorkspaceProfile {
+        workspaceState = try ProjectWorkspaceStore.importWorkspace(
+            at: workspaceURL,
+            defaults: defaults,
+            fileManager: fileManager
+        )
+        resetRuntimeStateAfterWorkspaceChange()
+        rebuildContainer(with: container.config)
+        return activeProjectWorkspace ?? ProjectWorkspaceProfile(name: workspaceURL.lastPathComponent, url: workspaceURL)
+    }
+
+    @discardableResult
+    func createProjectWorkspace(named name: String, inParentDirectory parentDirectoryURL: URL? = nil) throws -> ProjectWorkspaceProfile {
+        workspaceState = try ProjectWorkspaceStore.createWorkspace(
+            named: name,
+            inParentDirectory: parentDirectoryURL,
+            defaults: defaults,
+            fileManager: fileManager
+        )
+        resetRuntimeStateAfterWorkspaceChange()
+        rebuildContainer(with: container.config)
+        return activeProjectWorkspace ?? ProjectWorkspaceProfile(name: name, url: agentWorkspaceRootURL ?? fileManager.temporaryDirectory)
+    }
+
+    private func resetRuntimeStateAfterWorkspaceChange() {
+        activeSessionContext = .allAgentsTeam
+        ConversationSessionManager.shared.removeAllSessions()
+        HeartbeatRuntimeRegistry.shared.stopAll()
+        TeamSwarmCoordinator.shared.reload()
+    }
+
     private func rebuildContainer(with baseConfig: AppConfig) {
         agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
-        let resolvedConfig = Self.applyAgent(to: baseConfig, activeAgent: activeAgent)
+        teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+        let resolvedConfig = Self.applyAgent(to: baseConfig, activeAgent: activeAgent, workspaceRootURL: agentWorkspaceRootURL)
         container = AppContainer.make(config: resolvedConfig)
         SkillLauncherCatalogPublisher.publish(activeAgent: activeAgent)
     }
 
     private func reloadTeamState() {
-        teamState = TeamStore.load(fileManager: fileManager)
+        teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         TeamSwarmCoordinator.shared.reload()
     }
 
-    /// Pull latest persisted agent/team state without re-posting swarm change notifications.
-    func refreshPersistedState() {
-        teamState = TeamStore.load(fileManager: fileManager)
+    /// Pull latest project-level agent/team data without re-posting swarm change notifications.
+    func refreshProjectState() {
+        teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         rebuildContainer(with: container.config)
     }
 
-    private static func applyAgent(to baseConfig: AppConfig, activeAgent: AgentProfile?) -> AppConfig {
+    private static func applyAgent(to baseConfig: AppConfig, activeAgent: AgentProfile?, workspaceRootURL: URL?) -> AppConfig {
         var config = baseConfig
 
         // Keep selected model id valid even before an active agent is resolved.
@@ -404,6 +488,14 @@ final class AppContainerStore {
         )
 
         guard let activeAgent = activeAgent else {
+            config.agent = AppConfig.Agent(
+                id: nil,
+                name: "Agent",
+                emoji: "🤖",
+                selectedLLMModelID: config.agent.selectedLLMModelID,
+                workspaceRootURL: workspaceRootURL,
+                supportRootURL: supportRootURL(workspaceRootURL: workspaceRootURL)
+            )
             return config
         }
 
@@ -419,10 +511,20 @@ final class AppContainerStore {
             emoji: activeAgent.emoji,
             selectedLLMModelID: resolvedSelectedModelID,
             workspaceRootURL: activeAgent.workspaceURL,
-            runtimeRootURL: activeAgent.runtimeURL
+            supportRootURL: activeAgent.contextURL
         )
 
         return config
+    }
+
+    private static func supportRootURL(workspaceRootURL: URL?) -> URL? {
+        workspaceRootURL?
+            .appendingPathComponent(AgentStore.openAvaDirectoryName, isDirectory: true)
+    }
+
+    private static func allAgentsTeamSupportRootURL(workspaceRootURL: URL?) -> URL? {
+        supportRootURL(workspaceRootURL: workspaceRootURL)?
+            .appendingPathComponent("all-agents-team", isDirectory: true)
     }
 
     private static func resolveSelectedModelID(

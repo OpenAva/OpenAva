@@ -17,7 +17,7 @@ final class IdentityStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.agents.count, 1)
         XCTAssertEqual(snapshot.activeAgent?.id, profile.id)
         XCTAssertTrue(FileManager.default.fileExists(atPath: profile.workspaceURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.runtimeURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.contextURL.path))
     }
 
     func testAgentStoreUpdateAgentChangesNameAndEmoji() throws {

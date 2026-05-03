@@ -11,7 +11,7 @@ struct AppConfig {
         var emoji: String
         var selectedLLMModelID: UUID?
         var workspaceRootURL: URL?
-        var runtimeRootURL: URL?
+        var supportRootURL: URL?
     }
 
     // MARK: - LLM Model Configuration
@@ -138,7 +138,7 @@ struct AppConfig {
                 emoji: "🤖",
                 selectedLLMModelID: nil,
                 workspaceRootURL: nil,
-                runtimeRootURL: nil
+                supportRootURL: nil
             )
         )
     }

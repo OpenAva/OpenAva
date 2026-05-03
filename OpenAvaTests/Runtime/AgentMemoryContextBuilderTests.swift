@@ -3,12 +3,12 @@ import XCTest
 
 final class AgentMemoryContextBuilderTests: XCTestCase {
     func testSelectedContextUsesSelectorWhenValidFilenamesReturned() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let selected = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -25,7 +25,7 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
         )
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             selector: { _, _, _ in
                 [selected.fileURL.lastPathComponent]
             }
@@ -39,12 +39,12 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
     }
 
     func testSelectedContextFallsBackToRecallWhenSelectorFails() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let created = try await store.upsert(
             name: "Build pipeline issue",
             type: .project,
@@ -54,7 +54,7 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
         )
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             selector: { _, _, _ in nil }
         )
 
@@ -65,12 +65,12 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
     }
 
     func testContextSectionRendersDynamicRecallBlock() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let created = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -80,7 +80,7 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
         )
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             selector: { _, _, _ in
                 [created.fileURL.lastPathComponent]
             }
@@ -95,12 +95,12 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
     }
 
     func testSelectedContextExcludesAlreadySurfacedSlugsFromSelectorCandidates() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -117,7 +117,7 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
         )
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             selector: { _, manifest, _ in
                 XCTAssertFalse(manifest.contains("slug=response-style"))
                 XCTAssertTrue(manifest.contains("slug=formatting"))
@@ -135,12 +135,12 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
     }
 
     func testSelectedContextFallbackSkipsAlreadySurfacedMatches() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -157,7 +157,7 @@ final class AgentMemoryContextBuilderTests: XCTestCase {
         )
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             selector: { _, _, _ in nil }
         )
 

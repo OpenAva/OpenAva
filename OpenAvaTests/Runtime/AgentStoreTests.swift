@@ -18,14 +18,24 @@ final class AgentStoreTests: XCTestCase {
         let snapshot = AgentStore.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(snapshot.agents.count, 1)
         XCTAssertEqual(snapshot.activeAgent?.id, profile.id)
-        XCTAssertEqual(profile.workspaceURL.path, workspaceRootURL.appendingPathComponent(profile.name, isDirectory: true).path)
-        XCTAssertEqual(profile.runtimeURL.path, profile.workspaceURL.appendingPathComponent(".runtime", isDirectory: true).path)
+        XCTAssertEqual(profile.workspaceURL.path, workspaceRootURL.path)
+        XCTAssertEqual(
+            profile.contextURL.path,
+            workspaceRootURL
+                .appendingPathComponent(".openava", isDirectory: true)
+                .appendingPathComponent("agents", isDirectory: true)
+                .appendingPathComponent(profile.id.uuidString, isDirectory: true)
+                .path
+        )
         XCTAssertTrue(fileManager.fileExists(atPath: profile.workspaceURL.path))
-        XCTAssertTrue(fileManager.fileExists(atPath: profile.runtimeURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: profile.contextURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: profile.contextURL.path))
 
-        let stateText = try String(contentsOf: workspaceRootURL.appendingPathComponent(".openava.json", isDirectory: false), encoding: .utf8)
-        XCTAssertTrue(stateText.contains(profile.id.uuidString))
-        XCTAssertTrue(stateText.contains("\"activeAgentID\""))
+        let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceRootURL))
+        let projectText = try String(contentsOf: projectURL, encoding: .utf8)
+        XCTAssertTrue(projectText.contains(profile.id.uuidString))
+        XCTAssertTrue(projectText.contains("\"activeAgentID\""))
+        XCTAssertFalse(projectText.contains("\"agents\""))
     }
 
     func testSetSelectedModelPersistsForAgent() throws {
@@ -48,6 +58,34 @@ final class AgentStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(active.selectedModelID, modelID)
+    }
+
+    func testUpdateAgentSyncsIdentityMetadataUsedByDiscovery() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Atlas",
+            emoji: "🤖",
+            workspaceRootURL: workspaceRootURL
+        )
+
+        let updated = try XCTUnwrap(AgentStore.updateAgent(
+            agentID: profile.id,
+            name: "Nova",
+            emoji: "🦊",
+            workspaceRootURL: workspaceRootURL
+        ))
+        XCTAssertEqual(updated.name, "Nova")
+        XCTAssertEqual(updated.emoji, "🦊")
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+        XCTAssertEqual(snapshot.activeAgent?.name, "Nova")
+        XCTAssertEqual(snapshot.activeAgent?.emoji, "🦊")
+
+        let identityText = try String(contentsOf: profile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false), encoding: .utf8)
+        XCTAssertTrue(identityText.contains("  Nova"))
+        XCTAssertTrue(identityText.contains("  🦊"))
     }
 
     func testAgentMutationsPreserveUserDefaults() throws {
@@ -82,14 +120,20 @@ final class AgentStoreTests: XCTestCase {
             workspaceRootURL: workspaceRootURL
         )
         let workspaceURL = profile.workspaceURL
+        let contextURL = profile.contextURL
+        let supportURL = profile.contextURL
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: workspaceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: contextURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: supportURL.path))
         XCTAssertTrue(AgentStore.deleteAgent(profile.id, workspaceRootURL: workspaceRootURL))
 
         let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(snapshot.agents.count, 0)
         XCTAssertNil(snapshot.activeAgent)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: workspaceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: workspaceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: contextURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: supportURL.path))
     }
 
     func testDeleteActiveAgentFallsBackToRemainingAgent() throws {
@@ -132,7 +176,7 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertNil(snapshot.activeAgentID)
     }
 
-    func testRenameAgentMovesWorkspaceAndUpdatesRuntimePath() throws {
+    func testRenameAgentUpdatesNameWithoutMovingSharedWorkspace() throws {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
@@ -155,13 +199,15 @@ final class AgentStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(renamed.name, "Nova")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: profile.workspaceURL.path))
+        XCTAssertEqual(renamed.workspaceURL.path, profile.workspaceURL.path)
+        XCTAssertEqual(renamed.contextURL.path, profile.contextURL.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.workspaceURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.runtimeURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.workspaceURL.appendingPathComponent("marker.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.contextURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.contextURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
     }
 
-    func testRenameAgentKeepsAvatarInRenamedWorkspace() throws {
+    func testRenameAgentKeepsAvatarInAgentContextDirectory() throws {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
@@ -184,7 +230,7 @@ final class AgentStoreTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: profile.avatarURL.path))
+        XCTAssertEqual(renamed.avatarURL.path, profile.avatarURL.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.avatarURL.path))
     }
 
@@ -192,61 +238,60 @@ final class AgentStoreTests: XCTestCase {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
 
-        let firstWorkspaceURL = workspaceRootURL.appendingPathComponent("Nova", isDirectory: true)
-        let secondWorkspaceURL = workspaceRootURL.appendingPathComponent("Atlas", isDirectory: true)
-
-        let first = AgentProfile(
-            id: UUID(),
+        let first = try AgentStore.createAgent(
             name: "Nova",
             emoji: "🦊",
-            workspacePath: firstWorkspaceURL.path,
-            localRuntimePath: firstWorkspaceURL.appendingPathComponent(".runtime", isDirectory: true).path
+            workspaceRootURL: workspaceRootURL
         )
-        let second = AgentProfile(
-            id: UUID(),
+        _ = try AgentStore.createAgent(
             name: "Atlas",
             emoji: "🤖",
-            workspacePath: secondWorkspaceURL.path,
-            localRuntimePath: secondWorkspaceURL.appendingPathComponent(".runtime", isDirectory: true).path
+            workspaceRootURL: workspaceRootURL
         )
-        try FileManager.default.createDirectory(at: first.workspaceURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: second.workspaceURL, withIntermediateDirectories: true)
 
-        let stalePayload = """
+        let staleProjectPayload = """
         {
-          "activeAgentID" : "\(UUID().uuidString)",
-          "agents" : [
-            {
-              "autoCompactEnabled" : true,
-              "createdAtMs" : \(first.createdAtMs),
-              "emoji" : "\(first.emoji)",
-              "id" : "\(first.id.uuidString)",
-              "localRuntimePath" : "\(first.localRuntimePath)",
-              "name" : "\(first.name)",
-              "selectedModelID" : null,
-              "workspacePath" : "\(first.workspacePath)"
-            },
-            {
-              "autoCompactEnabled" : true,
-              "createdAtMs" : \(second.createdAtMs),
-              "emoji" : "\(second.emoji)",
-              "id" : "\(second.id.uuidString)",
-              "localRuntimePath" : "\(second.localRuntimePath)",
-              "name" : "\(second.name)",
-              "selectedModelID" : null,
-              "workspacePath" : "\(second.workspacePath)"
-            }
-          ]
+          "activeAgentID" : "\(UUID().uuidString)"
         }
         """
-        try stalePayload.write(
-            to: workspaceRootURL.appendingPathComponent(".openava.json", isDirectory: false),
+        let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceRootURL))
+        try staleProjectPayload.write(
+            to: projectURL,
             atomically: true,
             encoding: .utf8
         )
 
         let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(snapshot.activeAgent?.id, first.id)
+    }
+
+    func testLoadDiscoversAgentsFromIdentityFiles() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let agentID = UUID()
+        let agentDirectoryURL = AgentStore.agentContextDirectory(for: agentID, workspaceRootURL: workspaceRootURL)
+        try AgentTemplateWriter.writeAgentFile(
+            at: agentDirectoryURL,
+            name: "Copied Agent",
+            emoji: "🧬"
+        )
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+
+        XCTAssertEqual(snapshot.agents.count, 1)
+        XCTAssertEqual(snapshot.activeAgentID, agentID)
+        XCTAssertEqual(snapshot.activeAgent?.name, "Copied Agent")
+        XCTAssertEqual(snapshot.activeAgent?.emoji, "🧬")
+        XCTAssertEqual(
+            snapshot.activeAgent?.contextURL.path,
+            agentDirectoryURL.path
+        )
+
+        let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceRootURL))
+        let projectText = try String(contentsOf: projectURL, encoding: .utf8)
+        XCTAssertTrue(projectText.contains(agentID.uuidString))
+        XCTAssertFalse(projectText.contains("\"agents\""))
     }
 
     private func makeTemporaryWorkspaceRoot() -> URL {

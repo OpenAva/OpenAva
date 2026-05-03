@@ -18,15 +18,20 @@ final class AgentUserDefaultsTests: XCTestCase {
         XCTAssertEqual(value?.callName, "Yuan")
         XCTAssertEqual(value?.context, "iOS 开发与 AI 自动化")
 
+        let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceURL))
         let persistedText = try String(
-            contentsOf: workspaceURL.appendingPathComponent(".openava.json", isDirectory: false),
+            contentsOf: projectURL,
             encoding: .utf8
         )
         XCTAssertTrue(persistedText.contains("\"user\""))
-        let jsonFiles = try FileManager.default.contentsOfDirectory(atPath: workspaceURL.path)
+        let rootJSONFiles = try FileManager.default.contentsOfDirectory(atPath: workspaceURL.path)
             .filter { $0.hasSuffix(".json") }
             .sorted()
-        XCTAssertEqual(jsonFiles, [".openava.json"])
+        XCTAssertEqual(rootJSONFiles, [])
+        let projectFiles = try FileManager.default.contentsOfDirectory(atPath: projectURL.deletingLastPathComponent().path)
+            .filter { $0.hasSuffix(".json") }
+            .sorted()
+        XCTAssertEqual(projectFiles, ["project.json"])
     }
 
     func testSaveRemovesValueWhenEmpty() throws {

@@ -94,7 +94,7 @@ final class QueryGuardTests: XCTestCase {
         session.interruptCurrentTurn(reason: .userStop)
 
         XCTAssertFalse(session.isQueryActive)
-        let accepted = session.submitPromptWithoutWaiting(
+        let accepted = await session.submitPrompt(
             model: model,
             prompt: .init(text: "should start")
         )
@@ -134,7 +134,7 @@ final class QueryGuardTests: XCTestCase {
             autoCompactEnabled: true
         )
 
-        let accepted = session.submitPromptWithoutWaiting(model: model, prompt: .init(text: "please interrupt"))
+        let accepted = await session.submitPrompt(model: model, prompt: .init(text: "please interrupt"))
         XCTAssertTrue(accepted)
 
         for _ in 0 ..< 200 {

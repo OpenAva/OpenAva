@@ -1,6 +1,6 @@
 import Foundation
 
-/// Loads workspace, shared-runtime, and built-in skills using nanobot-style conventions.
+/// Loads workspace, global, and built-in skills using nanobot-style conventions.
 enum AgentSkillsLoader {
     enum SkillVisibility {
         case all
@@ -85,7 +85,20 @@ enum AgentSkillsLoader {
     }
 
     private static let workspaceSkillsFolderName = "skills"
+    private static let globalSkillsRootFolderName = ".agents"
     private static let skillFileName = "SKILL.md"
+
+    static func globalSkillsRoot(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager _: FileManager = .default
+    ) -> URL {
+        let homeDirectory = AppConfig.nonEmpty(environment["HOME"])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        return homeDirectory
+            .appendingPathComponent(globalSkillsRootFolderName, isDirectory: true)
+            .appendingPathComponent(workspaceSkillsFolderName, isDirectory: true)
+    }
 
     static func builtInSkillsRoot(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -119,8 +132,8 @@ enum AgentSkillsLoader {
             skills.append(contentsOf: collectSkills(from: workspaceDirectory, source: "workspace", fileManager: fileManager))
         }
 
-        if let sharedDirectory = sharedSkillsDirectory(fileManager: fileManager) {
-            for skill in collectSkills(from: sharedDirectory, source: "shared", fileManager: fileManager) {
+        if let globalDirectory = globalSkillsDirectory(environment: environment, fileManager: fileManager) {
+            for skill in collectSkills(from: globalDirectory, source: "global", fileManager: fileManager) {
                 if skills.contains(where: { $0.name == skill.name }) {
                     continue
                 }
@@ -781,10 +794,8 @@ enum AgentSkillsLoader {
         return nil
     }
 
-    private static func sharedSkillsDirectory(fileManager: FileManager) -> URL? {
-        let directory = AgentStore.sharedRuntimeRootURL(fileManager: fileManager)
-            .appendingPathComponent(workspaceSkillsFolderName, isDirectory: true)
-        return existingDirectory(at: directory, fileManager: fileManager)
+    private static func globalSkillsDirectory(environment: [String: String], fileManager: FileManager) -> URL? {
+        existingDirectory(at: globalSkillsRoot(environment: environment, fileManager: fileManager), fileManager: fileManager)
     }
 
     private static func collectSkills(from directory: URL, source: String, fileManager: FileManager) -> [SkillDefinition] {

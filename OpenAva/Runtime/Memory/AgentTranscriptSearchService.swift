@@ -29,11 +29,12 @@ struct AgentTranscriptSearchService {
         let modifiedAt: Date
     }
 
-    private let runtimeRootURL: URL
+    private let sessionsDirectoryURL: URL
     private let fileManager: FileManager
 
-    init(runtimeRootURL: URL, fileManager: FileManager = .default) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+    init(supportRootURL: URL, fileManager: FileManager = .default) {
+        sessionsDirectoryURL = supportRootURL.standardizedFileURL
+            .appendingPathComponent("sessions", isDirectory: true)
         self.fileManager = fileManager
     }
 
@@ -82,8 +83,11 @@ struct AgentTranscriptSearchService {
         return hits
     }
 
-    private var sessionsDirectoryURL: URL {
-        runtimeRootURL.appendingPathComponent("sessions", isDirectory: true)
+    private func transcriptFileName(for sessionID: String) -> String {
+        let safeKey = sessionID
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+        return safeKey + ".jsonl"
     }
 
     private func candidateTranscripts(sessionID: String?) throws -> [CandidateTranscript] {
@@ -92,8 +96,7 @@ struct AgentTranscriptSearchService {
         }
         if let sessionID, !sessionID.isEmpty {
             let transcriptURL = sessionsDirectoryURL
-                .appendingPathComponent(sessionID, isDirectory: true)
-                .appendingPathComponent("transcript.jsonl", isDirectory: false)
+                .appendingPathComponent(transcriptFileName(for: sessionID), isDirectory: false)
             guard fileManager.fileExists(atPath: transcriptURL.path) else {
                 return []
             }
@@ -107,18 +110,16 @@ struct AgentTranscriptSearchService {
             options: [.skipsHiddenFiles]
         )
         .filter { url in
-            var isDirectory: ObjCBool = false
-            return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            url.pathExtension == "jsonl"
         }
-        .compactMap { sessionDirectory -> CandidateTranscript? in
-            let transcriptURL = sessionDirectory.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        .compactMap { transcriptURL -> CandidateTranscript? in
             guard fileManager.fileExists(atPath: transcriptURL.path) else {
                 return nil
             }
             let modifiedAt = (try? transcriptURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
                 ?? .distantPast
             return CandidateTranscript(
-                sessionID: sessionDirectory.lastPathComponent,
+                sessionID: transcriptURL.deletingPathExtension().lastPathComponent,
                 fileURL: transcriptURL,
                 modifiedAt: modifiedAt
             )

@@ -14,7 +14,7 @@ extension SubAgentTools {
                     request,
                     workspaceRootURL: context.workspaceRootURL,
                     modelConfig: context.modelConfig,
-                    activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider,
+                    activeSupportRootURLProvider: context.activeSupportRootURLProvider,
                     toolInvoker: context.toolInvoker
                 )
             }
@@ -25,7 +25,7 @@ extension SubAgentTools {
         _ request: BridgeInvokeRequest,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel?,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?,
+        activeSupportRootURLProvider: @escaping @Sendable () -> URL?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
     ) async throws -> BridgeInvokeResponse {
         struct RunParams: Decodable {
@@ -94,7 +94,7 @@ extension SubAgentTools {
                     taskID: record.id,
                     definition: definition,
                     workspaceRootURL: workspaceRootURL,
-                    runtimeRootURL: activeRuntimeRootURLProvider(),
+                    supportRootURL: activeSupportRootURLProvider(),
                     modelConfig: modelConfig,
                     sessionID: sessionID,
                     toolInvoker: toolInvoker
@@ -114,7 +114,7 @@ extension SubAgentTools {
                 prompt: prompt,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: activeRuntimeRootURLProvider(),
+                supportRootURL: activeSupportRootURLProvider(),
                 modelConfig: modelConfig,
                 sessionID: sessionID,
                 executeTool: { nestedRequest in
@@ -167,7 +167,7 @@ extension SubAgentTools {
                 taskID: taskRecord.id,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: activeRuntimeRootURLProvider(),
+                supportRootURL: activeSupportRootURLProvider(),
                 modelConfig: modelConfig,
                 sessionID: taskRecord.parentSessionID,
                 toolInvoker: toolInvoker
@@ -232,7 +232,7 @@ extension SubAgentTools {
         taskID: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
         sessionID: String?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
@@ -249,7 +249,7 @@ extension SubAgentTools {
                 taskID: taskID,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: runtimeRootURL,
+                supportRootURL: supportRootURL,
                 modelConfig: modelConfig,
                 sessionID: sessionID,
                 toolInvoker: toolInvoker
@@ -262,7 +262,7 @@ extension SubAgentTools {
         taskID: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
         sessionID: String?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
@@ -308,7 +308,7 @@ extension SubAgentTools {
                     prompt: prompt,
                     definition: definition,
                     workspaceRootURL: workspaceRootURL,
-                    runtimeRootURL: runtimeRootURL,
+                    supportRootURL: supportRootURL,
                     modelConfig: modelConfig,
                     sessionID: sessionID,
                     executeTool: { nestedRequest in
@@ -327,7 +327,7 @@ extension SubAgentTools {
         prompt: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
         sessionID: String?,
         executeTool: @escaping @Sendable (BridgeInvokeRequest) async -> BridgeInvokeResponse,
@@ -342,7 +342,7 @@ extension SubAgentTools {
                 prompt: prompt,
                 definition: definition,
                 workspaceRootURL: workspaceRootURL,
-                runtimeRootURL: runtimeRootURL,
+                supportRootURL: supportRootURL,
                 modelConfig: modelConfig,
                 existingMessages: restoredConversation?.isEmpty == false ? restoredConversation : nil,
                 existingConversation: record.conversation.isEmpty ? nil : record.conversation,

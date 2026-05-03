@@ -363,7 +363,7 @@ enum AgentPromptBuilder {
         return true
     }
 
-    private static func formatInjectedWorkspaceDocument(_ document: AgentContextLoader.LoadedDocument) -> String {
+    static func formatInjectedWorkspaceDocument(_ document: AgentContextLoader.LoadedDocument) -> String {
         let purpose = workspaceDocumentPurpose(for: document.fileName)
         let trimmedContent = document.content.trimmingCharacters(in: .whitespacesAndNewlines)
         let escapedFileName = escapeXML(document.fileName)

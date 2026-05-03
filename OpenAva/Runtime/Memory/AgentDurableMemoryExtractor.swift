@@ -23,18 +23,22 @@ actor AgentDurableMemoryExtractor {
 
     private let chatClient: (any ChatClient)?
     private let memoryStore: AgentMemoryStore
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let fileManager: FileManager
 
     init(
-        runtimeRootURL: URL,
+        supportRootURL: URL,
+        workspaceRootURL: URL? = nil,
         chatClient: (any ChatClient)?,
         fileManager: FileManager = .default
     ) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+        self.supportRootURL = supportRootURL.standardizedFileURL
         self.chatClient = chatClient
         self.fileManager = fileManager
-        memoryStore = AgentMemoryStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL(fileManager: fileManager), fileManager: fileManager)
+        memoryStore = AgentMemoryStore(
+            supportRootURL: AgentStore.memorySupportRootURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+            fileManager: fileManager
+        )
     }
 
     func extractIfNeeded(for sessionID: String, messages: [ConversationMessage]) async {
@@ -114,7 +118,7 @@ actor AgentDurableMemoryExtractor {
     }
 
     private func sessionDirectoryURL(for sessionID: String) -> URL {
-        runtimeRootURL
+        supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent(sessionID, isDirectory: true)
     }
@@ -319,19 +323,20 @@ actor AgentSkillExtractor {
 
     private let chatClient: (any ChatClient)?
     private let skillStore: AgentSkillStore
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let fileManager: FileManager
 
     init(
-        runtimeRootURL: URL,
+        supportRootURL: URL,
+        workspaceRootURL: URL,
         chatClient: (any ChatClient)?,
         fileManager: FileManager = .default
     ) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+        self.supportRootURL = supportRootURL.standardizedFileURL
         self.chatClient = chatClient
         self.fileManager = fileManager
         skillStore = AgentSkillStore(
-            runtimeRootURL: AgentStore.sharedRuntimeRootURL(fileManager: fileManager),
+            workspaceRootURL: workspaceRootURL,
             fileManager: fileManager
         )
     }
@@ -420,7 +425,7 @@ actor AgentSkillExtractor {
     }
 
     private func sessionDirectoryURL(for sessionID: String) -> URL {
-        runtimeRootURL
+        supportRootURL
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent(sessionID, isDirectory: true)
     }
@@ -435,7 +440,7 @@ actor AgentSkillExtractor {
         conversationBlock: String
     ) async throws -> ExtractionResponse {
         let systemPrompt = """
-        You extract reusable runtime skills from an agent conversation into a runtime skill pool used by all agents.
+        You extract reusable project skills from an agent conversation into the current project's skill pool.
 
         Return JSON only using this schema:
         {
@@ -453,14 +458,14 @@ actor AgentSkillExtractor {
 
         Rules:
         - Extract at most 2 skills.
-        - Only create a skill when the conversation demonstrates a reusable multi-step workflow, checklist, or decision pattern that would help on future tasks.
+        - Only create a skill when the conversation demonstrates a reusable multi-step workflow, checklist, or decision pattern that would help on future tasks in this project workspace.
         - Skills are procedural knowledge (how to do something), not user preferences, project facts, or transient summaries.
         - Prefer workflows learned from complex tool-using tasks with multiple steps or corrections.
         - Do not include repo-specific file paths, exact diffs, branch names, commit hashes, secrets, or one-off outputs.
         - Keep the skill generic enough for similar future tasks, but specific enough to be actionable.
         - `description`, `purpose`, and `whenToUse` must each be concise.
         - `steps` must contain 3-8 imperative workflow steps.
-        - Reuse an existing skill slug when the workflow clearly refines the same runtime skill; otherwise omit slug.
+        - Reuse an existing skill slug when the workflow clearly refines the same project skill; otherwise omit slug.
         - If there is nothing worth saving as a reusable skill, return {"skills":[]}.
         """
         let userPrompt = """

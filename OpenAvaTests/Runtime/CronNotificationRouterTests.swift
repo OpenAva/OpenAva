@@ -5,16 +5,16 @@ import XCTest
 @testable import OpenAva
 
 final class CronNotificationRouterTests: XCTestCase {
-    private var originalStateData: Data?
-    private var swarmRuntimeBackupURL: URL?
+    private var originalProjectData: Data?
+    private var swarmStorageBackupURL: URL?
     private var removedCronJobIDs: [String] = []
 
     @MainActor
     override func setUp() {
         super.setUp()
-        originalStateData = try? Data(contentsOf: stateFileURL())
-        removeStateFile()
-        backupSwarmRuntimeDirectory()
+        originalProjectData = try? Data(contentsOf: projectFileURL())
+        removeProjectFile()
+        backupSwarmStorageDirectory()
         removedCronJobIDs = []
         CronNotificationRouter.removeCronJob = { [weak self] jobID in
             self?.removedCronJobIDs.append(jobID)
@@ -28,8 +28,8 @@ final class CronNotificationRouterTests: XCTestCase {
         }
         TeamSwarmCoordinator.shared.configure(agentStoreRootURL: nil)
         TeamSwarmCoordinator.shared.reload()
-        restoreSwarmRuntimeDirectory()
-        restoreStateFile()
+        restoreSwarmStorageDirectory()
+        restoreProjectFile()
         super.tearDown()
     }
 
@@ -185,54 +185,57 @@ final class CronNotificationRouterTests: XCTestCase {
     }
 
     @MainActor
-    private func backupSwarmRuntimeDirectory() {
+    private func backupSwarmStorageDirectory() {
         guard let swarmDirectoryURL = swarmDirectoryURL() else { return }
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: swarmDirectoryURL.path) else {
-            swarmRuntimeBackupURL = nil
+            swarmStorageBackupURL = nil
             return
         }
 
         let backupURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? fileManager.copyItem(at: swarmDirectoryURL, to: backupURL)
         try? fileManager.removeItem(at: swarmDirectoryURL)
-        swarmRuntimeBackupURL = backupURL
+        swarmStorageBackupURL = backupURL
     }
 
     @MainActor
-    private func restoreSwarmRuntimeDirectory() {
+    private func restoreSwarmStorageDirectory() {
         guard let swarmDirectoryURL = swarmDirectoryURL() else { return }
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: swarmDirectoryURL)
-        if let swarmRuntimeBackupURL {
-            try? fileManager.copyItem(at: swarmRuntimeBackupURL, to: swarmDirectoryURL)
-            try? fileManager.removeItem(at: swarmRuntimeBackupURL)
+        if let swarmStorageBackupURL {
+            try? fileManager.copyItem(at: swarmStorageBackupURL, to: swarmDirectoryURL)
+            try? fileManager.removeItem(at: swarmStorageBackupURL)
         }
-        self.swarmRuntimeBackupURL = nil
+        self.swarmStorageBackupURL = nil
     }
 
     @MainActor
     private func swarmDirectoryURL() -> URL? {
-        TeamStore.runtimeDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)?
-            .appendingPathComponent("swarm", isDirectory: true)
+        TeamStore.storageDirectoryURL(fileManager: .default, createDirectoryIfNeeded: true)
     }
 
-    private func removeStateFile() {
-        try? FileManager.default.removeItem(at: stateFileURL())
+    private func removeProjectFile() {
+        try? FileManager.default.removeItem(at: projectFileURL())
     }
 
-    private func restoreStateFile() {
-        let url = stateFileURL()
-        if let originalStateData {
-            try? originalStateData.write(to: url, options: [.atomic])
+    private func restoreProjectFile() {
+        let url = projectFileURL()
+        if let originalProjectData {
+            try? originalProjectData.write(to: url, options: [.atomic])
         } else {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    private func stateFileURL() -> URL {
+    private func projectFileURL() -> URL {
         let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
-        return rootURL?.appendingPathComponent(".openava.json", isDirectory: false)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent(".openava.json", isDirectory: false)
+        if let rootURL, let fileURL = OpenAvaProjectFile.fileURL(workspaceRootURL: rootURL) {
+            return fileURL
+        }
+        let fallbackRootURL = FileManager.default.temporaryDirectory.appendingPathComponent("OpenAva", isDirectory: true)
+        return AgentStore.supportDirectoryURL(workspaceRootURL: fallbackRootURL)
+            .appendingPathComponent("project.json", isDirectory: false)
     }
 }

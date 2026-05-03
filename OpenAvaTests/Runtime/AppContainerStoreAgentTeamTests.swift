@@ -4,16 +4,16 @@ import XCTest
 
 @MainActor
 final class AppContainerStoreAgentTeamTests: XCTestCase {
-    private var originalStateData: Data?
+    private var originalProjectData: Data?
 
     override func setUp() {
         super.setUp()
-        originalStateData = try? Data(contentsOf: stateFileURL())
-        removeStateFile()
+        originalProjectData = try? Data(contentsOf: projectFileURL())
+        removeProjectFile()
     }
 
     override func tearDown() {
-        restoreStateFile()
+        restoreProjectFile()
         super.tearDown()
     }
 
@@ -135,7 +135,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         )
 
         XCTAssertGreaterThanOrEqual(entries.count, 2)
-        XCTAssertEqual(entries[0].kind, .globalTeam)
+        XCTAssertEqual(entries[0].kind, .allAgentsTeam)
         XCTAssertEqual(entries[1].kind, .team(teamID))
         XCTAssertEqual(entries[1].displayTitle, "🧭 Core Team")
         XCTAssertTrue(entries[1].isSelected)
@@ -192,23 +192,70 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(containerStore.activeSessionContext, .team(team.id))
     }
 
-    private func removeStateFile() {
-        try? FileManager.default.removeItem(at: stateFileURL())
+    func testSwitchingFromAgentBackToAllAgentsTeamClearsAgentScopedWorkspaceConfig() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+        let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
+
+        XCTAssertTrue(containerStore.setActiveSessionContext(.agent(agent.id)))
+        XCTAssertEqual(containerStore.container.config.agent.id, agent.id.uuidString)
+        XCTAssertEqual(
+            containerStore.container.config.agent.workspaceRootURL?.standardizedFileURL,
+            agent.workspaceURL.standardizedFileURL
+        )
+        XCTAssertEqual(
+            containerStore.container.config.agent.supportRootURL?.standardizedFileURL,
+            agent.contextURL.standardizedFileURL
+        )
+
+        XCTAssertTrue(containerStore.setActiveSessionContext(.allAgentsTeam))
+        XCTAssertEqual(containerStore.activeSessionContext, .allAgentsTeam)
+        XCTAssertNil(containerStore.container.config.agent.id)
+        XCTAssertNil(containerStore.container.config.agent.workspaceRootURL)
+        XCTAssertNil(containerStore.container.config.agent.supportRootURL)
+        let teamSupportURL = containerStore.teamSessionsRootURL
+        XCTAssertEqual(
+            teamSupportURL?.standardizedFileURL,
+            workspaceRootURL
+                .appendingPathComponent(".openava", isDirectory: true)
+                .appendingPathComponent("all-agents-team", isDirectory: true)
+                .standardizedFileURL
+        )
+        XCTAssertFalse(teamSupportURL?.standardizedFileURL.path.hasPrefix(agent.workspaceURL.standardizedFileURL.path) ?? true)
     }
 
-    private func restoreStateFile() {
-        let url = stateFileURL()
-        if let originalStateData {
-            try? originalStateData.write(to: url, options: [.atomic])
+    private func removeProjectFile() {
+        try? FileManager.default.removeItem(at: projectFileURL())
+    }
+
+    private func restoreProjectFile() {
+        let url = projectFileURL()
+        if let originalProjectData {
+            try? originalProjectData.write(to: url, options: [.atomic])
         } else {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    private func stateFileURL() -> URL {
+    private func projectFileURL() -> URL {
         let rootURL = try? AgentStore.workspaceRootDirectory(fileManager: .default)
-        return rootURL?.appendingPathComponent(".openava.json", isDirectory: false)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent(".openava.json", isDirectory: false)
+        if let rootURL, let fileURL = OpenAvaProjectFile.fileURL(workspaceRootURL: rootURL) {
+            return fileURL
+        }
+        let fallbackRootURL = FileManager.default.temporaryDirectory.appendingPathComponent("OpenAva", isDirectory: true)
+        return AgentStore.supportDirectoryURL(workspaceRootURL: fallbackRootURL)
+            .appendingPathComponent("project.json", isDirectory: false)
     }
 
     private func makeTemporaryWorkspaceRoot() -> URL {

@@ -12,14 +12,14 @@ extension SkillTools {
                 request,
                 workspaceRootURL: context.workspaceRootURL,
                 modelConfig: context.modelConfig,
-                activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider,
+                activeSupportRootURLProvider: context.activeSupportRootURLProvider,
                 toolInvoker: context.toolInvoker
             )
         }
         handlers["skill.upsert"] = { request in
             try await Self.handleSkillUpsert(
                 request,
-                activeRuntimeRootURLProvider: context.activeRuntimeRootURLProvider
+                workspaceRootURL: context.workspaceRootURL
             )
         }
     }
@@ -28,7 +28,7 @@ extension SkillTools {
         _ request: BridgeInvokeRequest,
         workspaceRootURL: URL?,
         modelConfig: AppConfig.LLMModel?,
-        activeRuntimeRootURLProvider: @escaping @Sendable () -> URL?,
+        activeSupportRootURLProvider: @escaping @Sendable () -> URL?,
         toolInvoker: @escaping @Sendable (BridgeInvokeRequest, String?) async -> BridgeInvokeResponse
     ) async throws -> BridgeInvokeResponse {
         struct InvokeParams: Decodable {
@@ -68,8 +68,8 @@ extension SkillTools {
             }
 
             let task = AppConfig.nonEmpty(params.task)
-            if skill.source == "shared", activeRuntimeRootURLProvider() != nil {
-                let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+            if skill.source == "workspace", skill.origin != nil, let workspaceRootURL {
+                let store = AgentSkillStore(workspaceRootURL: workspaceRootURL)
                 _ = try? await store.recordInvocation(slug: skill.name)
             }
 
@@ -109,7 +109,7 @@ extension SkillTools {
                     prompt: forkedSkillPrompt(skill: skill, task: task, body: body),
                     definition: definition,
                     workspaceRootURL: workspaceRootURL,
-                    runtimeRootURL: activeRuntimeRootURLProvider(),
+                    supportRootURL: activeSupportRootURLProvider(),
                     modelConfig: modelConfig,
                     executeTool: { nestedRequest in
                         await toolInvoker(nestedRequest, sessionID)
@@ -142,7 +142,7 @@ extension SkillTools {
 
     private static func handleSkillUpsert(
         _ request: BridgeInvokeRequest,
-        activeRuntimeRootURLProvider _: @escaping @Sendable () -> URL?
+        workspaceRootURL: URL?
     ) async throws -> BridgeInvokeResponse {
         struct SupportingFile: Decodable {
             let path: String
@@ -158,8 +158,16 @@ extension SkillTools {
             let supportingFiles: [SupportingFile]?
         }
 
+        guard let workspaceRootURL else {
+            return BridgeInvokeResponse(
+                id: request.id,
+                ok: false,
+                error: OpenClawNodeError(code: .unavailable, message: "UNAVAILABLE: no active project workspace")
+            )
+        }
+
         let params = try ToolInvocationHelpers.decodeParams(UpsertParams.self, from: request.paramsJSON)
-        let store = AgentSkillStore(runtimeRootURL: AgentStore.sharedRuntimeRootURL())
+        let store = AgentSkillStore(workspaceRootURL: workspaceRootURL)
         let entry = try await store.upsert(
             name: params.name,
             description: params.description,

@@ -18,7 +18,7 @@ enum SubAgentRunner {
         prompt: String,
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
         modelConfig: AppConfig.LLMModel,
         existingMessages: [ChatRequestBody.Message]? = nil,
         existingConversation: [SubAgentTaskStore.PersistedConversationMessage]? = nil,
@@ -33,7 +33,7 @@ enum SubAgentRunner {
         let systemPrompt = await buildSystemPrompt(
             definition: definition,
             workspaceRootURL: workspaceRootURL,
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             modelConfig: modelConfig
         )
         let tools = await filteredTools(for: definition)
@@ -45,7 +45,7 @@ enum SubAgentRunner {
         if let dynamicMemorySection = await buildDynamicMemorySection(
             query: prompt,
             persistedConversation: persistedConversation,
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             modelConfig: modelConfig
         ) {
             requestMessages.append(.system(content: .text(dynamicMemorySection)))
@@ -206,7 +206,7 @@ enum SubAgentRunner {
     private static func buildSystemPrompt(
         definition: SubAgentDefinition,
         workspaceRootURL: URL?,
-        runtimeRootURL _: URL?,
+        supportRootURL _: URL?,
         modelConfig: AppConfig.LLMModel
     ) async -> String {
         let baseParts = [
@@ -223,15 +223,15 @@ enum SubAgentRunner {
     private static func buildDynamicMemorySection(
         query: String,
         persistedConversation: [SubAgentTaskStore.PersistedConversationMessage],
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
         modelConfig: AppConfig.LLMModel
     ) async -> String? {
-        guard let runtimeRootURL else {
+        guard let supportRootURL else {
             return nil
         }
 
         let builder = AgentMemoryContextBuilder(
-            runtimeRootURL: runtimeRootURL,
+            supportRootURL: supportRootURL,
             modelConfig: modelConfig
         )
         return await builder.contextSection(

@@ -39,6 +39,15 @@ enum AgentTemplateWriter {
         name: String,
         fileManager: FileManager = .default
     ) throws {
+        try syncIdentityProfile(at: workspaceURL, name: name, emoji: nil, fileManager: fileManager)
+    }
+
+    static func syncIdentityProfile(
+        at workspaceURL: URL,
+        name: String,
+        emoji: String?,
+        fileManager: FileManager = .default
+    ) throws {
         let normalizedName = defaultedAgentName(from: name)
         let identityURL = workspaceURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
 
@@ -47,10 +56,14 @@ enum AgentTemplateWriter {
            let data = try? Data(contentsOf: identityURL),
            let existing = String(data: data, encoding: .utf8)
         {
-            content = updateIdentityNameField(in: existing, name: normalizedName)
+            var updated = updateIdentityField(in: existing, fieldName: "Name", value: normalizedName)
+            if let emoji {
+                updated = updateIdentityField(in: updated, fieldName: "Emoji", value: emoji)
+            }
+            content = updated
         } else {
-            // Create IDENTITY.md when it does not exist so rename always keeps name in sync.
-            content = renderAgent(name: normalizedName, emoji: "🤖")
+            // Create IDENTITY.md when it does not exist so profile edits always keep metadata in sync.
+            content = renderAgent(name: normalizedName, emoji: emoji ?? "🤖")
         }
 
         try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
@@ -339,16 +352,21 @@ enum AgentTemplateWriter {
     }
 
     private static func updateIdentityNameField(in content: String, name: String) -> String {
+        updateIdentityField(in: content, fieldName: "Name", value: name)
+    }
+
+    private static func updateIdentityField(in content: String, fieldName: String, value: String) -> String {
         var lines = content.components(separatedBy: "\n")
-        guard let nameLineIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "- **Name:**" }) else {
-            // Fallback to append a minimal Name field when template markers are missing.
+        let marker = "- **\(fieldName):**"
+        guard let fieldLineIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
+            // Fallback to append a minimal field when template markers are missing.
             let suffix = content.isEmpty ? "" : "\n"
-            return content + "\(suffix)- **Name:**\n\(indentedBlock(name))"
+            return content + "\(suffix)\(marker)\n\(indentedBlock(value))"
         }
 
-        let indentedName = indentedBlock(name)
-        let replacementLines = indentedName.components(separatedBy: "\n")
-        let valueLineIndex = nameLineIndex + 1
+        let indentedValue = indentedBlock(value)
+        let replacementLines = indentedValue.components(separatedBy: "\n")
+        let valueLineIndex = fieldLineIndex + 1
 
         if valueLineIndex < lines.count,
            lines[valueLineIndex].hasPrefix("  ")

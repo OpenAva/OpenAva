@@ -3,22 +3,21 @@ import XCTest
 
 final class AgentTranscriptSearchServiceTests: XCTestCase {
     func testSearchFindsMessageTextAcrossPersistedTranscript() throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let transcriptDirectory = runtimeRoot
+        let sessionsRoot = supportRoot
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("session-1", isDirectory: true)
-        try FileManager.default.createDirectory(at: transcriptDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let transcriptURL = transcriptDirectory.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcriptURL = sessionsRoot.appendingPathComponent("session-1.jsonl", isDirectory: false)
         let lines = [
             #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Need a concise summary for the onboarding flow."}]}}"#,
             #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"Chose the bundled migration approach for memory porting."}]}}"#,
         ]
         try lines.joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        let service = AgentTranscriptSearchService(runtimeRootURL: runtimeRoot)
+        let service = AgentTranscriptSearchService(supportRootURL: supportRoot)
         let hits = try service.search(query: "bundled migration", limit: 5)
         XCTAssertEqual(hits.count, 1)
         XCTAssertEqual(hits.first?.sessionID, "session-1")
@@ -26,17 +25,14 @@ final class AgentTranscriptSearchServiceTests: XCTestCase {
     }
 
     func testSearchPrefersNewestTranscriptAndLatestHitWithinTranscript() throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let sessionsRoot = runtimeRoot.appendingPathComponent("sessions", isDirectory: true)
-        let session1Directory = sessionsRoot.appendingPathComponent("session-1", isDirectory: true)
-        let session2Directory = sessionsRoot.appendingPathComponent("session-2", isDirectory: true)
-        try FileManager.default.createDirectory(at: session1Directory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: session2Directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        let sessionsRoot = supportRoot.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let transcript1URL = session1Directory.appendingPathComponent("transcript.jsonl", isDirectory: false)
-        let transcript2URL = session2Directory.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcript1URL = sessionsRoot.appendingPathComponent("session-1.jsonl", isDirectory: false)
+        let transcript2URL = sessionsRoot.appendingPathComponent("session-2.jsonl", isDirectory: false)
 
         try [
             #"{"type":"user","message":{"role":"user","metadata":{"isCompactSummary":"true"},"content":[{"type":"text","text":"older target hit"}]}}"#,
@@ -56,7 +52,7 @@ final class AgentTranscriptSearchServiceTests: XCTestCase {
             ofItemAtPath: transcript2URL.path
         )
 
-        let service = AgentTranscriptSearchService(runtimeRootURL: runtimeRoot)
+        let service = AgentTranscriptSearchService(supportRootURL: supportRoot)
         let hits = try service.search(query: "target hit", limit: 2)
 
         XCTAssertEqual(hits.count, 2)
@@ -67,22 +63,21 @@ final class AgentTranscriptSearchServiceTests: XCTestCase {
     }
 
     func testSearchOnlyMatchesMessageTextNotMetadataFields() throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let transcriptDirectory = runtimeRoot
+        let sessionsRoot = supportRoot
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("session-3", isDirectory: true)
-        try FileManager.default.createDirectory(at: transcriptDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let transcriptURL = transcriptDirectory.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        let transcriptURL = sessionsRoot.appendingPathComponent("session-3.jsonl", isDirectory: false)
         let lines = [
             #"{"type":"assistant","toolName":"target hit in metadata only","message":{"role":"assistant","content":[{"type":"text","text":"No relevant content here."}]}}"#,
             #"{"type":"user","customTitle":"another target hit metadata","message":{"role":"user","content":[{"type":"text","text":"Still unrelated body text."}]}}"#,
         ]
         try lines.joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        let service = AgentTranscriptSearchService(runtimeRootURL: runtimeRoot)
+        let service = AgentTranscriptSearchService(supportRootURL: supportRoot)
         let hits = try service.search(query: "target hit", limit: 5)
 
         XCTAssertTrue(hits.isEmpty)

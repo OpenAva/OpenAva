@@ -10,7 +10,7 @@ final class BlogWatchTools: ToolDefinitionProvider {
             ToolDefinition(
                 functionName: "blog_watch",
                 command: "blog.watch",
-                description: "Scan blog feeds configured from HEARTBEAT.md input or explicit sources, detect newly published articles, persist state in the active agent runtime, and optionally send a local notification.",
+                description: "Scan blog feeds configured from HEARTBEAT.md input or explicit sources, detect newly published articles, persist state in the active agent context, and optionally send a local notification.",
                 parametersSchema: AnyCodable([
                     "type": "object",
                     "properties": [
@@ -148,7 +148,7 @@ extension BlogWatchTools {
 
     static func testHandleInvoke(
         _ request: BridgeInvokeRequest,
-        runtimeRootURL: URL,
+        supportRootURL: URL,
         fetchedItemsByURL: [String: [TestFeedItem]],
         notificationResult: Bool = true
     ) async throws -> TestScanResult {
@@ -166,7 +166,7 @@ extension BlogWatchTools {
 
         let response = try await handleBlogWatchInvoke(
             request,
-            context: ToolHandlerRegistrationContext(activeRuntimeRootURLProvider: { runtimeRootURL })
+            context: ToolHandlerRegistrationContext(activeSupportRootURLProvider: { supportRootURL })
         )
         guard response.ok, let payload = response.payload?.data(using: .utf8) else {
             throw NSError(domain: "BlogWatchTest", code: 500, userInfo: [NSLocalizedDescriptionKey: response.error?.message ?? "missing payload"])
@@ -182,8 +182,8 @@ extension BlogWatchTools {
         )
     }
 
-    static func testPersistedState(runtimeRootURL: URL) -> (sourceCount: Int, articleCount: Int, notifiedCount: Int) {
-        let state = loadState(runtimeRootURL: runtimeRootURL)
+    static func testPersistedState(supportRootURL: URL) -> (sourceCount: Int, articleCount: Int, notifiedCount: Int) {
+        let state = loadState(supportRootURL: supportRootURL)
         return (
             sourceCount: state.sources.count,
             articleCount: state.articles.count,
@@ -273,15 +273,15 @@ private extension BlogWatchTools {
         guard params.action == "scan" else {
             return ToolInvocationHelpers.invalidRequest(id: request.id, "unsupported action")
         }
-        guard let runtimeRootURL = context.activeRuntimeRootURLProvider()?.standardizedFileURL else {
-            return ToolInvocationHelpers.unavailableResponse(id: request.id, "UNAVAILABLE: active agent runtime root unavailable")
+        guard let supportRootURL = context.activeSupportRootURLProvider()?.standardizedFileURL else {
+            return ToolInvocationHelpers.unavailableResponse(id: request.id, "UNAVAILABLE: active agent context root unavailable")
         }
         let normalizedSources = normalizeSources(params.sources)
         guard !normalizedSources.isEmpty else {
             return ToolInvocationHelpers.invalidRequest(id: request.id, "at least one valid source is required")
         }
 
-        var state = loadState(runtimeRootURL: runtimeRootURL)
+        var state = loadState(supportRootURL: supportRootURL)
         var results: [ScanResultPayload.SourceResult] = []
         var notificationArticles: [ScanResultPayload.ArticleSummary] = []
         let sendNotification = params.send_notification ?? true
@@ -406,7 +406,7 @@ private extension BlogWatchTools {
             }
         }
 
-        try persistState(state, runtimeRootURL: runtimeRootURL)
+        try persistState(state, supportRootURL: supportRootURL)
 
         var notified = false
         if sendNotification, !notificationArticles.isEmpty {
@@ -416,7 +416,7 @@ private extension BlogWatchTools {
         let payload = ScanResultPayload(
             newArticleCount: notificationArticles.count,
             notified: notified,
-            statePath: stateURL(runtimeRootURL: runtimeRootURL).path,
+            statePath: stateURL(supportRootURL: supportRootURL).path,
             heartbeatTemplate: heartbeatTemplate(),
             results: results
         )
@@ -457,14 +457,14 @@ private extension BlogWatchTools {
         return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    static func stateURL(runtimeRootURL: URL) -> URL {
-        runtimeRootURL
+    static func stateURL(supportRootURL: URL) -> URL {
+        supportRootURL
             .appendingPathComponent("blog-watcher", isDirectory: true)
             .appendingPathComponent("state.json", isDirectory: false)
     }
 
-    static func loadState(runtimeRootURL: URL) -> PersistedState {
-        let url = stateURL(runtimeRootURL: runtimeRootURL)
+    static func loadState(supportRootURL: URL) -> PersistedState {
+        let url = stateURL(supportRootURL: supportRootURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = try? Data(contentsOf: url),
@@ -475,8 +475,8 @@ private extension BlogWatchTools {
         return state
     }
 
-    static func persistState(_ state: PersistedState, runtimeRootURL: URL) throws {
-        let url = stateURL(runtimeRootURL: runtimeRootURL)
+    static func persistState(_ state: PersistedState, supportRootURL: URL) throws {
+        let url = stateURL(supportRootURL: supportRootURL)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

@@ -3,13 +3,13 @@ import XCTest
 
 final class AgentMemoryStoreTests: XCTestCase {
     func testReadOperationsDoNotCreateMemoryDirectoryOrImplicitPromptIndex() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
-        let memoryDirectory = runtimeRoot.appendingPathComponent("memory", isDirectory: true)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
+        let memoryDirectory = supportRoot.appendingPathComponent("memory", isDirectory: true)
 
         let recallHits = try await store.recall(query: "anything")
         let entries = try await store.listEntries()
@@ -20,12 +20,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testUpsertRecallForgetFlow() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let created = try await store.upsert(
             name: "User prefers concise answers",
             type: .feedback,
@@ -35,7 +35,7 @@ final class AgentMemoryStoreTests: XCTestCase {
 
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: runtimeRoot
+                atPath: supportRoot
                     .appendingPathComponent("memory", isDirectory: true)
                     .appendingPathComponent("MEMORY.md", isDirectory: false)
                     .path
@@ -53,12 +53,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testRecallDoesNotMatchContentOnlyText() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -72,12 +72,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testUpsertWithoutSlugCreatesNewEntryInsteadOfDeduplicatingTopic() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let first = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -98,7 +98,7 @@ final class AgentMemoryStoreTests: XCTestCase {
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(Set(entries.map(\.slug)), [first.slug, second.slug])
 
-        let versionFile = runtimeRoot
+        let versionFile = supportRoot
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent(".versions", isDirectory: true)
             .appendingPathComponent(first.slug, isDirectory: true)
@@ -107,12 +107,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testUpsertWithExplicitSlugUpdatesExistingEntryAndArchivesPreviousVersion() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let first = try await store.upsert(
             name: "Response style",
             type: .feedback,
@@ -136,7 +136,7 @@ final class AgentMemoryStoreTests: XCTestCase {
         XCTAssertEqual(entries.first?.version, 2)
         XCTAssertTrue(entries.first?.content.contains("skip wrap-up") == true)
 
-        let versionFile = runtimeRoot
+        let versionFile = supportRoot
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent(".versions", isDirectory: true)
             .appendingPathComponent(first.slug, isDirectory: true)
@@ -147,12 +147,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testExplicitConflictsMarkPreviousMemoryInactive() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let english = try await store.upsert(
             name: "Preferred response language English",
             type: .user,
@@ -172,7 +172,7 @@ final class AgentMemoryStoreTests: XCTestCase {
         let entries = try await store.listEntries()
         XCTAssertEqual(entries.map(\.slug), [chinese.slug])
 
-        let conflictedFile = runtimeRoot
+        let conflictedFile = supportRoot
             .appendingPathComponent("memory", isDirectory: true)
             .appendingPathComponent("\(english.slug).md", isDirectory: false)
         let raw = try String(contentsOf: conflictedFile, encoding: .utf8)
@@ -181,12 +181,12 @@ final class AgentMemoryStoreTests: XCTestCase {
     }
 
     func testExpiredMemoryDoesNotAppearInRecallOrList() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
-        let store = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let store = AgentMemoryStore(supportRootURL: supportRoot)
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let expiresAt = formatter.string(from: Date(timeIntervalSinceNow: -300))

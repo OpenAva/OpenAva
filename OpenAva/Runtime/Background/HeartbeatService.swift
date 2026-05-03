@@ -11,7 +11,7 @@ struct HeartbeatRuntimeConfiguration: Equatable {
     let agentName: String
     let agentEmoji: String
     let workspaceRootURL: URL
-    let runtimeRootURL: URL
+    let supportRootURL: URL
     let modelConfig: AppConfig.LLMModel
 }
 
@@ -239,7 +239,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
 
         let parsedDocument = HeartbeatSupport.parseDocument(heartbeatMarkdown)
         let now = Date().timeIntervalSince1970
-        guard let state = loadState(for: configuration.runtimeRootURL) else {
+        guard let state = loadState(for: configuration.supportRootURL) else {
             if let activeDelay = parsedDocument.configuration.delayUntilActive(from: Date()), activeDelay > 0 {
                 return activeDelay
             }
@@ -279,7 +279,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
                 return .skipped
             }
 
-            if let state = loadState(for: configuration.runtimeRootURL) {
+            if let state = loadState(for: configuration.supportRootURL) {
                 let elapsed = Date().timeIntervalSince1970 - state.lastCheckAt
                 if elapsed < parsedDocument.configuration.interval {
                     return .skipped
@@ -300,7 +300,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
                 heartbeatMarkdown: parsedDocument.instructions,
                 notificationMode: parsedDocument.configuration.notify
             )
-            persistState(.init(lastCheckAt: runStartedAt), for: configuration.runtimeRootURL)
+            persistState(.init(lastCheckAt: runStartedAt), for: configuration.supportRootURL)
             guard result.shouldNotify,
                   let notificationBody = result.notificationBody
             else {
@@ -309,7 +309,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
             try await postNotification(agentName: configuration.agentName, agentEmoji: configuration.agentEmoji, body: notificationBody)
             return .completed(true)
         } catch {
-            persistState(.init(lastCheckAt: runStartedAt), for: configuration.runtimeRootURL)
+            persistState(.init(lastCheckAt: runStartedAt), for: configuration.supportRootURL)
             Self.logger.error("heartbeat failed: \(error.localizedDescription, privacy: .public)")
             return .completed(false)
         }
@@ -322,7 +322,7 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
     ) async throws -> RunResult {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
         let toolInvocationSessionID = "\(configuration.agentID)::\(mainSessionID)"
-        let agentCount = max(AgentStore.load(workspaceRootURL: configuration.agent.workspaceURL.deletingLastPathComponent()).agents.count, 1)
+        let agentCount = max(AgentStore.load(workspaceRootURL: configuration.agent.workspaceURL).agents.count, 1)
         return try await AgentMainSessionRegistry.shared.submitToMainSession(
             for: configuration.agent,
             modelConfig: configuration.modelConfig,
@@ -403,26 +403,26 @@ final class HeartbeatRuntime: HeartbeatRuntimeControlling {
 
     private func isCurrentMainSessionQueryActive(_ configuration: HeartbeatRuntimeConfiguration) -> Bool {
         let mainSessionID = HeartbeatSupport.mainSessionID(configuration.mainSessionID)
-        let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: configuration.runtimeRootURL)
+        let storageProvider = TranscriptStorageProvider.provider(supportRootURL: configuration.supportRootURL)
         return ConversationSessionManager.shared.isQueryActive(mainSessionID, storage: storageProvider)
     }
 
-    private func stateURL(for runtimeRootURL: URL) -> URL {
-        runtimeRootURL
+    private func stateURL(for supportRootURL: URL) -> URL {
+        supportRootURL
             .appendingPathComponent("heartbeat", isDirectory: true)
             .appendingPathComponent("state.json", isDirectory: false)
     }
 
-    private func loadState(for runtimeRootURL: URL) -> State? {
-        let fileURL = stateURL(for: runtimeRootURL)
+    private func loadState(for supportRootURL: URL) -> State? {
+        let fileURL = stateURL(for: supportRootURL)
         guard let data = try? Data(contentsOf: fileURL) else {
             return nil
         }
         return try? JSONDecoder().decode(State.self, from: data)
     }
 
-    private func persistState(_ state: State, for runtimeRootURL: URL) {
-        let fileURL = stateURL(for: runtimeRootURL)
+    private func persistState(_ state: State, for supportRootURL: URL) {
+        let fileURL = stateURL(for: supportRootURL)
         let directoryURL = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(state) else {

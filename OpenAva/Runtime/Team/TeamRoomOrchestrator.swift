@@ -139,7 +139,7 @@ final class TeamRoomOrchestrator {
         agents: [AgentProfile]
     ) -> [AgentProfile] {
         switch activeContext {
-        case .globalTeam:
+        case .allAgentsTeam:
             return agents
         case let .team(teamID):
             guard let team = teams.first(where: { $0.id == teamID }) else {
@@ -422,8 +422,8 @@ final class TeamRoomOrchestrator {
     ) -> ToolRegistryProvider {
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: agent.workspaceURL,
-            runtimeRootURL: agent.runtimeURL,
-            teamsRootURL: agent.workspaceURL.deletingLastPathComponent(),
+            supportRootURL: agent.contextURL,
+            teamsRootURL: agent.workspaceURL,
             modelConfig: modelConfig,
             agentCount: max(agentCount, 1)
         )
@@ -478,12 +478,12 @@ final class TeamRoomOrchestrator {
     ) -> String {
         let basePrompt = AgentContextLoader.composeSystemPrompt(
             baseSystemPrompt: modelConfig.systemPrompt,
-            workspaceRootURL: agent.workspaceURL,
+            workspaceRootURL: agent.contextURL,
             agentCount: max(participantCount, 1)
         ) ?? modelConfig.systemPrompt ?? "You are a helpful assistant."
 
         let roomName: String = switch context.activeContext {
-        case .globalTeam:
+        case .allAgentsTeam:
             "Global Team Room"
         case let .team(teamID):
             context.teams.first(where: { $0.id == teamID })?.name ?? "Team Room"
@@ -592,7 +592,7 @@ final class TeamRoomOrchestrator {
 
     private static func metadataContextValue(_ context: ActiveSessionContext) -> String {
         switch context {
-        case .globalTeam:
+        case .allAgentsTeam:
             "globalTeam"
         case let .team(teamID):
             "team:\(teamID.uuidString)"

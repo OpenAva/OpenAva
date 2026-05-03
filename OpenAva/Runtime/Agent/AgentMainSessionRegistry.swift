@@ -21,7 +21,7 @@ final class AgentMainSessionRegistry {
         let providerName: String
         let agentCount: Int
         let workspacePath: String
-        let runtimePath: String
+        let supportPath: String
         let mainSessionID: String
     }
 
@@ -92,7 +92,7 @@ final class AgentMainSessionRegistry {
             providerName: modelConfig.provider,
             agentCount: normalizedAgentCount,
             workspacePath: agent.workspaceURL.standardizedFileURL.path,
-            runtimePath: agent.runtimeURL.standardizedFileURL.path,
+            supportPath: agent.contextURL.standardizedFileURL.path,
             mainSessionID: mainSessionID
         )
         let resources = sessionResources(
@@ -129,7 +129,7 @@ final class AgentMainSessionRegistry {
             providerName: modelConfig.provider,
             agentCount: normalizedAgentCount,
             workspacePath: agent.workspaceURL.standardizedFileURL.path,
-            runtimePath: agent.runtimeURL.standardizedFileURL.path,
+            supportPath: agent.contextURL.standardizedFileURL.path,
             mainSessionID: mainSessionID
         )
 
@@ -137,10 +137,11 @@ final class AgentMainSessionRegistry {
             return cached.resources
         }
 
-        let storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: agent.runtimeURL)
+        let storageProvider = TranscriptStorageProvider.provider(supportRootURL: agent.contextURL)
         let sessionDelegate = AgentSessionDelegate(
             sessionID: mainSessionID,
-            runtimeRootURL: agent.runtimeURL,
+            supportRootURL: agent.contextURL,
+            workspaceRootURL: agent.workspaceURL,
             chatClient: nil,
             agentName: agent.name,
             agentEmoji: agent.emoji,
@@ -148,8 +149,8 @@ final class AgentMainSessionRegistry {
         )
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: agent.workspaceURL,
-            runtimeRootURL: agent.runtimeURL,
-            teamsRootURL: agent.workspaceURL.deletingLastPathComponent(),
+            supportRootURL: agent.contextURL,
+            teamsRootURL: agent.workspaceURL,
             modelConfig: modelConfig,
             agentCount: normalizedAgentCount
         )
@@ -164,11 +165,12 @@ final class AgentMainSessionRegistry {
             systemPromptProvider: {
                 AgentContextLoader.composeSystemPrompt(
                     baseSystemPrompt: modelConfig.systemPrompt,
-                    workspaceRootURL: agent.workspaceURL,
+                    workspaceRootURL: agent.contextURL,
                     agentCount: normalizedAgentCount
                 ) ?? "You are a helpful assistant."
             },
-            collapseReasoningWhenComplete: true
+            collapseReasoningWhenComplete: true,
+            toolPermissionRulesRootURL: agent.workspaceURL
         )
         let session = ConversationSessionManager.shared.session(
             for: mainSessionID,

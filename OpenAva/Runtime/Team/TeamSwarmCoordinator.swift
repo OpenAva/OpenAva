@@ -40,7 +40,6 @@ final class TeamSwarmCoordinator {
 
     static let coordinatorName = "coordinator"
     static let mainSessionID = "main"
-    static let runtimeStateDirectoryName = "swarm"
 
     struct ToolContext {
         let sessionID: String?
@@ -1162,15 +1161,6 @@ final class TeamSwarmCoordinator {
     }
 
     private func synchronizeTeamDirectories() {
-        guard let rootURL = teamsRootURL else { return }
-        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-
-        if let existingURLs = try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil) {
-            for url in existingURLs where url.lastPathComponent != Self.runtimeStateDirectoryName {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
-
         guard let team = teamRecord,
               let directoryURL = teamDirectoryURL()
         else {
@@ -1299,7 +1289,7 @@ final class TeamSwarmCoordinator {
     }
 
     private var teamsRootURL: URL? {
-        TeamStore.runtimeDirectoryURL(
+        TeamStore.storageDirectoryURL(
             fileManager: .default,
             workspaceRootURL: agentStoreRootURL,
             createDirectoryIfNeeded: true
@@ -1307,7 +1297,7 @@ final class TeamSwarmCoordinator {
     }
 
     private func teamDirectoryURL() -> URL? {
-        teamsRootURL?.appendingPathComponent(Self.runtimeStateDirectoryName, isDirectory: true)
+        teamsRootURL
     }
 
     private func notifyChanged() {

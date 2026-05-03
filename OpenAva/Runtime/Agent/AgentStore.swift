@@ -6,8 +6,10 @@ struct AgentProfile: Equatable, Identifiable {
     var id: UUID
     var name: String
     var emoji: String
+    /// Shared project workspace used as the tool cwd.
     var workspacePath: String
-    var localRuntimePath: String
+    /// Agent-owned context root under `<workspace>/.openava/agents/<id>`.
+    var localContextPath: String
     /// Per-agent selected LLM model identifier.
     var selectedModelID: UUID?
     var createdAtMs: Int64
@@ -18,12 +20,13 @@ struct AgentProfile: Equatable, Identifiable {
         AgentProfile.resolveSandboxPath(workspacePath, isDirectory: true)
     }
 
-    var runtimeURL: URL {
-        AgentProfile.resolveSandboxPath(localRuntimePath, isDirectory: true)
+    /// Agent-specific context and metadata directory. User-visible project files stay in `workspaceURL`.
+    var contextURL: URL {
+        AgentProfile.resolveSandboxPath(localContextPath, isDirectory: true)
     }
 
     var avatarURL: URL {
-        workspaceURL.appendingPathComponent(Self.avatarFileName, isDirectory: false)
+        contextURL.appendingPathComponent(Self.avatarFileName, isDirectory: false)
     }
 
     /// Rebases a persisted sandbox-absolute path onto the current iOS app container.
@@ -60,7 +63,7 @@ struct AgentProfile: Equatable, Identifiable {
         name: String,
         emoji: String,
         workspacePath: String,
-        localRuntimePath: String,
+        localContextPath: String,
         selectedModelID: UUID? = nil,
         createdAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
         autoCompactEnabled: Bool = true
@@ -69,7 +72,7 @@ struct AgentProfile: Equatable, Identifiable {
         self.name = name
         self.emoji = emoji
         self.workspacePath = workspacePath
-        self.localRuntimePath = localRuntimePath
+        self.localContextPath = localContextPath
         self.selectedModelID = selectedModelID
         self.createdAtMs = createdAtMs
         self.autoCompactEnabled = autoCompactEnabled
@@ -78,7 +81,7 @@ struct AgentProfile: Equatable, Identifiable {
 
 extension AgentProfile: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, name, emoji, workspacePath, localRuntimePath
+        case id, name, emoji, workspacePath, localContextPath
         case selectedModelID, createdAtMs
         case autoCompactEnabled
     }
@@ -89,7 +92,7 @@ extension AgentProfile: Codable {
         name = try c.decode(String.self, forKey: .name)
         emoji = try c.decode(String.self, forKey: .emoji)
         workspacePath = try c.decode(String.self, forKey: .workspacePath)
-        localRuntimePath = try c.decode(String.self, forKey: .localRuntimePath)
+        localContextPath = try c.decode(String.self, forKey: .localContextPath)
         selectedModelID = try c.decodeIfPresent(UUID.self, forKey: .selectedModelID)
         createdAtMs = try c.decode(Int64.self, forKey: .createdAtMs)
         autoCompactEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCompactEnabled) ?? true
@@ -115,42 +118,42 @@ struct OpenAvaUserDefaults: Codable, Equatable {
     var context: String
 }
 
-struct OpenAvaPersistedState: Codable {
+struct OpenAvaProjectState: Codable {
     private enum CodingKeys: String, CodingKey {
-        case agents
         case activeAgentID
         case user
         case teams
+        case toolPermissionRules
     }
 
-    var agents: [AgentProfile]
     var activeAgentID: UUID?
     var user: OpenAvaUserDefaults?
     var teams: [TeamProfile]
+    var toolPermissionRules: [ToolPermissionRule]
 
     init(
-        agents: [AgentProfile] = [],
         activeAgentID: UUID? = nil,
         user: OpenAvaUserDefaults? = nil,
-        teams: [TeamProfile] = []
+        teams: [TeamProfile] = [],
+        toolPermissionRules: [ToolPermissionRule] = []
     ) {
-        self.agents = agents
         self.activeAgentID = activeAgentID
         self.user = user
         self.teams = teams
+        self.toolPermissionRules = toolPermissionRules
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        agents = try container.decodeIfPresent([AgentProfile].self, forKey: .agents) ?? []
         activeAgentID = try container.decodeIfPresent(UUID.self, forKey: .activeAgentID)
         user = try container.decodeIfPresent(OpenAvaUserDefaults.self, forKey: .user)
         teams = try container.decodeIfPresent([TeamProfile].self, forKey: .teams) ?? []
+        toolPermissionRules = try container.decodeIfPresent([ToolPermissionRule].self, forKey: .toolPermissionRules) ?? []
     }
 }
 
-enum OpenAvaStateFile {
-    private static let fileName = ".openava.json"
+enum OpenAvaProjectFile {
+    private static let fileName = "project.json"
 
     private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -167,7 +170,7 @@ enum OpenAvaStateFile {
     static func load(
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
-    ) -> OpenAvaPersistedState? {
+    ) -> OpenAvaProjectState? {
         guard let url = fileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
               let data = try? Data(contentsOf: url)
         else {
@@ -189,11 +192,11 @@ enum OpenAvaStateFile {
                 debugDescription: "Unsupported team date format"
             )
         }
-        return try? decoder.decode(OpenAvaPersistedState.self, from: data)
+        return try? decoder.decode(OpenAvaProjectState.self, from: data)
     }
 
     static func persist(
-        _ state: OpenAvaPersistedState,
+        _ projectState: OpenAvaProjectState,
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) {
@@ -205,7 +208,7 @@ enum OpenAvaStateFile {
         }
 
         guard let url = fileURL(fileManager: fileManager, workspaceRootURL: workspaceRootURL),
-              let data = try? encoder.encode(state)
+              let data = try? encoder.encode(projectState)
         else {
             return
         }
@@ -224,32 +227,50 @@ enum OpenAvaStateFile {
             }
             rootURL = resolved
         }
-        return rootURL.appendingPathComponent(fileName, isDirectory: false)
+        let supportURL = AgentStore.supportDirectoryURL(workspaceRootURL: rootURL)
+        try? fileManager.createDirectory(at: supportURL, withIntermediateDirectories: true)
+        return supportURL.appendingPathComponent(fileName, isDirectory: false)
     }
 }
 
 enum AgentStore {
+    static let openAvaDirectoryName = ".openava"
+    private static let agentsDirectoryName = "agents"
+    private static let agentMetadataFileName = "metadata.json"
+
     typealias UserDefaults = OpenAvaUserDefaults
 
     static func load(
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) -> AgentStateSnapshot {
-        guard var decoded = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
+        guard let rootURL = try? resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL) else {
             return AgentStateSnapshot(agents: [], activeAgentID: nil)
         }
 
-        let agents = decoded.agents
-        var activeAgentID = decoded.activeAgentID
+        var projectState = OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: rootURL) ?? OpenAvaProjectState()
+        let agents = scanAgentDirectories(
+            workspaceRootURL: rootURL,
+            fileManager: fileManager
+        )
+
+        var didChange = false
+        var activeAgentID = projectState.activeAgentID
         if let selectedActiveAgentID = activeAgentID,
            !agents.contains(where: { $0.id == selectedActiveAgentID })
         {
             activeAgentID = agents.first?.id
+        } else if activeAgentID == nil {
+            activeAgentID = agents.first?.id
         }
 
-        if activeAgentID != decoded.activeAgentID {
-            decoded.activeAgentID = activeAgentID
-            OpenAvaStateFile.persist(decoded, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        if activeAgentID != projectState.activeAgentID {
+            projectState.activeAgentID = activeAgentID
+            didChange = true
+        }
+
+        if didChange {
+            OpenAvaProjectFile.persist(projectState, fileManager: fileManager, workspaceRootURL: rootURL)
         }
 
         return AgentStateSnapshot(
@@ -262,7 +283,7 @@ enum AgentStore {
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) -> UserDefaults? {
-        OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.user
+        OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.user
     }
 
     static func saveUser(
@@ -274,8 +295,8 @@ enum AgentStore {
         let normalizedCallName = callName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedContext = context.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var payload = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-            ?? OpenAvaPersistedState()
+        var payload = OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            ?? OpenAvaProjectState()
 
         if normalizedCallName.isEmpty, normalizedContext.isEmpty {
             payload.user = nil
@@ -286,7 +307,53 @@ enum AgentStore {
             )
         }
 
-        OpenAvaStateFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        OpenAvaProjectFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+    }
+
+    static func loadToolPermissionRules(
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> [ToolPermissionRule] {
+        OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.toolPermissionRules.map { rule in
+            ToolPermissionRule(
+                id: rule.id,
+                behavior: rule.behavior,
+                scope: .project,
+                toolName: rule.toolName,
+                matcher: rule.matcher,
+                createdAt: rule.createdAt
+            )
+        } ?? []
+    }
+
+    static func saveToolPermissionRules(
+        _ rules: [ToolPermissionRule],
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) {
+        var payload = OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            ?? OpenAvaProjectState()
+        payload.toolPermissionRules = normalizedProjectToolPermissionRules(rules)
+        OpenAvaProjectFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+    }
+
+    private static func normalizedProjectToolPermissionRules(_ rules: [ToolPermissionRule]) -> [ToolPermissionRule] {
+        var result: [ToolPermissionRule] = []
+        for rule in rules {
+            let projectRule = ToolPermissionRule(
+                id: rule.id,
+                behavior: rule.behavior,
+                scope: .project,
+                toolName: rule.toolName,
+                matcher: rule.matcher,
+                createdAt: rule.createdAt
+            )
+            result.removeAll { existing in
+                existing.toolName == projectRule.toolName && existing.matcher == projectRule.matcher
+            }
+            result.append(projectRule)
+        }
+        return result
     }
 
     static func createAgent(
@@ -299,24 +366,25 @@ enum AgentStore {
         var state = load(fileManager: fileManager, workspaceRootURL: rootURL)
         let agentID = UUID()
         let normalizedAgentName = normalizedName(name)
-        var usedWorkspacePaths = Set(state.agents.map { $0.workspaceURL.standardizedFileURL.path })
-        let workspaceURL = try nextWorkspaceDirectory(
-            for: normalizedAgentName,
-            rootURL: rootURL,
-            usedWorkspacePaths: &usedWorkspacePaths
-        )
-
-        let runtimeURL = workspaceURL.appendingPathComponent(".runtime", isDirectory: true)
+        let workspaceURL = rootURL
+        let contextURL = agentContextDirectory(for: agentID, workspaceRootURL: rootURL)
 
         try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: contextURL, withIntermediateDirectories: true)
 
         let profile = AgentProfile(
             id: agentID,
             name: normalizedAgentName,
             emoji: normalizedEmoji(emoji),
             workspacePath: workspaceURL.path,
-            localRuntimePath: runtimeURL.path
+            localContextPath: contextURL.path
+        )
+        persistAgentMetadata(profile, fileManager: fileManager)
+        try AgentTemplateWriter.writeAgentFile(
+            at: contextURL,
+            name: profile.name,
+            emoji: profile.emoji,
+            fileManager: fileManager
         )
 
         state.agents.append(profile)
@@ -342,6 +410,12 @@ enum AgentStore {
         state.agents[index].name = normalizedName(name)
         state.agents[index].emoji = normalizedEmoji(emoji)
         let profile = state.agents[index]
+        try? AgentTemplateWriter.syncIdentityProfile(
+            at: profile.contextURL,
+            name: profile.name,
+            emoji: profile.emoji,
+            fileManager: fileManager
+        )
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return profile
     }
@@ -361,43 +435,23 @@ enum AgentStore {
         }
 
         let normalizedAgentName = normalizedName(name)
-        let currentProfile = state.agents[index]
-        let oldWorkspaceURL = currentProfile.workspaceURL.standardizedFileURL
+        let workspaceURL = rootURL
+        let contextURL = agentContextDirectory(for: agentID, workspaceRootURL: rootURL)
 
-        var usedWorkspacePaths = Set(
-            state.agents.enumerated().compactMap { offset, profile in
-                offset == index ? nil : profile.workspaceURL.standardizedFileURL.path
-            }
-        )
-
-        guard let workspaceURL = try? nextWorkspaceDirectory(
-            for: normalizedAgentName,
-            rootURL: rootURL,
-            usedWorkspacePaths: &usedWorkspacePaths
-        ) else {
-            return nil
-        }
-
-        if oldWorkspaceURL.path != workspaceURL.path,
-           fileManager.fileExists(atPath: oldWorkspaceURL.path)
-        {
-            do {
-                try fileManager.moveItem(at: oldWorkspaceURL, to: workspaceURL)
-            } catch {
-                return nil
-            }
-        }
-
-        let runtimeURL = workspaceURL.appendingPathComponent(".runtime", isDirectory: true)
-        // Keep workspace/runtime paths always valid after rename.
+        // Renaming an agent must not rename or move the shared project workspace.
         try? fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-        try? fileManager.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: contextURL, withIntermediateDirectories: true)
 
         state.agents[index].name = normalizedAgentName
         state.agents[index].workspacePath = workspaceURL.path
-        state.agents[index].localRuntimePath = runtimeURL.path
+        state.agents[index].localContextPath = contextURL.path
 
         let profile = state.agents[index]
+        try? AgentTemplateWriter.syncIdentityName(
+            at: contextURL,
+            name: profile.name,
+            fileManager: fileManager
+        )
         persist(state: state, fileManager: fileManager, workspaceRootURL: rootURL)
         return profile
     }
@@ -438,10 +492,10 @@ enum AgentStore {
 
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
 
-        // Best-effort cleanup for deleted agent workspace directory.
-        let workspaceURL = removed.workspaceURL
-        if fileManager.fileExists(atPath: workspaceURL.path) {
-            try? fileManager.removeItem(at: workspaceURL)
+        // Best-effort cleanup for the deleted agent-owned support root only.
+        // Never delete `workspaceURL`: it is the shared project workspace.
+        if fileManager.fileExists(atPath: removed.contextURL.path) {
+            try? fileManager.removeItem(at: removed.contextURL)
         }
 
         return true
@@ -460,7 +514,7 @@ enum AgentStore {
         }
 
         state.agents[index].selectedModelID = selectedModelID
-        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        persistAgentMetadata(state.agents[index], fileManager: fileManager)
         return true
     }
 
@@ -477,7 +531,7 @@ enum AgentStore {
         }
 
         state.agents[index].autoCompactEnabled = enabled
-        persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        persistAgentMetadata(state.agents[index], fileManager: fileManager)
         return true
     }
 
@@ -489,15 +543,10 @@ enum AgentStore {
         workspaceRootURL: URL? = nil
     ) {
         var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        var didChange = false
 
         for index in state.agents.indices where state.agents[index].selectedModelID == deletedModelID {
             state.agents[index].selectedModelID = replacement
-            didChange = true
-        }
-
-        if didChange {
-            persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            persistAgentMetadata(state.agents[index], fileManager: fileManager)
         }
     }
 
@@ -506,11 +555,10 @@ enum AgentStore {
         fileManager: FileManager,
         workspaceRootURL: URL?
     ) {
-        var payload = OpenAvaStateFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-            ?? OpenAvaPersistedState()
-        payload.agents = state.agents
+        var payload = OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+            ?? OpenAvaProjectState()
         payload.activeAgentID = state.activeAgentID
-        OpenAvaStateFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        OpenAvaProjectFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
     static func workspaceRootDirectory(fileManager: FileManager) throws -> URL {
@@ -521,22 +569,157 @@ enum AgentStore {
                 userInfo: [NSLocalizedDescriptionKey: "Documents directory unavailable"]
             )
         }
-        #if os(macOS) || targetEnvironment(macCatalyst)
-            let rootURL = documentsURL.appendingPathComponent("OpenAva", isDirectory: true)
-        #else
-            let rootURL = documentsURL
-        #endif
+        let rootURL = documentsURL.appendingPathComponent("OpenAva", isDirectory: true)
         try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return rootURL
     }
 
-    /// Returns the shared runtime root URL under the OpenAva workspace directory.
-    /// Shared durable memories live at `<workspace>/.shared-runtime/memory/` and
-    /// shared reusable skills live at `<workspace>/.shared-runtime/skills/`.
-    static func sharedRuntimeRootURL(fileManager: FileManager = .default) -> URL {
-        let workspaceRoot = (try? workspaceRootDirectory(fileManager: fileManager))
+    /// Returns the project support root used by durable memories.
+    /// Durable memories live at `<workspace>/.openava/memory/`.
+    static func memorySupportRootURL(fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> URL {
+        let workspaceRoot = (try? resolvedWorkspaceRootDirectory(fileManager: fileManager, workspaceRootURL: workspaceRootURL))
             ?? fileManager.temporaryDirectory.appendingPathComponent("OpenAva", isDirectory: true)
-        return workspaceRoot.appendingPathComponent(".shared-runtime", isDirectory: true)
+        return supportDirectoryURL(workspaceRootURL: workspaceRoot)
+    }
+
+    static func supportDirectoryURL(workspaceRootURL: URL) -> URL {
+        workspaceRootURL.appendingPathComponent(openAvaDirectoryName, isDirectory: true)
+    }
+
+    private static func agentsRootDirectory(workspaceRootURL: URL) -> URL {
+        supportDirectoryURL(workspaceRootURL: workspaceRootURL)
+            .appendingPathComponent(agentsDirectoryName, isDirectory: true)
+    }
+
+    static func agentContextDirectory(for agentID: UUID, workspaceRootURL: URL) -> URL {
+        agentsRootDirectory(workspaceRootURL: workspaceRootURL)
+            .appendingPathComponent(agentID.uuidString, isDirectory: true)
+    }
+
+    private struct IdentityMetadata {
+        var name: String?
+        var emoji: String?
+    }
+
+    private struct AgentMetadata: Codable {
+        var selectedModelID: UUID?
+        var createdAtMs: Int64
+        var autoCompactEnabled: Bool
+    }
+
+    private static func agentMetadataURL(for agentID: UUID, workspaceRootURL: URL) -> URL {
+        agentContextDirectory(for: agentID, workspaceRootURL: workspaceRootURL)
+            .appendingPathComponent(agentMetadataFileName, isDirectory: false)
+    }
+
+    private static func loadAgentMetadata(agentID: UUID, workspaceRootURL: URL) -> AgentMetadata? {
+        let url = agentMetadataURL(for: agentID, workspaceRootURL: workspaceRootURL)
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AgentMetadata.self, from: data)
+    }
+
+    private static func persistAgentMetadata(_ profile: AgentProfile, fileManager: FileManager) {
+        let metadata = AgentMetadata(
+            selectedModelID: profile.selectedModelID,
+            createdAtMs: profile.createdAtMs,
+            autoCompactEnabled: profile.autoCompactEnabled
+        )
+        let url = profile.contextURL.appendingPathComponent(agentMetadataFileName, isDirectory: false)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(metadata) else {
+            return
+        }
+        try? fileManager.createDirectory(at: profile.contextURL, withIntermediateDirectories: true)
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    private static func scanAgentDirectories(
+        workspaceRootURL: URL,
+        fileManager: FileManager
+    ) -> [AgentProfile] {
+        let agentsRootURL = agentsRootDirectory(workspaceRootURL: workspaceRootURL)
+        guard let directoryURLs = try? fileManager.contentsOfDirectory(
+            at: agentsRootURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return directoryURLs.compactMap { directoryURL -> AgentProfile? in
+            let resourceValues = try? directoryURL.resourceValues(forKeys: [.isDirectoryKey, .creationDateKey])
+            guard resourceValues?.isDirectory == true,
+                  let agentID = UUID(uuidString: directoryURL.lastPathComponent)
+            else {
+                return nil
+            }
+
+            let identityURL = directoryURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
+            guard fileManager.fileExists(atPath: identityURL.path) else {
+                return nil
+            }
+
+            let identityMetadata = identityMetadata(at: identityURL)
+            let agentMetadata = loadAgentMetadata(agentID: agentID, workspaceRootURL: workspaceRootURL)
+            let createdAtMs = agentMetadata?.createdAtMs
+                ?? Int64((resourceValues?.creationDate ?? Date()).timeIntervalSince1970 * 1000)
+
+            return AgentProfile(
+                id: agentID,
+                name: normalizedName(identityMetadata.name ?? "Agent"),
+                emoji: normalizedEmoji(identityMetadata.emoji ?? "🤖"),
+                workspacePath: workspaceRootURL.standardizedFileURL.path,
+                localContextPath: directoryURL.standardizedFileURL.path,
+                selectedModelID: agentMetadata?.selectedModelID,
+                createdAtMs: createdAtMs,
+                autoCompactEnabled: agentMetadata?.autoCompactEnabled ?? true
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.createdAtMs != rhs.createdAtMs {
+                return lhs.createdAtMs < rhs.createdAtMs
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private static func identityMetadata(at identityURL: URL) -> IdentityMetadata {
+        guard let data = try? Data(contentsOf: identityURL),
+              let content = String(data: data, encoding: .utf8)
+        else {
+            return IdentityMetadata()
+        }
+
+        return IdentityMetadata(
+            name: markdownFieldValue(named: "Name", in: content),
+            emoji: markdownFieldValue(named: "Emoji", in: content)
+        )
+    }
+
+    private static func markdownFieldValue(named fieldName: String, in content: String) -> String? {
+        let marker = "- **\(fieldName):**"
+        let lines = content.components(separatedBy: "\n")
+        guard let markerIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
+            return nil
+        }
+
+        var valueLines: [String] = []
+        var index = markerIndex + 1
+        while index < lines.count {
+            let line = lines[index]
+            guard line.hasPrefix("  ") else { break }
+            valueLines.append(String(line.dropFirst(2)))
+            index += 1
+        }
+
+        let value = valueLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.hasPrefix("_(") else {
+            return nil
+        }
+        return value
     }
 
     private static func resolvedWorkspaceRootDirectory(

@@ -252,21 +252,21 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     private static let providersLock = NSLock()
     private static var providersByRootPath: [String: TranscriptStorageProvider] = [:]
 
-    static func provider(runtimeRootURL: URL) -> TranscriptStorageProvider {
-        let resolvedRoot = runtimeRootURL.standardizedFileURL
+    static func provider(supportRootURL: URL) -> TranscriptStorageProvider {
+        let resolvedRoot = supportRootURL.standardizedFileURL
         let key = resolvedRoot.path
         providersLock.lock()
         defer { providersLock.unlock() }
         if let provider = providersByRootPath[key] {
             return provider
         }
-        let provider = TranscriptStorageProvider(runtimeRootURL: resolvedRoot)
+        let provider = TranscriptStorageProvider(supportRootURL: resolvedRoot)
         providersByRootPath[key] = provider
         return provider
     }
 
-    static func removeProvider(runtimeRootURL: URL) {
-        let resolvedRoot = runtimeRootURL.standardizedFileURL
+    static func removeProvider(supportRootURL: URL) {
+        let resolvedRoot = supportRootURL.standardizedFileURL
         let key = resolvedRoot.path
         providersLock.lock()
         providersByRootPath.removeValue(forKey: key)
@@ -275,7 +275,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
 
     // MARK: - Instance State
 
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let sessionsDir: URL
     private let lock = NSLock()
 
@@ -284,9 +284,9 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     private var sessionsByKey: [String: SessionRecord] = [:]
     private var didLoadSessions = false
 
-    private init(runtimeRootURL: URL) {
-        self.runtimeRootURL = runtimeRootURL
-        sessionsDir = runtimeRootURL.appendingPathComponent("sessions", isDirectory: true)
+    private init(supportRootURL: URL) {
+        self.supportRootURL = supportRootURL
+        sessionsDir = supportRootURL.appendingPathComponent("sessions", isDirectory: true)
         prepareDirectories()
     }
 
@@ -523,7 +523,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         for sessionID in targets {
             loadedSessionCacheByID.removeValue(forKey: sessionID)
             sessionsByKey.removeValue(forKey: sessionID)
-            try? FileManager.default.removeItem(at: sessionDirectory(for: sessionID))
+            try? FileManager.default.removeItem(at: transcriptPath(for: sessionID))
         }
         lock.unlock()
     }
@@ -596,19 +596,19 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     // MARK: - Private: Directory & Path Helpers
 
     private func prepareDirectories() {
-        try? FileManager.default.createDirectory(at: runtimeRootURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try? FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
 
-    private func sessionDirectory(for sessionID: String) -> URL {
+    private func safeSessionFileName(for sessionID: String) -> String {
         let safeKey = sessionID
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "\\", with: "_")
-        return sessionsDir.appendingPathComponent(safeKey, isDirectory: true)
+        return safeKey + ".jsonl"
     }
 
     private func transcriptPath(for sessionID: String) -> URL {
-        sessionDirectory(for: sessionID).appendingPathComponent("transcript.jsonl", isDirectory: false)
+        sessionsDir.appendingPathComponent(safeSessionFileName(for: sessionID), isDirectory: false)
     }
 
     // MARK: - Private: Session Loading
@@ -891,8 +891,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func appendJSONLineLocked(_ jsonLine: String, to sessionID: String) {
-        let directoryURL = sessionDirectory(for: sessionID)
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
         let fileURL = transcriptPath(for: sessionID)
         let lineData = Data((jsonLine + "\n").utf8)
@@ -909,8 +908,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func writeJSONLinesLocked(_ jsonLines: [String], to sessionID: String) {
-        let directoryURL = sessionDirectory(for: sessionID)
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
         let fileURL = transcriptPath(for: sessionID)
         let content = jsonLines.isEmpty ? "" : jsonLines.joined(separator: "\n") + "\n"
@@ -1321,7 +1319,7 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
     }
 
     private func scanSessionRecordsLocked() -> [String: SessionRecord] {
-        guard let sessionDirectories = try? FileManager.default.contentsOfDirectory(
+        guard let transcriptFiles = try? FileManager.default.contentsOfDirectory(
             at: sessionsDir,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
@@ -1330,10 +1328,10 @@ final class TranscriptStorageProvider: StorageProvider, @unchecked Sendable {
         }
 
         var records: [String: SessionRecord] = [:]
-        for directoryURL in sessionDirectories {
-            let transcriptURL = directoryURL.appendingPathComponent("transcript.jsonl", isDirectory: false)
+        for transcriptURL in transcriptFiles where transcriptURL.pathExtension == "jsonl" {
+            let sessionID = transcriptURL.deletingPathExtension().lastPathComponent
             guard FileManager.default.fileExists(atPath: transcriptURL.path),
-                  let record = liteSessionRecordLocked(fromTranscriptAt: transcriptURL, fallbackSessionID: directoryURL.lastPathComponent)
+                  let record = liteSessionRecordLocked(fromTranscriptAt: transcriptURL, fallbackSessionID: sessionID)
             else {
                 continue
             }

@@ -5,13 +5,13 @@ import XCTest
 
 final class BlogWatchToolsTests: XCTestCase {
     func testFirstScanSeedsBaselineWithoutNotification() async throws {
-        let runtimeRoot = makeRuntimeRoot()
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        let supportRoot = makeSupportRoot()
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
         let request = makeScanRequest(skipInitialBaseline: true)
         let result = try await BlogWatchTools.testHandleInvoke(
             request,
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             fetchedItemsByURL: [
                 "https://example.com/feed.xml": [
                     .init(title: "Article A", url: "https://example.com/a", publishedAt: Date(timeIntervalSince1970: 100)),
@@ -23,20 +23,20 @@ final class BlogWatchToolsTests: XCTestCase {
         XCTAssertFalse(result.notified)
         XCTAssertEqual(result.sourceResults.first?.baselineSeeded, true)
 
-        let state = BlogWatchTools.testPersistedState(runtimeRootURL: runtimeRoot)
+        let state = BlogWatchTools.testPersistedState(supportRootURL: supportRoot)
         XCTAssertEqual(state.sourceCount, 1)
         XCTAssertEqual(state.articleCount, 1)
         XCTAssertEqual(state.notifiedCount, 0)
     }
 
     func testSecondScanReportsOnlyNewArticlesAndMarksNotified() async throws {
-        let runtimeRoot = makeRuntimeRoot()
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        let supportRoot = makeSupportRoot()
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
         let request = makeScanRequest(skipInitialBaseline: true)
         _ = try await BlogWatchTools.testHandleInvoke(
             request,
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             fetchedItemsByURL: [
                 "https://example.com/feed.xml": [
                     .init(title: "Article A", url: "https://example.com/a", publishedAt: Date(timeIntervalSince1970: 100)),
@@ -46,7 +46,7 @@ final class BlogWatchToolsTests: XCTestCase {
 
         let second = try await BlogWatchTools.testHandleInvoke(
             request,
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             fetchedItemsByURL: [
                 "https://example.com/feed.xml": [
                     .init(title: "Article A", url: "https://example.com/a", publishedAt: Date(timeIntervalSince1970: 100)),
@@ -61,19 +61,19 @@ final class BlogWatchToolsTests: XCTestCase {
         XCTAssertEqual(second.sourceResults.first?.newCount, 1)
         XCTAssertEqual(second.sourceResults.first?.baselineSeeded, false)
 
-        let state = BlogWatchTools.testPersistedState(runtimeRootURL: runtimeRoot)
+        let state = BlogWatchTools.testPersistedState(supportRootURL: supportRoot)
         XCTAssertEqual(state.articleCount, 2)
         XCTAssertEqual(state.notifiedCount, 1)
     }
 
     func testPersistedStateSurvivesAcrossScans() async throws {
-        let runtimeRoot = makeRuntimeRoot()
-        defer { try? FileManager.default.removeItem(at: runtimeRoot) }
+        let supportRoot = makeSupportRoot()
+        defer { try? FileManager.default.removeItem(at: supportRoot) }
 
         let request = makeScanRequest(skipInitialBaseline: true)
         _ = try await BlogWatchTools.testHandleInvoke(
             request,
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
             fetchedItemsByURL: [
                 "https://example.com/feed.xml": [
                     .init(title: "Article A", url: "https://example.com/a", publishedAt: nil),
@@ -82,7 +82,7 @@ final class BlogWatchToolsTests: XCTestCase {
             ]
         )
 
-        let loaded = BlogWatchTools.testPersistedState(runtimeRootURL: runtimeRoot)
+        let loaded = BlogWatchTools.testPersistedState(supportRootURL: supportRoot)
         XCTAssertEqual(loaded.sourceCount, 1)
         XCTAssertEqual(loaded.articleCount, 2)
     }
@@ -134,7 +134,7 @@ final class BlogWatchToolsTests: XCTestCase {
         XCTAssertTrue(template.contains("HEARTBEAT_OK"))
     }
 
-    func testHandleInvokeReturnsUnavailableWhenRuntimeRootMissing() async throws {
+    func testHandleInvokeReturnsUnavailableWhenSupportRootMissing() async throws {
         let request = try BridgeInvokeRequest(
             id: UUID().uuidString,
             command: "blog.watch",
@@ -145,12 +145,12 @@ final class BlogWatchToolsTests: XCTestCase {
 
         let response = try await BlogWatchTools.testHandleInvoke(
             request,
-            context: ToolHandlerRegistrationContext(activeRuntimeRootURLProvider: { nil })
+            context: ToolHandlerRegistrationContext(activeSupportRootURLProvider: { nil })
         )
 
         XCTAssertFalse(response.ok)
         XCTAssertEqual(response.error?.code, .unavailable)
-        XCTAssertEqual(response.error?.message, "UNAVAILABLE: active agent runtime root unavailable")
+        XCTAssertEqual(response.error?.message, "UNAVAILABLE: active agent context root unavailable")
     }
 
     func testHandleInvokeRejectsWhenAllSourcesAreStructurallyInvalid() async throws {
@@ -162,10 +162,10 @@ final class BlogWatchToolsTests: XCTestCase {
             """
         )
 
-        let runtimeRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let supportRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let response = try await BlogWatchTools.testHandleInvoke(
             request,
-            context: ToolHandlerRegistrationContext(activeRuntimeRootURLProvider: { runtimeRoot })
+            context: ToolHandlerRegistrationContext(activeSupportRootURLProvider: { supportRoot })
         )
 
         XCTAssertFalse(response.ok)
@@ -188,7 +188,7 @@ final class BlogWatchToolsTests: XCTestCase {
         XCTAssertEqual(normalized[2].id, "custom-id")
     }
 
-    private func makeRuntimeRoot() -> URL {
+    private func makeSupportRoot() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

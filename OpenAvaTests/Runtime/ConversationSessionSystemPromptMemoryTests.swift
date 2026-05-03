@@ -5,15 +5,15 @@ import XCTest
 @MainActor
 final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
     func testBuildInstructionMessageAddsDynamicMemoryRecallForCurrentRequest() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
-            try? FileManager.default.removeItem(at: runtimeRoot)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRoot)
+            try? FileManager.default.removeItem(at: supportRoot)
         }
 
-        let memoryStore = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let memoryStore = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await memoryStore.upsert(
             name: "Response style",
             type: .feedback,
@@ -24,7 +24,8 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-1",
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
+            workspaceRootURL: supportRoot,
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -38,7 +39,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
                 systemPromptProvider: {
                     AgentContextLoader.composeSystemPrompt(
                         baseSystemPrompt: "You are a helpful assistant.",
-                        workspaceRootURL: runtimeRoot
+                        workspaceRootURL: supportRoot
                     ) ?? "You are a helpful assistant."
                 }
             )
@@ -63,15 +64,15 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
     }
 
     func testBuildInstructionMessageOmitsDynamicRecallWhenNoMemoryMatches() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
-            try? FileManager.default.removeItem(at: runtimeRoot)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRoot)
+            try? FileManager.default.removeItem(at: supportRoot)
         }
 
-        let memoryStore = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let memoryStore = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await memoryStore.upsert(
             name: "Preferred language",
             type: .user,
@@ -82,7 +83,8 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-2",
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
+            workspaceRootURL: supportRoot,
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -96,7 +98,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
                 systemPromptProvider: {
                     AgentContextLoader.composeSystemPrompt(
                         baseSystemPrompt: "You are a helpful assistant.",
-                        workspaceRootURL: runtimeRoot
+                        workspaceRootURL: supportRoot
                     ) ?? "You are a helpful assistant."
                 }
             )
@@ -120,15 +122,15 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
     }
 
     func testBuildInstructionMessageUsesOnlyCurrentRequestQueryForDynamicRecall() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
-            try? FileManager.default.removeItem(at: runtimeRoot)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRoot)
+            try? FileManager.default.removeItem(at: supportRoot)
         }
 
-        let memoryStore = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let memoryStore = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await memoryStore.upsert(
             name: "Build pipeline issue",
             type: .project,
@@ -139,7 +141,8 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-3",
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
+            workspaceRootURL: supportRoot,
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -153,7 +156,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
                 systemPromptProvider: {
                     AgentContextLoader.composeSystemPrompt(
                         baseSystemPrompt: "You are a helpful assistant.",
-                        workspaceRootURL: runtimeRoot
+                        workspaceRootURL: supportRoot
                     ) ?? "You are a helpful assistant."
                 }
             )
@@ -185,15 +188,15 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
     }
 
     func testBuildInstructionMessagePersistsSurfacedSlugsAndAvoidsRepeatingSameMemory() async throws {
-        let runtimeRoot = FileManager.default.temporaryDirectory
+        let supportRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runtimeRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: supportRoot, withIntermediateDirectories: true)
         defer {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRoot)
-            try? FileManager.default.removeItem(at: runtimeRoot)
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRoot)
+            try? FileManager.default.removeItem(at: supportRoot)
         }
 
-        let memoryStore = AgentMemoryStore(runtimeRootURL: runtimeRoot)
+        let memoryStore = AgentMemoryStore(supportRootURL: supportRoot)
         _ = try await memoryStore.upsert(
             name: "Response style",
             type: .feedback,
@@ -204,7 +207,8 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
 
         let delegate = AgentSessionDelegate(
             sessionID: "session-repeat-memory",
-            runtimeRootURL: runtimeRoot,
+            supportRootURL: supportRoot,
+            workspaceRootURL: supportRoot,
             chatClient: nil,
             agentName: "Test Agent",
             agentEmoji: "",
@@ -218,7 +222,7 @@ final class ConversationSessionSystemPromptMemoryTests: XCTestCase {
                 systemPromptProvider: {
                     AgentContextLoader.composeSystemPrompt(
                         baseSystemPrompt: "You are a helpful assistant.",
-                        workspaceRootURL: runtimeRoot
+                        workspaceRootURL: supportRoot
                     ) ?? "You are a helpful assistant."
                 }
             )

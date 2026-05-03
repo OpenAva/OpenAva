@@ -35,7 +35,7 @@ actor AgentMemoryStore {
 
     typealias RecallHit = Entry
 
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let fileManager: FileManager
 
     private static let iso8601Formatter: ISO8601DateFormatter = {
@@ -44,8 +44,8 @@ actor AgentMemoryStore {
         return formatter
     }()
 
-    init(runtimeRootURL: URL, fileManager: FileManager = .default) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+    init(supportRootURL: URL, fileManager: FileManager = .default) {
+        self.supportRootURL = supportRootURL.standardizedFileURL
         self.fileManager = fileManager
     }
 
@@ -156,7 +156,7 @@ actor AgentMemoryStore {
     }
 
     private var memoryDirectoryURL: URL {
-        runtimeRootURL.appendingPathComponent("memory", isDirectory: true)
+        supportRootURL.appendingPathComponent("memory", isDirectory: true)
     }
 
     private func memoryFileURL(for slug: String) -> URL {
@@ -479,11 +479,11 @@ actor AgentSkillStore {
         }
     }
 
-    private let runtimeRootURL: URL
+    private let workspaceRootURL: URL
     private let fileManager: FileManager
 
-    init(runtimeRootURL: URL, fileManager: FileManager = .default) {
-        self.runtimeRootURL = runtimeRootURL.standardizedFileURL
+    init(workspaceRootURL: URL, fileManager: FileManager = .default) {
+        self.workspaceRootURL = workspaceRootURL.standardizedFileURL
         self.fileManager = fileManager
     }
 
@@ -598,7 +598,7 @@ actor AgentSkillStore {
     }
 
     private var skillsDirectoryURL: URL {
-        runtimeRootURL.appendingPathComponent("skills", isDirectory: true)
+        workspaceRootURL.appendingPathComponent("skills", isDirectory: true)
     }
 
     private func skillDirectoryURL(for slug: String) -> URL {
@@ -713,7 +713,6 @@ actor AgentSkillStore {
         version: \(version)
         metadata:
           display_name: \(name)
-          shared_runtime: true
         ---
 
         \(content)
