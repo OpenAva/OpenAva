@@ -3,16 +3,34 @@ import ChatUI
 import Foundation
 import OpenClawKit
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 import UserNotifications
+
 #if targetEnvironment(macCatalyst)
-    import UIKit
+    @MainActor
+    private final class WorkspaceDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
+        private let onCompletion: (Result<[URL], Error>) -> Void
+
+        init(onCompletion: @escaping (Result<[URL], Error>) -> Void) {
+            self.onCompletion = onCompletion
+            super.init()
+        }
+
+        func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onCompletion(.success(urls))
+        }
+
+        func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
+            onCompletion(.success([]))
+        }
+    }
 #endif
 
 struct ChatRootView: View {
     @Environment(\.appContainerStore) private var containerStore
     @Environment(\.appWindowCoordinator) private var windowCoordinator
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     // Keep destination navigation state at root so config-driven ChatScreen
     // recreation does not pop pushed pages unexpectedly.
@@ -21,6 +39,15 @@ struct ChatRootView: View {
     @State private var autoCompactEnabled: Bool = true
     @State private var showsLocalAgentCreation = false
     @State private var showsRemoteControl = false
+    @State private var showsContextEditorForKind: AgentContextDocumentKind?
+    @State private var showsWorkspaceImporter = false
+    @State private var showsWorkspaceParentImporter = false
+    @State private var showsCreateWorkspaceAlert = false
+    @State private var newWorkspaceName = ""
+    @State private var workspaceErrorMessage: String?
+    #if targetEnvironment(macCatalyst)
+        @State private var workspaceDocumentPickerDelegate: WorkspaceDocumentPickerDelegate?
+    #endif
     @State private var didEvaluateOnboarding = false
     /// Pending message from an App Intent, consumed once by ChatViewControllerWrapper.
     @State private var pendingAutoSendID: String? = nil
@@ -29,7 +56,6 @@ struct ChatRootView: View {
 
     private enum MenuDestination: Hashable {
         case llm
-        case context
         case cron
         case skills
         case remoteControl
@@ -68,6 +94,43 @@ struct ChatRootView: View {
                 }
                 .presentationDetents([.medium, .large])
             #endif
+        }
+        .sheet(item: $showsContextEditorForKind) { kind in
+            NavigationStack {
+                ContextSettingsView(kind: kind)
+            }
+        }
+        .fileImporter(
+            isPresented: $showsWorkspaceImporter,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false,
+            onCompletion: handleWorkspaceImport
+        )
+        .fileImporter(
+            isPresented: $showsWorkspaceParentImporter,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false,
+            onCompletion: handleWorkspaceParentSelection
+        )
+        .overlay {
+            if showsCreateWorkspaceAlert {
+                WorkspaceCreationAlertView(
+                    isPresented: $showsCreateWorkspaceAlert,
+                    workspaceName: $newWorkspaceName,
+                    onCreate: {
+                        createWorkspaceFromPendingName()
+                    }
+                )
+                .zIndex(100)
+            }
+        }
+        .alert(L10n.tr("common.error"), isPresented: Binding(
+            get: { workspaceErrorMessage != nil },
+            set: { if !$0 { workspaceErrorMessage = nil } }
+        )) {
+            Button(L10n.tr("common.ok"), role: .cancel) {}
+        } message: {
+            Text(workspaceErrorMessage ?? "")
         }
         .onAppear {
             normalizeSessionContextForVisibleMenu()
@@ -112,6 +175,13 @@ struct ChatRootView: View {
         .onChange(of: containerAgent) { _, _ in
             updateHeartbeatService()
         }
+        .onChange(of: containerStore.activeProjectWorkspace?.id) { _, _ in
+            menuRefreshToken &+= 1
+            didEvaluateOnboarding = false
+            normalizeSessionContextForVisibleMenu()
+            presentOnboardingIfNeeded()
+            updateHeartbeatService()
+        }
         .onChange(of: autoCompactEnabled) { _, _ in
             updateHeartbeatService()
         }
@@ -146,6 +216,10 @@ struct ChatRootView: View {
                 for: sessionKey,
                 context: activeContext
             ),
+            teamSessionsRootURL: containerStore.teamSessionsRootURL,
+            projectWorkspaces: containerStore.projectWorkspaces,
+            activeProjectWorkspaceID: containerStore.activeProjectWorkspace?.id,
+            activeProjectWorkspaceName: containerStore.activeProjectWorkspace?.resolvedName ?? "OpenAva",
             teams: visibleTeams,
             agents: containerStore.agents,
             activeContext: activeContext,
@@ -161,6 +235,10 @@ struct ChatRootView: View {
             onMenuAction: handleMenuAction,
             onSessionSwitch: handleSessionSwitch,
             onModelSwitch: handleModelSwitch,
+            onWorkspaceSwitch: handleWorkspaceSwitch,
+            onOpenWorkspaceDirectory: openActiveWorkspaceDirectory,
+            onImportWorkspace: openWorkspaceImporter,
+            onCreateWorkspace: openWorkspaceCreation,
             onCreateLocalAgent: openLocalAgentCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
             onRenameCurrentAgent: handleRenameCurrentAgent,
@@ -196,31 +274,32 @@ struct ChatRootView: View {
 
     private var visibleActiveSessionContext: ActiveSessionContext {
         switch containerStore.activeSessionContext {
-        case .globalTeam:
-            return .globalTeam
+        case .allAgentsTeam:
+            return .allAgentsTeam
         case let .team(teamID):
-            return activeTeamProfile(for: teamID) == nil ? .globalTeam : .team(teamID)
+            return activeTeamProfile(for: teamID) == nil ? .allAgentsTeam : .team(teamID)
         case let .agent(agentID):
             let agentExists = containerStore.agents.contains { $0.id == agentID }
-            return agentExists ? .agent(agentID) : .globalTeam
+            return agentExists ? .agent(agentID) : .allAgentsTeam
         }
     }
 
     private func presentOnboardingIfNeeded() {
         guard !didEvaluateOnboarding else { return }
         didEvaluateOnboarding = true
-        guard containerStore.hasAgent else {
+        if !containerStore.hasAgent {
             showsAgentOnboarding = true
-            return
+        } else {
+            showsAgentOnboarding = false
         }
     }
 
     private func normalizeSessionContextForVisibleMenu() {
         switch containerStore.activeSessionContext {
         case let .team(teamID) where activeTeamProfile(for: teamID) == nil:
-            _ = containerStore.setActiveSessionContext(.globalTeam)
+            _ = containerStore.setActiveSessionContext(.allAgentsTeam)
         case let .agent(agentID) where !containerStore.agents.contains(where: { $0.id == agentID }):
-            _ = containerStore.setActiveSessionContext(.globalTeam)
+            _ = containerStore.setActiveSessionContext(.allAgentsTeam)
         default:
             break
         }
@@ -253,12 +332,84 @@ struct ChatRootView: View {
         containerStore.selectLLMModel(id: modelID)
     }
 
+    private func handleWorkspaceSwitch(_ workspaceID: UUID) {
+        guard containerStore.switchProjectWorkspace(workspaceID) else { return }
+        menuRefreshToken &+= 1
+    }
+
+    private func openActiveWorkspaceDirectory() {
+        guard let workspace = containerStore.activeProjectWorkspace else { return }
+        let workspaceURL = ProjectWorkspaceStore.resolvedURL(for: workspace)
+        UIApplication.shared.open(workspaceURL)
+    }
+
+    private func openWorkspaceImporter(_ presenter: UIViewController? = nil) {
+        #if targetEnvironment(macCatalyst)
+            if let presenter {
+                let pickerDelegate = WorkspaceDocumentPickerDelegate { result in
+                    handleWorkspaceImport(result)
+                    workspaceDocumentPickerDelegate = nil
+                }
+                workspaceDocumentPickerDelegate = pickerDelegate
+
+                let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+                picker.allowsMultipleSelection = false
+                picker.delegate = pickerDelegate
+                presenter.present(picker, animated: true)
+                return
+            }
+        #endif
+
+        showsWorkspaceImporter = true
+    }
+
+    private func openWorkspaceCreation() {
+        newWorkspaceName = containerStore.activeProjectWorkspace?.resolvedName ?? "OpenAva"
+        showsCreateWorkspaceAlert = true
+    }
+
+    private func createWorkspaceFromPendingName() {
+        let name = newWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if targetEnvironment(macCatalyst)
+            guard !name.isEmpty else { return }
+            showsWorkspaceParentImporter = true
+        #else
+            do {
+                _ = try containerStore.createProjectWorkspace(named: name.isEmpty ? "OpenAva" : name)
+                menuRefreshToken &+= 1
+            } catch {
+                workspaceErrorMessage = error.localizedDescription
+            }
+        #endif
+    }
+
+    private func handleWorkspaceImport(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            _ = try containerStore.importProjectWorkspace(at: url)
+            menuRefreshToken &+= 1
+        } catch {
+            workspaceErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleWorkspaceParentSelection(_ result: Result<[URL], Error>) {
+        do {
+            guard let parentURL = try result.get().first else { return }
+            let name = newWorkspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+            _ = try containerStore.createProjectWorkspace(named: name.isEmpty ? "OpenAva" : name, inParentDirectory: parentURL)
+            menuRefreshToken &+= 1
+        } catch {
+            workspaceErrorMessage = error.localizedDescription
+        }
+    }
+
     private func handleDeleteCurrentAgent() {
         guard let currentAgentID = containerStore.activeAgent?.id else { return }
 
-        // Remove cached storage provider for the deleted agent's runtime root.
-        if let runtimeRootURL = containerStore.activeAgent?.runtimeURL {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: runtimeRootURL)
+        // Remove cached storage provider for the deleted agent's context root.
+        if let supportRootURL = containerStore.activeAgent?.contextURL {
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
         }
 
         // Clear all sessions since session IDs no longer contain agent prefix.
@@ -272,24 +423,24 @@ struct ChatRootView: View {
 
     private func handleRenameCurrentAgent(_ name: String) -> Bool {
         guard containerStore.activeAgent != nil else { return false }
-        let oldRuntimeURL = containerStore.activeAgent?.runtimeURL
+        let oldSupportURL = containerStore.activeAgent?.contextURL
         guard containerStore.renameActiveAgent(to: name) else { return false }
 
-        // Drop old runtime provider cache because the runtime path changed after rename.
-        if let oldRuntimeURL {
-            TranscriptStorageProvider.removeProvider(runtimeRootURL: oldRuntimeURL)
+        // Drop old transcript provider cache because the context path changed after rename.
+        if let oldSupportURL {
+            TranscriptStorageProvider.removeProvider(supportRootURL: oldSupportURL)
         }
         return true
     }
 
     private func scopedSessionID(for sessionKey: String, context: ActiveSessionContext) -> String {
         switch context {
-        case .globalTeam:
-            return "team-global-\(sessionKey)"
+        case .allAgentsTeam:
+            return TeamSwarmCoordinator.mainSessionID
         case let .team(teamID):
             return "team-\(teamID.uuidString)-\(sessionKey)"
         case .agent:
-            // Agent transcripts are already isolated by runtimeRootURL per agent.
+            // Agent transcripts are already isolated by supportRootURL per agent.
             return sessionKey
         }
     }
@@ -310,7 +461,7 @@ struct ChatRootView: View {
                 agentName: agent.name,
                 agentEmoji: agent.emoji,
                 workspaceRootURL: agent.workspaceURL,
-                runtimeRootURL: agent.runtimeURL,
+                supportRootURL: agent.contextURL,
                 modelConfig: model
             )
         }
@@ -341,7 +492,7 @@ struct ChatRootView: View {
             case .openLLM:
                 .llm
             case .openContext:
-                .context
+                nil // Context is now presented as a sheet, not a section in the settings window
             case .openCron:
                 .cron
             case .openSkills:
@@ -354,6 +505,8 @@ struct ChatRootView: View {
 
             if case .openRemoteControl = action {
                 showsRemoteControl = true
+            } else if case let .openContext(kind) = action {
+                showsContextEditorForKind = kind
             } else if let section {
                 openWindow(id: AppWindowID.settings, value: section.rawValue)
             }
@@ -361,8 +514,8 @@ struct ChatRootView: View {
             switch action {
             case .openLLM:
                 destinationPath.append(MenuDestination.llm)
-            case .openContext:
-                destinationPath.append(MenuDestination.context)
+            case let .openContext(kind):
+                showsContextEditorForKind = kind
             case .openCron:
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
@@ -427,9 +580,6 @@ struct ChatRootView: View {
             case .llm:
                 LLMListView()
                     .navigationTitle(L10n.tr("settings.llm.navigationTitle"))
-            case .context:
-                ContextSettingsView()
-                    .navigationTitle(L10n.tr("settings.context.navigationTitle"))
             case .cron:
                 CronListView()
                     .navigationTitle(L10n.tr("settings.cron.navigationTitle"))
@@ -448,8 +598,8 @@ struct ChatRootView: View {
 
     private var currentActiveAgentName: String {
         switch visibleActiveSessionContext {
-        case .globalTeam:
-            return L10n.tr("chat.menu.globalTeam")
+        case .allAgentsTeam:
+            return L10n.tr("chat.menu.allAgentsTeam")
         case let .team(teamID):
             return activeTeamProfile(for: teamID)?.name ?? L10n.tr("chat.activeTeam.fallbackName")
         case .agent:
@@ -459,7 +609,7 @@ struct ChatRootView: View {
 
     private var currentActiveAgentEmoji: String {
         switch visibleActiveSessionContext {
-        case .globalTeam:
+        case .allAgentsTeam:
             return "👥"
         case let .team(teamID):
             return activeTeamProfile(for: teamID)?.emoji ?? "👥"
@@ -486,6 +636,10 @@ struct ChatRootView: View {
 private struct ChatScreen: View {
     private let container: AppContainer
     private let scopedSessionID: String
+    private let teamSessionsRootURL: URL?
+    private let projectWorkspaces: [ProjectWorkspaceProfile]
+    private let activeProjectWorkspaceID: UUID?
+    private let activeProjectWorkspaceName: String
     private let teams: [TeamProfile]
     private let agents: [AgentProfile]
     private let activeContext: ActiveSessionContext
@@ -501,6 +655,10 @@ private struct ChatScreen: View {
     private let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     private let onSessionSwitch: ((ActiveSessionContext) -> Void)?
     private let onModelSwitch: ((UUID) -> Void)?
+    private let onWorkspaceSwitch: ((UUID) -> Void)?
+    private let onOpenWorkspaceDirectory: (() -> Void)?
+    private let onImportWorkspace: ((UIViewController?) -> Void)?
+    private let onCreateWorkspace: (() -> Void)?
     private let onCreateLocalAgent: (() -> Void)?
     private let onDeleteCurrentAgent: (() -> Void)?
     private let onRenameCurrentAgent: ((String) -> Bool)?
@@ -514,6 +672,10 @@ private struct ChatScreen: View {
     init(
         container: AppContainer,
         scopedSessionID: String,
+        teamSessionsRootURL: URL? = nil,
+        projectWorkspaces: [ProjectWorkspaceProfile] = [],
+        activeProjectWorkspaceID: UUID? = nil,
+        activeProjectWorkspaceName: String = "OpenAva",
         teams: [TeamProfile],
         agents: [AgentProfile],
         activeContext: ActiveSessionContext,
@@ -529,6 +691,10 @@ private struct ChatScreen: View {
         onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)? = nil,
         onSessionSwitch: ((ActiveSessionContext) -> Void)? = nil,
         onModelSwitch: ((UUID) -> Void)? = nil,
+        onWorkspaceSwitch: ((UUID) -> Void)? = nil,
+        onOpenWorkspaceDirectory: (() -> Void)? = nil,
+        onImportWorkspace: ((UIViewController?) -> Void)? = nil,
+        onCreateWorkspace: (() -> Void)? = nil,
         onCreateLocalAgent: (() -> Void)? = nil,
         onDeleteCurrentAgent: (() -> Void)? = nil,
         onRenameCurrentAgent: ((String) -> Bool)? = nil,
@@ -538,6 +704,10 @@ private struct ChatScreen: View {
     ) {
         self.container = container
         self.scopedSessionID = scopedSessionID
+        self.teamSessionsRootURL = teamSessionsRootURL
+        self.projectWorkspaces = projectWorkspaces
+        self.activeProjectWorkspaceID = activeProjectWorkspaceID
+        self.activeProjectWorkspaceName = activeProjectWorkspaceName
         self.teams = teams
         self.agents = agents
         self.activeContext = activeContext
@@ -553,6 +723,10 @@ private struct ChatScreen: View {
         self.onMenuAction = onMenuAction
         self.onSessionSwitch = onSessionSwitch
         self.onModelSwitch = onModelSwitch
+        self.onWorkspaceSwitch = onWorkspaceSwitch
+        self.onOpenWorkspaceDirectory = onOpenWorkspaceDirectory
+        self.onImportWorkspace = onImportWorkspace
+        self.onCreateWorkspace = onCreateWorkspace
         self.onCreateLocalAgent = onCreateLocalAgent
         self.onDeleteCurrentAgent = onDeleteCurrentAgent
         self.onRenameCurrentAgent = onRenameCurrentAgent
@@ -598,7 +772,11 @@ private struct ChatScreen: View {
                 Button {
                     onMenuAction?(.openLLM)
                 } label: {
-                    HStack(spacing: 4) {
+                    VStack(spacing: 1) {
+                        Text(activeProjectWorkspaceName)
+                            .font(.caption2)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
+                            .lineLimit(1)
                         Text(topBarTitle.principalTitleText)
                             .font(Font(ChatUIDesign.Typography.agentTitle))
                             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
@@ -624,6 +802,10 @@ private struct ChatScreen: View {
                 modelName: selectedModelName,
                 activeContext: activeContext
             )
+        }
+
+        private var topBarWorkspaceMenuEntries: [ChatTopBar.WorkspaceMenuEntry] {
+            ChatTopBar.workspaceMenuEntries(workspaces: projectWorkspaces, activeWorkspaceID: activeProjectWorkspaceID)
         }
 
         private var topBarSessionMenuEntries: [ChatTopBar.SessionMenuEntry] {
@@ -655,21 +837,33 @@ private struct ChatScreen: View {
                 }
             case .createLocalAgent:
                 return true
-            case .globalTeam, .team, .empty:
+            case .allAgentsTeam, .team, .empty:
                 return false
             }
         }
 
+        @ViewBuilder
         private var agentMenuContent: some View {
+            Section(L10n.tr("chat.workspace.sectionTitle")) {
+                ForEach(topBarWorkspaceMenuEntries) { entry in
+                    workspaceMenuEntryView(entry)
+                }
+            }
+            Section(L10n.tr("chat.session.sectionTitle")) {
+                sessionMenuContent
+            }
+        }
+
+        private var sessionMenuContent: some View {
             ForEach(topBarSessionMenuEntries.indices, id: \.self) { index in
                 let entry = topBarSessionMenuEntries[index]
                 if shouldInsertDividerBeforeSessionEntry(at: index) {
                     Divider()
                 }
                 switch entry.kind {
-                case .globalTeam:
+                case .allAgentsTeam:
                     Button {
-                        onSessionSwitch?(.globalTeam)
+                        onSessionSwitch?(.allAgentsTeam)
                     } label: {
                         if entry.isSelected {
                             Label(entry.displayTitle, systemImage: "checkmark")
@@ -705,6 +899,40 @@ private struct ChatScreen: View {
                     }
                 case .empty:
                     Text(entry.title)
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func workspaceMenuEntryView(_ entry: ChatTopBar.WorkspaceMenuEntry) -> some View {
+            switch entry.kind {
+            case let .workspace(workspaceID):
+                Button {
+                    onWorkspaceSwitch?(workspaceID)
+                } label: {
+                    if entry.isSelected {
+                        Label(entry.displayTitle, systemImage: "checkmark")
+                    } else {
+                        Text(entry.displayTitle)
+                    }
+                }
+            case .openActiveWorkspaceDirectory:
+                Button {
+                    onOpenWorkspaceDirectory?()
+                } label: {
+                    Label(entry.title, systemImage: "folder")
+                }
+            case .importWorkspace:
+                Button {
+                    onImportWorkspace?(nil)
+                } label: {
+                    Label(entry.title, systemImage: "folder.badge.plus")
+                }
+            case .createWorkspace:
+                Button {
+                    onCreateWorkspace?()
+                } label: {
+                    Label(entry.title, systemImage: "plus.square.on.square")
                 }
             }
         }
@@ -770,8 +998,6 @@ private struct ChatScreen: View {
                 .openLLM
             case .skills:
                 .openSkills
-            case .context:
-                .openContext
             case .cron:
                 .openCron
             case .remoteControl:
@@ -787,7 +1013,7 @@ private struct ChatScreen: View {
 
     private var toolInvocationSessionID: String {
         switch activeContext {
-        case .globalTeam, .team:
+        case .allAgentsTeam, .team:
             "global::\(scopedSessionID)"
         case .agent:
             "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
@@ -798,7 +1024,8 @@ private struct ChatScreen: View {
         ChatViewControllerWrapper(
             sessionID: scopedSessionID,
             workspaceRootURL: container.config.agent.workspaceRootURL,
-            runtimeRootURL: container.config.agent.runtimeRootURL,
+            supportRootURL: container.config.agent.supportRootURL,
+            teamSessionsRootURL: teamSessionsRootURL,
             chatClient: container.services.chatClient,
             toolProvider: ToolRegistryProvider(
                 toolRuntime: container.services.toolRuntime,
@@ -820,6 +1047,13 @@ private struct ChatScreen: View {
             onMenuAction: onMenuAction,
             onSessionSwitch: onSessionSwitch,
             onModelSwitch: onModelSwitch,
+            projectWorkspaces: projectWorkspaces,
+            activeProjectWorkspaceID: activeProjectWorkspaceID,
+            activeProjectWorkspaceName: activeProjectWorkspaceName,
+            onWorkspaceSwitch: onWorkspaceSwitch,
+            onOpenWorkspaceDirectory: onOpenWorkspaceDirectory,
+            onImportWorkspace: onImportWorkspace,
+            onCreateWorkspace: onCreateWorkspace,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
@@ -845,4 +1079,101 @@ private struct ChatScreen: View {
     ChatRootView()
         .environment(\.appContainerStore, AppContainerStore(container: .makeDefault()))
         .environment(\.appContainer, .makeDefault())
+}
+
+private struct WorkspaceCreationAlertView: View {
+    @Binding var isPresented: Bool
+    @Binding var workspaceName: String
+    let onCreate: () -> Void
+
+    @FocusState private var isTextFieldFocused: Bool
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    isPresented = false
+                }
+
+            VStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    Text(L10n.tr("chat.workspace.create"))
+                        .font(.system(size: 20, weight: .regular))
+                        .tracking(-0.2)
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                    Text(L10n.tr("chat.workspace.createMessage"))
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                        .multilineTextAlignment(.center)
+                }
+
+                TextField(L10n.tr("chat.workspace.namePlaceholder"), text: $workspaceName)
+                    .focused($isTextFieldFocused)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Color(uiColor: ChatUIDesign.Color.pureWhite),
+                        in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                            .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                    )
+
+                HStack(spacing: 12) {
+                    Button(action: { isPresented = false }) {
+                        Text(L10n.tr("common.cancel"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
+                                    .stroke(Color(uiColor: ChatUIDesign.Color.offBlack), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        onCreate()
+                        isPresented = false
+                    }) {
+                        Text(L10n.tr("common.create"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? Color(uiColor: ChatUIDesign.Color.black50).opacity(0.3)
+                                    : Color(uiColor: ChatUIDesign.Color.offBlack)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(24)
+            .frame(width: 320)
+            .background(
+                Color(uiColor: ChatUIDesign.Color.warmCream),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 24, x: 0, y: 8)
+            .padding(.bottom, 60)
+        }
+        .onAppear {
+            isTextFieldFocused = true
+        }
+    }
 }

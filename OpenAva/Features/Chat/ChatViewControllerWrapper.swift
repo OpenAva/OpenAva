@@ -207,7 +207,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
     enum MenuAction {
         case openLLM
-        case openContext
+        case openContext(AgentContextDocumentKind)
         case openCron
         case openSkills
         case openRemoteControl
@@ -216,7 +216,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
     let sessionID: String
     let workspaceRootURL: URL?
-    let runtimeRootURL: URL?
+    let supportRootURL: URL?
+    let teamSessionsRootURL: URL?
     let chatClient: (any ChatClient)?
     let toolProvider: ToolProvider?
     let systemPrompt: String?
@@ -238,6 +239,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let onMenuAction: ((MenuAction) -> Void)?
     let onSessionSwitch: ((ActiveSessionContext) -> Void)?
     let onModelSwitch: ((UUID) -> Void)?
+    let projectWorkspaces: [ProjectWorkspaceProfile]
+    let activeProjectWorkspaceID: UUID?
+    let activeProjectWorkspaceName: String
+    let onWorkspaceSwitch: ((UUID) -> Void)?
+    let onOpenWorkspaceDirectory: (() -> Void)?
+    let onImportWorkspace: ((UIViewController?) -> Void)?
+    let onCreateWorkspace: (() -> Void)?
     let onCreateLocalAgent: (() -> Void)?
     let onDeleteCurrentAgent: (() -> Void)?
     let onRenameCurrentAgent: ((String) -> Bool)?
@@ -248,8 +256,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
     private var resolvedSessionTitle: String {
         switch activeContext {
-        case .globalTeam:
-            return L10n.tr("chat.menu.globalTeam")
+        case .allAgentsTeam:
+            return L10n.tr("chat.menu.allAgentsTeam")
         case let .team(teamID):
             let title = teams.first(where: { $0.id == teamID })?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return title.isEmpty ? L10n.tr("chat.activeTeam.fallbackName") : title
@@ -261,7 +269,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
     private var resolvedSessionEmoji: String {
         switch activeContext {
-        case .globalTeam:
+        case .allAgentsTeam:
             return "👥"
         case let .team(teamID):
             let emoji = teams.first(where: { $0.id == teamID })?.emoji.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -273,8 +281,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
     private var draftPersistenceKey: String? {
         switch activeContext {
-        case .globalTeam:
-            return "team-global"
+        case .allAgentsTeam:
+            return "all-agents"
         case let .team(teamID):
             return "team-\(teamID.uuidString)"
         case .agent:
@@ -296,6 +304,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             autoCompactEnabled: autoCompactEnabled,
             onSessionSwitch: onSessionSwitch,
             onModelSwitch: onModelSwitch,
+            projectWorkspaces: projectWorkspaces,
+            activeProjectWorkspaceID: activeProjectWorkspaceID,
+            activeProjectWorkspaceName: activeProjectWorkspaceName,
+            onWorkspaceSwitch: onWorkspaceSwitch,
+            onOpenWorkspaceDirectory: onOpenWorkspaceDirectory,
+            onImportWorkspace: onImportWorkspace,
+            onCreateWorkspace: onCreateWorkspace,
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
@@ -318,14 +333,15 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         var isTeamSession = false
 
         switch activeContext {
-        case .globalTeam, .team:
+        case .allAgentsTeam, .team:
             isTeamSession = true
-            let teamRuntimeURL = TeamStore.runtimeDirectoryURL(workspaceRootURL: workspaceRootURL, createDirectoryIfNeeded: true) ?? runtimeRootURL
-            if let teamRuntimeURL {
-                storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: teamRuntimeURL)
+            let resolvedTeamSessionsRootURL = teamSessionsRootURL ?? supportRootURL
+            if let resolvedTeamSessionsRootURL {
+                storageProvider = TranscriptStorageProvider.provider(supportRootURL: resolvedTeamSessionsRootURL)
                 sessionDelegate = AgentSessionDelegate(
                     sessionID: sessionID,
-                    runtimeRootURL: teamRuntimeURL,
+                    supportRootURL: resolvedTeamSessionsRootURL,
+                    workspaceRootURL: workspaceRootURL,
                     chatClient: chatClient,
                     agentName: resolvedSessionTitle,
                     agentEmoji: resolvedSessionEmoji,
@@ -349,7 +365,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             models = fallbackModels
 
         case .agent:
-            if let runtimeRootURL, activeAgentID != nil {
+            if let supportRootURL, activeAgentID != nil {
                 if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
                     let invocationSessionID = "\(activeAgentID!.uuidString)::\(sessionID)"
                     let resources = AgentMainSessionRegistry.shared.sessionResources(
@@ -364,10 +380,11 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                     models = resources.session.models
                     serializedExecutionContext = (agent, modelConfig, invocationSessionID)
                 } else {
-                    storageProvider = TranscriptStorageProvider.provider(runtimeRootURL: runtimeRootURL)
+                    storageProvider = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
                     sessionDelegate = AgentSessionDelegate(
                         sessionID: sessionID,
-                        runtimeRootURL: runtimeRootURL,
+                        supportRootURL: supportRootURL,
+                        workspaceRootURL: workspaceRootURL,
                         chatClient: chatClient,
                         agentName: activeAgentName,
                         agentEmoji: activeAgentEmoji
@@ -404,7 +421,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
                     agentCount: agentCount
                 ) ?? systemPrompt ?? "You are a helpful assistant."
             },
-            collapseReasoningWhenComplete: true
+            collapseReasoningWhenComplete: true,
+            toolPermissionRulesRootURL: workspaceRootURL
         )
 
         if isTeamSession {
@@ -536,11 +554,24 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             sessionContext: sessionContext,
             agentCount: agentCount
         )
+        var teamMemberCount: Int? = nil
+        switch activeContext {
+        case .allAgentsTeam:
+            teamMemberCount = agents.count
+        case let .team(teamID):
+            if let team = teams.first(where: { $0.id == teamID }) {
+                teamMemberCount = team.agentPoolIDs.count
+            }
+        case .agent:
+            teamMemberCount = nil
+        }
+
         chatViewController.updateHeader(.init(
             agentName: resolvedSessionTitle,
             agentEmoji: resolvedSessionEmoji,
             modelName: selectedModelName,
-            providerName: selectedProviderName
+            providerName: selectedProviderName,
+            teamMemberCount: teamMemberCount
         ))
 
         return chatViewController
@@ -599,6 +630,13 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.activeAgentEmoji = resolvedSessionEmoji
         context.coordinator.selectedModelName = selectedModelName
         context.coordinator.selectedProviderName = selectedProviderName
+        context.coordinator.projectWorkspaces = projectWorkspaces
+        context.coordinator.activeProjectWorkspaceID = activeProjectWorkspaceID
+        context.coordinator.activeProjectWorkspaceName = activeProjectWorkspaceName
+        context.coordinator.onWorkspaceSwitch = onWorkspaceSwitch
+        context.coordinator.onOpenWorkspaceDirectory = onOpenWorkspaceDirectory
+        context.coordinator.onImportWorkspace = onImportWorkspace
+        context.coordinator.onCreateWorkspace = onCreateWorkspace
         context.coordinator.onModelSwitch = onModelSwitch
 
         let agentCount = max(agents.count, 1)
@@ -649,11 +687,24 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             }
         #endif
 
+        var teamMemberCount: Int? = nil
+        switch activeContext {
+        case .allAgentsTeam:
+            teamMemberCount = agents.count
+        case let .team(teamID):
+            if let team = teams.first(where: { $0.id == teamID }) {
+                teamMemberCount = team.agentPoolIDs.count
+            }
+        case .agent:
+            teamMemberCount = nil
+        }
+
         chatViewController.updateHeader(.init(
             agentName: resolvedSessionTitle,
             agentEmoji: resolvedSessionEmoji,
             modelName: selectedModelName,
-            providerName: selectedProviderName
+            providerName: selectedProviderName,
+            teamMemberCount: teamMemberCount
         ))
     }
 }
@@ -671,6 +722,13 @@ extension ChatViewControllerWrapper {
         var activeAgentEmoji: String
         var selectedModelName: String
         var selectedProviderName: String
+        var projectWorkspaces: [ProjectWorkspaceProfile]
+        var activeProjectWorkspaceID: UUID?
+        var activeProjectWorkspaceName: String
+        var onWorkspaceSwitch: ((UUID) -> Void)?
+        var onOpenWorkspaceDirectory: (() -> Void)?
+        var onImportWorkspace: ((UIViewController?) -> Void)?
+        var onCreateWorkspace: (() -> Void)?
         var onSessionSwitch: ((ActiveSessionContext) -> Void)?
         var onModelSwitch: ((UUID) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
@@ -693,6 +751,13 @@ extension ChatViewControllerWrapper {
             autoCompactEnabled: Bool,
             onSessionSwitch: ((ActiveSessionContext) -> Void)?,
             onModelSwitch: ((UUID) -> Void)?,
+            projectWorkspaces: [ProjectWorkspaceProfile],
+            activeProjectWorkspaceID: UUID?,
+            activeProjectWorkspaceName: String,
+            onWorkspaceSwitch: ((UUID) -> Void)?,
+            onOpenWorkspaceDirectory: (() -> Void)?,
+            onImportWorkspace: ((UIViewController?) -> Void)?,
+            onCreateWorkspace: (() -> Void)?,
             onCreateLocalAgent: (() -> Void)?,
             onDeleteCurrentAgent: (() -> Void)?,
             onRenameCurrentAgent: ((String) -> Bool)?,
@@ -708,6 +773,13 @@ extension ChatViewControllerWrapper {
             self.selectedModelName = selectedModelName
             self.selectedProviderName = selectedProviderName
             self.autoCompactEnabled = autoCompactEnabled
+            self.projectWorkspaces = projectWorkspaces
+            self.activeProjectWorkspaceID = activeProjectWorkspaceID
+            self.activeProjectWorkspaceName = activeProjectWorkspaceName
+            self.onWorkspaceSwitch = onWorkspaceSwitch
+            self.onOpenWorkspaceDirectory = onOpenWorkspaceDirectory
+            self.onImportWorkspace = onImportWorkspace
+            self.onCreateWorkspace = onCreateWorkspace
             self.onSessionSwitch = onSessionSwitch
             self.onModelSwitch = onModelSwitch
             self.onCreateLocalAgent = onCreateLocalAgent
@@ -851,8 +923,31 @@ extension ChatViewControllerWrapper {
         }
 
         func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
-            _ = controller
-            onMenuAction?(.openContext)
+            switch activeContext {
+            case .allAgentsTeam, .team:
+                presentTeamAgentsPopover(from: controller)
+            case .agent:
+                let modalController = AgentContextModalOverlayController()
+                modalController.onSelect = { [weak self] kind in
+                    self?.onMenuAction?(.openContext(kind))
+                }
+                controller.present(modalController, animated: true)
+            }
+        }
+
+        private func presentTeamAgentsPopover(from controller: ChatViewController) {
+            let participants = TeamRoomOrchestrator.resolveParticipants(
+                activeContext: activeContext,
+                teams: teams,
+                agents: agents
+            )
+
+            guard !participants.isEmpty else {
+                return
+            }
+
+            let modalController = TeamAgentsModalOverlayController(agents: participants)
+            controller.present(modalController, animated: true)
         }
 
         func chatViewControllerHandleCommand(_ controller: ChatViewController, command: String) -> Bool {
@@ -936,17 +1031,24 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
+            let workspaceEntries = ChatTopBar.workspaceMenuEntries(workspaces: projectWorkspaces, activeWorkspaceID: activeProjectWorkspaceID)
             let entries = ChatTopBar.sessionMenuEntries(teams: teams, agents: agents, activeContext: activeContext)
+            var workspaceChildren: [UIMenuElement] = []
             var roomChildren: [UIMenuElement] = []
             var agentChildren: [UIMenuElement] = []
             var secondaryChildren: [UIMenuElement] = []
+
+            for entry in workspaceEntries {
+                guard let element = makeWorkspaceMenuElement(for: entry) else { continue }
+                workspaceChildren.append(element)
+            }
 
             for entry in entries {
                 guard let element = makeSessionMenuElement(for: entry) else { continue }
                 switch entry.kind {
                 case .createLocalAgent:
                     secondaryChildren.append(element)
-                case .globalTeam, .team:
+                case .allAgentsTeam, .team:
                     roomChildren.append(element)
                 case .agent, .empty:
                     agentChildren.append(element)
@@ -954,6 +1056,9 @@ extension ChatViewControllerWrapper {
             }
 
             var sections: [UIMenu] = []
+            if !workspaceChildren.isEmpty {
+                sections.append(UIMenu(title: L10n.tr("chat.workspace.sectionTitle"), options: .displayInline, children: workspaceChildren))
+            }
             if !roomChildren.isEmpty {
                 sections.append(UIMenu(title: "", options: .displayInline, children: roomChildren))
             }
@@ -966,9 +1071,47 @@ extension ChatViewControllerWrapper {
             return UIMenu(title: "", children: sections)
         }
 
+        private func makeWorkspaceMenuElement(for entry: ChatTopBar.WorkspaceMenuEntry) -> UIMenuElement? {
+            switch entry.kind {
+            case let .workspace(workspaceID):
+                let state: UIMenuElement.State = entry.isSelected ? .on : .off
+                return UIAction(
+                    title: entry.displayTitle,
+                    image: nil,
+                    identifier: nil,
+                    discoverabilityTitle: nil,
+                    attributes: [],
+                    state: state
+                ) { [weak self] _ in
+                    self?.onWorkspaceSwitch?(workspaceID)
+                }
+            case .openActiveWorkspaceDirectory:
+                return UIAction(
+                    title: entry.title,
+                    image: standardizedMenuIcon(UIImage(systemName: "folder"))
+                ) { [weak self] _ in
+                    self?.onOpenWorkspaceDirectory?()
+                }
+            case .importWorkspace:
+                return UIAction(
+                    title: entry.title,
+                    image: standardizedMenuIcon(UIImage(systemName: "folder.badge.plus"))
+                ) { [weak self] _ in
+                    self?.onImportWorkspace?(self?.chatViewController)
+                }
+            case .createWorkspace:
+                return UIAction(
+                    title: entry.title,
+                    image: standardizedMenuIcon(UIImage(systemName: "plus.square.on.square"))
+                ) { [weak self] _ in
+                    self?.onCreateWorkspace?()
+                }
+            }
+        }
+
         private func makeSessionMenuElement(for entry: ChatTopBar.SessionMenuEntry) -> UIMenuElement? {
             switch entry.kind {
-            case .globalTeam:
+            case .allAgentsTeam:
                 let image = makeEmojiMenuImage(from: entry.emoji, showsRunningIndicator: false) ?? standardizedMenuIcon(UIImage(systemName: "person.2"))
                 let state: UIMenuElement.State = entry.isSelected ? .on : .off
                 return UIAction(
@@ -979,7 +1122,7 @@ extension ChatViewControllerWrapper {
                     attributes: [],
                     state: state
                 ) { [weak self] _ in
-                    self?.onSessionSwitch?(.globalTeam)
+                    self?.onSessionSwitch?(.allAgentsTeam)
                 }
             case let .team(teamID):
                 let image = makeEmojiMenuImage(from: entry.emoji, showsRunningIndicator: false) ?? standardizedMenuIcon(UIImage(systemName: "person.3"))
@@ -1073,16 +1216,10 @@ extension ChatViewControllerWrapper {
 
         private func menuAction(for destination: ChatTopBar.Destination) -> MenuAction {
             switch destination {
-            case .llm:
-                .openLLM
-            case .skills:
-                .openSkills
-            case .context:
-                .openContext
-            case .cron:
-                .openCron
-            case .remoteControl:
-                .openRemoteControl
+            case .llm: return .openLLM
+            case .skills: return .openSkills
+            case .cron: return .openCron
+            case .remoteControl: return .openRemoteControl
             }
         }
 
@@ -1125,7 +1262,7 @@ extension ChatViewControllerWrapper {
 
         private func makeActiveSessionButtonImage() -> UIImage? {
             switch activeContext {
-            case .globalTeam, .team:
+            case .allAgentsTeam, .team:
                 let emoji = activeAgentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
                 return makeEmojiButtonImage(from: emoji.isEmpty ? "👥" : emoji)
             case .agent:
@@ -1266,8 +1403,284 @@ extension ChatViewControllerWrapper {
                     context.cgContext.strokeEllipse(in: dotRect.insetBy(dx: 0.5, dy: 0.5))
                 }
             }
-
             return image.withRenderingMode(.alwaysOriginal)
+        }
+    }
+}
+
+private final class AgentContextModalOverlayController: UIViewController {
+    var onSelect: ((AgentContextDocumentKind) -> Void)?
+
+    private lazy var hostingController = UIHostingController(
+        rootView: AgentContextModalView(
+            onSelect: { [weak self] kind in
+                self?.dismiss(animated: true) {
+                    self?.onSelect?(kind)
+                }
+            },
+            onClose: { [weak self] in
+                self?.dismiss(animated: true)
+            }
+        )
+    )
+
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overCurrentContext
+        modalTransitionStyle = .crossDissolve
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        addChild(hostingController)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        hostingController.didMove(toParent: self)
+    }
+}
+
+private struct AgentContextModalView: View {
+    let onSelect: (AgentContextDocumentKind) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture { onClose() }
+
+            VStack(spacing: 0) {
+                Text(L10n.tr("settings.context.navigationTitle"))
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .tracking(-0.2)
+                    .padding(.top, 24)
+                    .padding(.bottom, 16)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(AgentContextDocumentKind.agentSettingsCases) { kind in
+                            Button {
+                                onSelect(kind)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                            .frame(width: 36, height: 36)
+                                            .overlay(
+                                                Circle().stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                                            )
+
+                                        Image(systemName: iconName(for: kind))
+                                            .font(.system(size: 16, weight: .regular))
+                                            .foregroundStyle(iconColor(for: kind))
+                                            .frame(width: 20, height: 20, alignment: .center)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(kind.fileName)
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+
+                                        Text(kind.localizedPurpose)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+                                            .lineLimit(1)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 16)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+
+                Button(action: onClose) {
+                    Text(L10n.tr("common.cancel"))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
+            }
+            .background(
+                Color(uiColor: ChatUIDesign.Color.warmCream),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
+            .frame(width: 340)
+            .shadow(color: Color.black.opacity(0.05), radius: 20, x: 0, y: 10)
+        }
+    }
+
+    private func iconName(for kind: AgentContextDocumentKind) -> String {
+        switch kind {
+        case .agents: return "slider.horizontal.3"
+        case .heartbeat: return "waveform.path.ecg"
+        case .soul: return "sparkles"
+        case .tools: return "hammer"
+        case .identity: return "person.text.rectangle"
+        case .user: return "person"
+        }
+    }
+
+    private func iconColor(for _: AgentContextDocumentKind) -> Color {
+        return Color(uiColor: ChatUIDesign.Color.offBlack)
+    }
+}
+
+extension ChatViewControllerWrapper.Coordinator: UIPopoverPresentationControllerDelegate {
+    func adaptivePresentationStyle(for _: UIPresentationController, traitCollection _: UITraitCollection) -> UIModalPresentationStyle {
+        return .none
+    }
+}
+
+private final class TeamAgentsModalOverlayController: UIViewController {
+    private let agents: [AgentProfile]
+    private lazy var hostingController = UIHostingController(
+        rootView: TeamAgentsModalView(
+            agents: agents,
+            onClose: { [weak self] in
+                self?.dismiss(animated: true)
+            }
+        )
+    )
+
+    init(agents: [AgentProfile]) {
+        self.agents = agents
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overCurrentContext
+        modalTransitionStyle = .crossDissolve
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        addChild(hostingController)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        hostingController.didMove(toParent: self)
+    }
+}
+
+private struct TeamAgentsModalView: View {
+    let agents: [AgentProfile]
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onClose()
+                }
+
+            VStack(spacing: 24) {
+                Text(L10n.tr("chat.teamAgents.message"))
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .tracking(-0.2)
+                    .padding(.top, 8)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(agents) { agent in
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                        .frame(width: 36, height: 36)
+                                        .overlay(
+                                            Circle().stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+                                        )
+
+                                    let emoji = agent.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    Text(emoji.isEmpty ? "🤖" : emoji)
+                                        .font(.system(size: 20))
+                                }
+
+                                Text(agent.name.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
+
+                Button(action: onClose) {
+                    Text(L10n.tr("common.ok"))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+            }
+            .padding(.vertical, 24)
+            .background(
+                Color(uiColor: ChatUIDesign.Color.warmCream),
+                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
+            .frame(width: 320)
+            .shadow(color: Color.black.opacity(0.05), radius: 20, x: 0, y: 10)
         }
     }
 }

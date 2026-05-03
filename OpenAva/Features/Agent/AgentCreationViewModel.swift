@@ -212,30 +212,22 @@ final class AgentCreationViewModel {
         }
 
         try AgentTemplateWriter.writeUserFile(
-            at: profile.workspaceURL,
+            at: profile.contextURL,
             callName: data.userCallName,
             context: data.userContext
         )
 
         try AgentTemplateWriter.writeSoulFile(
-            at: profile.workspaceURL,
+            at: profile.contextURL,
             coreTruths: data.soulCoreTruths
         )
 
         try AgentTemplateWriter.writeAgentFile(
-            at: profile.workspaceURL,
+            at: profile.contextURL,
             name: data.agentName,
             emoji: data.agentEmoji,
             vibe: data.agentVibe
         )
-
-        let trimmedRules = data.agentsRules.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedRules.isEmpty {
-            try AgentTemplateWriter.writeAgentsFile(
-                at: profile.workspaceURL,
-                rules: trimmedRules
-            )
-        }
 
         let trimmedTools = data.toolsConfig.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTools.isEmpty {

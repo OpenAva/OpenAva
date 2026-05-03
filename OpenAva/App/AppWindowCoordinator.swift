@@ -10,7 +10,6 @@ enum AppWindowID {
 enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
     case llm
     case skills
-    case context
     case cron
 
     var id: String {
@@ -23,8 +22,6 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
             L10n.tr("settings.llm.navigationTitle")
         case .skills:
             L10n.tr("settings.skills.navigationTitle")
-        case .context:
-            L10n.tr("settings.context.navigationTitle")
         case .cron:
             L10n.tr("settings.cron.navigationTitle")
         }
@@ -72,8 +69,6 @@ struct SettingsWindowRootView: View {
             LLMListView()
         case .skills:
             SkillListView()
-        case .context:
-            ContextSettingsView()
         case .cron:
             CronListView()
         }

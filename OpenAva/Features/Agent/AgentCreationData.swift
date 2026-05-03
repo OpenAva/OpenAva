@@ -31,9 +31,6 @@ struct AgentCreationData {
 
     // MARK: - Advanced fields
 
-    /// Rules and boundaries for AGENTS.md
-    var agentsRules: String = ""
-
     /// Environment and tool notes for TOOLS.md
     var toolsConfig: String = ""
 }

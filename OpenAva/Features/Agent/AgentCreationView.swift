@@ -231,25 +231,8 @@ struct AgentCreationView: View {
     @ViewBuilder
     private var singleAgentSections: some View {
         CustomSection(title: L10n.tr("agent.creation.identity.header")) {
-            VStack(alignment: .leading, spacing: 16) {
-                avatarUploadField
-
-                nameEmojiRow(
-                    name: $viewModel.data.agentName,
-                    namePlaceholder: L10n.tr("agent.creation.agentName.placeholder"),
-                    emoji: viewModel.data.agentEmoji,
-                    onPick: {
-                        isEmojiPickerPresented = true
-                    },
-                    onEmojiShuffle: {
-                        viewModel.randomizeAgentEmoji(avoiding: usedEmojis)
-                    },
-                    onNameShuffle: {
-                        viewModel.randomizeAgentName(avoiding: usedAgentNames)
-                    }
-                )
-            }
-            .padding(.horizontal, 20)
+            identityRow
+                .padding(.horizontal, 20)
         }
 
         CustomSection(title: L10n.tr("agent.creation.vibe.header")) {
@@ -307,15 +290,6 @@ struct AgentCreationView: View {
 
             if isAdvancedExpanded {
                 VStack(alignment: .leading, spacing: 24) {
-                    labeledField(L10n.tr("agent.creation.advanced.agents.header")) {
-                        PlaceholderTextEditor(
-                            placeholder: L10n.tr("agent.creation.advanced.agents.placeholder"),
-                            text: $viewModel.data.agentsRules,
-                            minHeight: 100
-                        )
-                    }
-                    .padding(.horizontal, 20)
-
                     labeledField(L10n.tr("agent.creation.advanced.tools.header")) {
                         PlaceholderTextEditor(
                             placeholder: L10n.tr("agent.creation.advanced.tools.placeholder"),
@@ -460,49 +434,75 @@ struct AgentCreationView: View {
         .buttonStyle(.plain)
     }
 
-    private var avatarUploadField: some View {
-        labeledField(L10n.tr("agent.creation.avatar.header")) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 14) {
-                    avatarPreview
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(L10n.tr("agent.creation.avatar.hint"))
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        HStack(spacing: 8) {
-                            actionButton(
-                                title: viewModel.data.agentAvatarData == nil
-                                    ? L10n.tr("agent.creation.avatar.upload")
-                                    : L10n.tr("agent.creation.avatar.change"),
-                                role: .secondary,
-                                action: { isAvatarImporterPresented = true }
-                            )
-
-                            if viewModel.data.agentAvatarData != nil {
-                                actionButton(
-                                    title: L10n.tr("agent.creation.avatar.remove"),
-                                    role: .secondary,
-                                    action: { viewModel.clearAgentAvatar() }
-                                )
-                            }
+    private var identityRow: some View {
+        HStack(spacing: 16) {
+            Menu {
+                if viewModel.data.agentAvatarData != nil {
+                    Button(action: { isAvatarImporterPresented = true }) {
+                        Label(L10n.tr("agent.creation.avatar.change"), systemImage: "photo")
+                    }
+                    Button(role: .destructive, action: { viewModel.clearAgentAvatar() }) {
+                        Label(L10n.tr("agent.creation.avatar.remove"), systemImage: "trash")
+                    }
+                } else {
+                    Section {
+                        Button(action: { isEmojiPickerPresented = true }) {
+                            Label(L10n.tr("agent.creation.emojiPicker.title"), systemImage: "face.smiling")
+                        }
+                        Button(action: { viewModel.randomizeAgentEmoji(avoiding: usedEmojis) }) {
+                            Label(L10n.tr("common.refresh"), systemImage: "shuffle")
                         }
                     }
-
-                    Spacer(minLength: 0)
+                    Section {
+                        Button(action: { isAvatarImporterPresented = true }) {
+                            Label(L10n.tr("agent.creation.avatar.upload"), systemImage: "photo")
+                        }
+                    }
                 }
-                .padding(14)
-                .background(
-                    Color(uiColor: ChatUIDesign.Color.pureWhite),
-                    in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                )
+            } label: {
+                ZStack(alignment: .bottomTrailing) {
+                    avatarPreview
+
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                        .padding(5)
+                        .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color(uiColor: ChatUIDesign.Color.pureWhite), lineWidth: 2))
+                        .offset(x: 2, y: 2)
+                }
             }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 8) {
+                TextField(L10n.tr("agent.creation.agentName.placeholder"), text: $viewModel.data.agentName)
+                    .textInputAutocapitalization(.words)
+                    .font(.system(size: 16, weight: .medium))
+
+                Button(action: { viewModel.randomizeAgentName(avoiding: usedAgentNames) }) {
+                    Image(systemName: "shuffle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Color(uiColor: ChatUIDesign.Color.warmCream),
+                            in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(minHeight: 34)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Color(uiColor: ChatUIDesign.Color.pureWhite),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+            )
         }
     }
 
@@ -517,10 +517,10 @@ struct AgentCreationView: View {
                     .scaledToFill()
             } else {
                 Text(viewModel.data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "🤖" : viewModel.data.agentEmoji)
-                    .font(.system(size: 28))
+                    .font(.system(size: 24))
             }
         }
-        .frame(width: 68, height: 68)
+        .frame(width: 54, height: 54)
         .clipShape(Circle())
         .overlay(
             Circle()
@@ -609,57 +609,6 @@ struct AgentCreationView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             content()
-        }
-    }
-
-    private func nameEmojiRow(
-        name: Binding<String>,
-        namePlaceholder: String,
-        emoji: String,
-        onPick: @escaping () -> Void,
-        onEmojiShuffle: @escaping () -> Void,
-        onNameShuffle: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 12) {
-            EmojiSelectionControl(emoji: emoji, onPick: onPick, onShuffle: onEmojiShuffle)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .background(
-                    Color(uiColor: ChatUIDesign.Color.pureWhite),
-                    in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                        .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                )
-
-            HStack(spacing: 8) {
-                TextField(namePlaceholder, text: name)
-                    .textInputAutocapitalization(.words)
-
-                Button(action: onNameShuffle) {
-                    Image(systemName: "shuffle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
-                        .frame(width: 34, height: 34)
-                        .background(
-                            Color(uiColor: ChatUIDesign.Color.warmCream),
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(minHeight: 34)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                Color(uiColor: ChatUIDesign.Color.pureWhite),
-                in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                    .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-            )
         }
     }
 

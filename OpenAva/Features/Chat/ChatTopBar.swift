@@ -51,7 +51,7 @@ enum ChatTopBar {
 
     struct SessionMenuEntry: Identifiable, Equatable {
         enum Kind: Equatable {
-            case globalTeam
+            case allAgentsTeam
             case team(UUID)
             case agent(UUID)
             case createLocalAgent
@@ -70,10 +70,28 @@ enum ChatTopBar {
         }
     }
 
+    struct WorkspaceMenuEntry: Identifiable, Equatable {
+        enum Kind: Equatable {
+            case workspace(UUID)
+            case openActiveWorkspaceDirectory
+            case importWorkspace
+            case createWorkspace
+        }
+
+        let id: String
+        let kind: Kind
+        let title: String
+        let subtitle: String
+        let isSelected: Bool
+
+        var displayTitle: String {
+            subtitle.isEmpty ? title : "\(title) — \(subtitle)"
+        }
+    }
+
     enum Destination: String, Equatable {
         case llm
         case skills
-        case context
         case cron
         case remoteControl
     }
@@ -109,7 +127,7 @@ enum ChatTopBar {
 
     static func title(displayName: String, displayEmoji: String?, modelName: String, activeContext: ActiveSessionContext) -> Title {
         let identityKind: Title.IdentityKind = switch activeContext {
-        case .globalTeam, .team:
+        case .allAgentsTeam, .team:
             .teamRoom
         case .agent:
             .agent
@@ -122,15 +140,52 @@ enum ChatTopBar {
         )
     }
 
+    static func workspaceMenuEntries(workspaces: [ProjectWorkspaceProfile], activeWorkspaceID: UUID?) -> [WorkspaceMenuEntry] {
+        var items = workspaces.map { workspace in
+            WorkspaceMenuEntry(
+                id: "workspace-\(workspace.id.uuidString)",
+                kind: .workspace(workspace.id),
+                title: workspace.resolvedName,
+                subtitle: workspace.displayPath,
+                isSelected: workspace.id == activeWorkspaceID
+            )
+        }
+
+        if activeWorkspaceID != nil {
+            items.append(WorkspaceMenuEntry(
+                id: "workspace-open-active-directory",
+                kind: .openActiveWorkspaceDirectory,
+                title: L10n.tr("chat.workspace.openDirectory"),
+                subtitle: "",
+                isSelected: false
+            ))
+        }
+        items.append(WorkspaceMenuEntry(
+            id: "workspace-import",
+            kind: .importWorkspace,
+            title: L10n.tr("chat.workspace.import"),
+            subtitle: "",
+            isSelected: false
+        ))
+        items.append(WorkspaceMenuEntry(
+            id: "workspace-create",
+            kind: .createWorkspace,
+            title: L10n.tr("chat.workspace.create"),
+            subtitle: "",
+            isSelected: false
+        ))
+        return items
+    }
+
     static func sessionMenuEntries(teams: [TeamProfile], agents: [AgentProfile], activeContext: ActiveSessionContext) -> [SessionMenuEntry] {
         var items: [SessionMenuEntry] = []
 
         items.append(SessionMenuEntry(
             id: "session-globalTeam",
-            kind: .globalTeam,
-            title: L10n.tr("chat.menu.globalTeam"),
+            kind: .allAgentsTeam,
+            title: L10n.tr("chat.menu.allAgentsTeam"),
             emoji: "👥",
-            isSelected: activeContext == .globalTeam,
+            isSelected: activeContext == .allAgentsTeam,
             isEnabled: true
         ))
 
@@ -189,31 +244,26 @@ enum ChatTopBar {
         includeBackgroundExecution: Bool,
         includeAgentManagement: Bool = true
     ) -> [ConfigurationSection] {
+        var items = [
+            ConfigurationItem(
+                id: "open-llm",
+                kind: .destination(.llm),
+                title: L10n.tr("settings.llm.navigationTitle"),
+                systemImage: "cpu",
+                isDestructive: false
+            ),
+            ConfigurationItem(
+                id: "open-skills",
+                kind: .destination(.skills),
+                title: L10n.tr("settings.skills.navigationTitle"),
+                systemImage: "square.stack.3d.up",
+                isDestructive: false
+            ),
+        ]
+
         let configurationSection = ConfigurationSection(
             id: "configuration",
-            items: [
-                ConfigurationItem(
-                    id: "open-llm",
-                    kind: .destination(.llm),
-                    title: L10n.tr("settings.llm.navigationTitle"),
-                    systemImage: "cpu",
-                    isDestructive: false
-                ),
-                ConfigurationItem(
-                    id: "open-skills",
-                    kind: .destination(.skills),
-                    title: L10n.tr("settings.skills.navigationTitle"),
-                    systemImage: "square.stack.3d.up",
-                    isDestructive: false
-                ),
-                ConfigurationItem(
-                    id: "open-context",
-                    kind: .destination(.context),
-                    title: L10n.tr("settings.context.navigationTitle"),
-                    systemImage: "doc.text",
-                    isDestructive: false
-                ),
-            ]
+            items: items
         )
 
         var managementItems: [ConfigurationItem] = []

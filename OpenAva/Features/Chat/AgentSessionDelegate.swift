@@ -16,7 +16,7 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
     }
 
     private let sessionID: String
-    private let runtimeRootURL: URL
+    private let supportRootURL: URL
     private let backgroundCoordinator = BackgroundExecutionCoordinator.shared
     private let sessionLogStorage: any StorageProvider
     private let durableMemoryExtractor: AgentDurableMemoryExtractor
@@ -30,35 +30,39 @@ final class AgentSessionDelegate: SessionDelegate, @unchecked Sendable {
 
     init(
         sessionID: String,
-        runtimeRootURL: URL?,
+        supportRootURL: URL?,
+        workspaceRootURL: URL?,
         chatClient: (any ChatClient)?,
         agentName: String,
         agentEmoji: String,
         shouldExtractDurableMemory: Bool = true
     ) {
-        // Agent pipelines require a concrete runtime root directory.
-        guard let runtimeRootURL else {
-            preconditionFailure("AgentSessionDelegate requires an explicit agent runtime root URL.")
+        // Agent pipelines require concrete project workspace and agent context directories.
+        guard let supportRootURL, let workspaceRootURL else {
+            preconditionFailure("AgentSessionDelegate requires explicit project workspace and agent context URLs.")
         }
         self.sessionID = sessionID
         self.agentName = agentName
         self.agentEmoji = agentEmoji
         self.shouldExtractDurableMemory = shouldExtractDurableMemory
-        let resolvedRuntimeRootURL = runtimeRootURL.standardizedFileURL
-        self.runtimeRootURL = resolvedRuntimeRootURL
-        sessionLogStorage = TranscriptStorageProvider.provider(runtimeRootURL: resolvedRuntimeRootURL)
+        let resolvedSupportRootURL = supportRootURL.standardizedFileURL
+        let resolvedWorkspaceRootURL = workspaceRootURL.standardizedFileURL
+        self.supportRootURL = resolvedSupportRootURL
+        sessionLogStorage = TranscriptStorageProvider.provider(supportRootURL: resolvedSupportRootURL)
         durableMemoryExtractor = AgentDurableMemoryExtractor(
-            runtimeRootURL: resolvedRuntimeRootURL,
+            supportRootURL: resolvedSupportRootURL,
+            workspaceRootURL: resolvedWorkspaceRootURL,
             chatClient: chatClient
         )
         skillExtractor = AgentSkillExtractor(
-            runtimeRootURL: resolvedRuntimeRootURL,
+            supportRootURL: resolvedSupportRootURL,
+            workspaceRootURL: resolvedWorkspaceRootURL,
             chatClient: chatClient
         )
     }
 
-    func activeRuntimeRootURL() -> URL? {
-        runtimeRootURL
+    func activeSupportRootURL() -> URL? {
+        supportRootURL
     }
 
     func sessionDidPersistMessages(_ messages: [ConversationMessage], for sessionID: String) async {

@@ -2,103 +2,28 @@ import ChatUI
 import SwiftUI
 
 struct ContextSettingsView: View {
+    let kind: AgentContextDocumentKind
     @Environment(\.appContainerStore) private var containerStore
+    @Environment(\.dismiss) private var dismiss
     @State private var viewModel = ContextSettingsViewModel()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                contextRows
-
-                if let errorText = viewModel.errorText {
-                    Text(errorText)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 16)
+        ContextDocumentEditorView(kind: kind, viewModel: viewModel)
+            .navigationTitle(kind.fileName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("common.cancel")) {
+                        dismiss()
+                    }
                 }
             }
-            .padding(.vertical, 24)
-        }
-        .scrollContentBackground(.hidden)
-        .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
-        .navigationTitle(L10n.tr("settings.context.navigationTitle"))
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            viewModel.load(workspaceRootURL: containerStore.activeAgentWorkspaceURL)
-        }
-        .onChange(of: containerStore.activeAgent?.id.uuidString ?? "") { _, _ in
-            viewModel.load(workspaceRootURL: containerStore.activeAgentWorkspaceURL)
-        }
-    }
-
-    private var contextRows: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(AgentContextDocumentKind.allCases.enumerated()), id: \.element) { index, kind in
-                NavigationLink(destination: ContextDocumentEditorView(kind: kind, viewModel: viewModel)) {
-                    ContextDocumentRow(kind: kind)
-                }
-                .buttonStyle(PhysicalRowButtonStyle())
-
-                if index < AgentContextDocumentKind.allCases.count - 1 {
-                    Rectangle()
-                        .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))
-                        .frame(height: 1)
-                        .padding(.leading, 60)
-                }
+            .task {
+                viewModel.load(workspaceRootURL: containerStore.activeAgentContextURL)
             }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
-                .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
-    }
-}
-
-private struct ContextDocumentRow: View {
-    let kind: AgentContextDocumentKind
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.clear)
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                    )
-
-                Image(systemName: kind.iconName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(kind.iconColor)
+            .onChange(of: containerStore.activeAgent?.id.uuidString ?? "") { _, _ in
+                viewModel.load(workspaceRootURL: containerStore.activeAgentContextURL)
             }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(kind.fileName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                    .lineLimit(1)
-
-                Text(kind.localizedPurpose)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
     }
 }
 
@@ -235,6 +160,6 @@ private struct ContextDocumentEditorView: View {
 
 #Preview {
     NavigationStack {
-        ContextSettingsView()
+        ContextSettingsView(kind: .agents)
     }
 }

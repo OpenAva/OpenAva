@@ -114,6 +114,14 @@ struct SkillListView: View {
                 }
 
                 SkillSection(
+                    title: L10n.tr("settings.skills.global.header"),
+                    detail: globalFooterText,
+                    count: globalSkills.count
+                ) {
+                    globalSkillRows
+                }
+
+                SkillSection(
                     title: L10n.tr("settings.skills.builtin.header"),
                     detail: L10n.tr("settings.skills.builtin.footer"),
                     count: builtInSkills.count
@@ -128,24 +136,51 @@ struct SkillListView: View {
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
     }
 
-    @ViewBuilder
     private var workspaceSkillRows: some View {
-        if isLoading, workspaceSkills.isEmpty {
+        editableSkillRows(
+            workspaceSkills,
+            emptySystemImage: "square.and.pencil",
+            emptyTitle: L10n.tr("settings.skills.emptyWorkspace.title"),
+            emptyActionTitle: L10n.tr("settings.skills.addSkill"),
+            emptyAction: presentCreateEditor
+        )
+    }
+
+    private var globalSkillRows: some View {
+        editableSkillRows(
+            globalSkills,
+            emptySystemImage: "globe.desk",
+            emptyTitle: L10n.tr("settings.skills.emptyGlobal.title"),
+            emptyMessage: L10n.tr("settings.skills.emptyGlobal.message")
+        )
+    }
+
+    @ViewBuilder
+    private func editableSkillRows(
+        _ sectionSkills: [SkillListItem],
+        emptySystemImage: String,
+        emptyTitle: String,
+        emptyMessage: String? = nil,
+        emptyActionTitle: String? = nil,
+        emptyAction: (() -> Void)? = nil
+    ) -> some View {
+        if isLoading, sectionSkills.isEmpty {
             SkillRowsCard {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
             }
-        } else if workspaceSkills.isEmpty {
+        } else if sectionSkills.isEmpty {
             EmptySkillsView(
-                systemImage: "square.and.pencil",
-                title: L10n.tr("settings.skills.emptyWorkspace.title"),
-                actionTitle: L10n.tr("settings.skills.addSkill"),
-                action: presentCreateEditor
+                systemImage: emptySystemImage,
+                title: emptyTitle,
+                message: emptyMessage,
+                actionTitle: emptyActionTitle,
+                action: emptyAction
             )
         } else {
             SkillRowsCard {
-                ForEach(Array(workspaceSkills.enumerated()), id: \.element.id) { index, skill in
+                ForEach(Array(sectionSkills.enumerated()), id: \.element.id) { index, skill in
                     SkillRow(
                         skill: skill,
                         isEnabled: skillEnabledBinding(for: skill),
@@ -184,7 +219,7 @@ struct SkillListView: View {
                         }
                     }
 
-                    if index < workspaceSkills.count - 1 {
+                    if index < sectionSkills.count - 1 {
                         SkillRowDivider()
                     }
                 }
@@ -230,6 +265,10 @@ struct SkillListView: View {
         skills.filter(\.isWorkspace)
     }
 
+    private var globalSkills: [SkillListItem] {
+        skills.filter(\.isGlobal)
+    }
+
     private var workspaceFooterText: String {
         #if targetEnvironment(macCatalyst)
             L10n.tr("settings.skills.workspace.footer.mac")
@@ -238,8 +277,16 @@ struct SkillListView: View {
         #endif
     }
 
+    private var globalFooterText: String {
+        #if targetEnvironment(macCatalyst)
+            L10n.tr("settings.skills.global.footer.mac")
+        #else
+            L10n.tr("settings.skills.global.footer")
+        #endif
+    }
+
     private var builtInSkills: [SkillListItem] {
-        skills.filter { !$0.isWorkspace }
+        skills.filter { !$0.isWorkspace && !$0.isGlobal }
     }
 
     private var deleteDialogBinding: Binding<Bool> {
@@ -377,24 +424,24 @@ struct SkillListView: View {
     }
 
     private func updateSkill(_ skill: SkillListItem, content: String) throws {
-        guard skill.isWorkspace else {
+        guard skill.isEditable else {
             throw SkillManagementError.readOnlySkill
         }
 
         let skillFile = URL(fileURLWithPath: skill.path, isDirectory: false)
-        try ensurePathInWorkspaceSkills(skillFile.deletingLastPathComponent())
+        try ensurePathInManagedSkills(skillFile.deletingLastPathComponent(), for: skill)
         try content.write(to: skillFile, atomically: true, encoding: .utf8)
     }
 
     private func removeSkill(_ skill: SkillListItem) {
         do {
-            guard skill.isWorkspace else {
+            guard skill.isEditable else {
                 throw SkillManagementError.readOnlySkill
             }
 
             let skillDirectory = URL(fileURLWithPath: skill.path, isDirectory: false).deletingLastPathComponent()
-            // Protect against deleting files outside the workspace skills directory.
-            try ensurePathInWorkspaceSkills(skillDirectory)
+            // Protect against deleting files outside the managed skills directory.
+            try ensurePathInManagedSkills(skillDirectory, for: skill)
 
             try FileManager.default.removeItem(at: skillDirectory)
             skillToDelete = nil
@@ -425,10 +472,20 @@ struct SkillListView: View {
         return skillsURL
     }
 
-    private func ensurePathInWorkspaceSkills(_ candidateDirectory: URL) throws {
-        let workspaceSkillsRoot = try workspaceSkillsDirectory().standardizedFileURL.path
+    private func managedSkillsRoot(for skill: SkillListItem) throws -> URL {
+        if skill.isWorkspace {
+            return try workspaceSkillsDirectory()
+        }
+        if skill.isGlobal {
+            return AgentSkillsLoader.globalSkillsRoot()
+        }
+        throw SkillManagementError.readOnlySkill
+    }
+
+    private func ensurePathInManagedSkills(_ candidateDirectory: URL, for skill: SkillListItem) throws {
+        let managedSkillsRoot = try managedSkillsRoot(for: skill).standardizedFileURL.path
         let candidatePath = candidateDirectory.standardizedFileURL.path
-        guard candidatePath.hasPrefix(workspaceSkillsRoot + "/") else {
+        guard candidatePath.hasPrefix(managedSkillsRoot + "/") else {
             throw SkillManagementError.invalidSkillPath
         }
     }
@@ -624,6 +681,14 @@ private struct SkillListItem: Identifiable, Equatable {
 
     var isWorkspace: Bool {
         source == "workspace"
+    }
+
+    var isGlobal: Bool {
+        source == "global"
+    }
+
+    var isEditable: Bool {
+        isWorkspace || isGlobal
     }
 
     var definition: AgentSkillsLoader.SkillDefinition {
@@ -1386,12 +1451,13 @@ private struct SkillRow: View {
     var onDelete: (() -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 14) {
             tappableContent
 
-            VStack(alignment: .trailing, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
                 Toggle(L10n.tr("settings.skills.enabled"), isOn: $isEnabled)
                     .labelsHidden()
+                    .toggleStyle(.switch)
                     .tint(Color(uiColor: ChatUIDesign.Color.brandOrange))
                     .scaleEffect(0.85)
 
@@ -1410,7 +1476,7 @@ private struct SkillRow: View {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
-                            .frame(width: 30, height: 30)
+                            .frame(width: 28, height: 28)
                             .background(
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                                     .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
@@ -1421,6 +1487,14 @@ private struct SkillRow: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                }
+
+                if onOpen != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
+                        .padding(.leading, 2)
                 }
             }
         }
@@ -1433,21 +1507,14 @@ private struct SkillRow: View {
         Button {
             onOpen?()
         } label: {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
                 skillIcon
-                    .padding(.top, 2)
                 skillSummary
 
                 Spacer(minLength: 8)
-
-                if onOpen != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.contentTertiary))
-                        .padding(.top, 4)
-                }
             }
             .contentShape(Rectangle())
+            .opacity(isEnabled ? 1.0 : 0.6)
         }
         .buttonStyle(PhysicalRowButtonStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1492,7 +1559,7 @@ private struct SkillRow: View {
 
                 Spacer(minLength: 0)
 
-                if !skill.isWorkspace {
+                if !skill.isEditable {
                     StatusBadge(
                         title: L10n.tr("settings.skills.readOnly"),
                         foreground: Color(uiColor: ChatUIDesign.Color.black60),
@@ -1511,23 +1578,13 @@ private struct SkillRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !skill.isAvailable || !isEnabled {
+            if !skill.isAvailable {
                 HStack(spacing: 6) {
-                    if !skill.isAvailable {
-                        StatusBadge(
-                            title: L10n.tr("settings.skills.unavailable"),
-                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
-                        )
-                    }
-
-                    if !isEnabled {
-                        StatusBadge(
-                            title: L10n.tr("settings.skills.disabled"),
-                            foreground: Color(uiColor: ChatUIDesign.Color.black60),
-                            background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
-                        )
-                    }
+                    StatusBadge(
+                        title: L10n.tr("settings.skills.unavailable"),
+                        foreground: Color(uiColor: ChatUIDesign.Color.black60),
+                        background: Color(uiColor: ChatUIDesign.Color.black60).opacity(0.06)
+                    )
                 }
             }
         }

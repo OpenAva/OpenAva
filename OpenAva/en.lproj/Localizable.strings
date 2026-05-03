@@ -1,5 +1,14 @@
+"chat.workspace.sectionTitle" = "Project Workspaces";
+"chat.workspace.import" = "Import Workspace";
+"chat.workspace.create" = "Create Workspace";
+"chat.workspace.openDirectory" = "Open Workspace Folder";
+"chat.workspace.namePlaceholder" = "Workspace Name";
+"chat.workspace.createMessage" = "A new folder will be created.";
+"chat.session.sectionTitle" = "Team & Agents";
 "agent.onboarding.title" = "Your Agent Team";
 "agent.onboarding.subtitle" = "On-device privacy · Collective evolution · Background automation";
+"agent.onboarding.workspace.title" = "Current Workspace";
+"agent.onboarding.workspace.subtitle" = "Agents you create now will store their files, memory, and team data in this workspace.";
 "agent.onboarding.sectionTitle" = "Get started";
 "agent.onboarding.createLocal.title" = "Create Local Agent";
 "agent.onboarding.createLocal.subtitle" = "Run AI agent securely on your device";
@@ -140,7 +149,7 @@
 "settings.llm.testConnection" = "Test Connection";
 "settings.llm.verification.header" = "Verification";
 
-"settings.context.navigationTitle" = "Context";
+"settings.context.navigationTitle" = "Agent Settings";
 "settings.cron.navigationTitle" = "Cron";
 "settings.skills.navigationTitle" = "Skills";
 "settings.remoteControl.navigationTitle" = "Remote Control";
@@ -314,7 +323,8 @@
 "chat.menu.deleteAlert.title" = "Delete Current Agent?";
 "chat.menu.deleteAlert.message" = "Are you sure you want to delete %@? This action cannot be undone.";
 "chat.menu.noAgentsAvailable" = "No agents available";
-"chat.menu.globalTeam" = "Global Team";
+"chat.menu.allAgentsTeam" = "All Agents";
+"chat.teamAgents.message" = "Agents in this room";
 "chat.menu.newLocalAgent" = "New Agent";
 "chat.team.mention.everyone" = "all";
 "chat.team.broadcast.emptyMessage" = "Please add a message after %@.";
@@ -440,10 +450,15 @@
 "settings.skills.workspace.header" = "Workspace Skills";
 "settings.skills.workspace.footer" = "Tap to edit, swipe left to delete.";
 "settings.skills.workspace.footer.mac" = "Click to edit, right-click to delete.";
+"settings.skills.global.header" = "Global Skills";
+"settings.skills.global.footer" = "Skills installed in ~/.agents/skills. Tap to edit, swipe left to delete.";
+"settings.skills.global.footer.mac" = "Skills installed in ~/.agents/skills. Click to edit, right-click to delete.";
 "settings.skills.builtin.header" = "Built-in Skills";
 "settings.skills.builtin.footer" = "Built-in skills are read-only. Create a workspace skill with the same name to override it.";
 "settings.skills.emptyWorkspace.title" = "No Workspace Skills";
 "settings.skills.emptyWorkspace.message" = "Tap the + button in the top-right to create.";
+"settings.skills.emptyGlobal.title" = "No Global Skills";
+"settings.skills.emptyGlobal.message" = "Install skills under ~/.agents/skills to make them available across workspaces.";
 "settings.skills.emptyBuiltin.title" = "No Built-in Skills";
 "settings.skills.emptyBuiltin.message" = "No built-in skill package was found.";
 "settings.skills.delete.confirmTitle" = "Delete Skill?";
@@ -463,9 +478,9 @@
 "settings.skills.error.invalidName.format" = "Use letters, numbers, dash, or underscore.";
 "settings.skills.error.invalidName.formatShort" = "Invalid name format.";
 "settings.skills.error.missingEditTarget" = "No skill selected for editing.";
-"settings.skills.error.readOnly" = "Built-in skills are read-only.";
+"settings.skills.error.readOnly" = "This skill is read-only.";
 "settings.skills.error.alreadyExists" = "A skill named \"%@\" already exists.";
-"settings.skills.error.invalidPath" = "Skill path is outside the workspace skills directory.";
+"settings.skills.error.invalidPath" = "Skill path is outside its managed skills directory.";
 "settings.skills.editor.newTitle" = "New Skill";
 "settings.skills.editor.editTitle" = "Edit Skill";
 "settings.skills.editor.viewTitle" = "Skill Details";

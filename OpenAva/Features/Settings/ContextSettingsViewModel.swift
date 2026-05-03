@@ -31,7 +31,7 @@ final class ContextSettingsViewModel {
         }
     }
 
-    var documents: [DocumentState] = AgentContextDocumentKind.allCases.map { kind in
+    var documents: [DocumentState] = AgentContextDocumentKind.agentSettingsCases.map { kind in
         DocumentState(kind: kind, content: "", templateContent: AgentContextLoader.templateContent(for: kind))
     }
 
@@ -47,7 +47,7 @@ final class ContextSettingsViewModel {
             rootPath = ""
             errorText = L10n.tr("settings.context.error.noActiveAgent")
             hasLoaded = true
-            documents = AgentContextDocumentKind.allCases.map { kind in
+            documents = AgentContextDocumentKind.agentSettingsCases.map { kind in
                 DocumentState(kind: kind, content: "", templateContent: AgentContextLoader.templateContent(for: kind))
             }
             return
@@ -64,7 +64,7 @@ final class ContextSettingsViewModel {
             // Load context from editable root directory.
             let rootURL = try AgentContextLoader.editableRootDirectory(workspaceRootURL: workspaceRootURL)
             rootPath = rootURL.path
-            documents = try AgentContextDocumentKind.allCases.map { kind in
+            documents = try AgentContextDocumentKind.agentSettingsCases.map { kind in
                 try DocumentState(
                     kind: kind,
                     content: AgentContextLoader.loadEditableContent(

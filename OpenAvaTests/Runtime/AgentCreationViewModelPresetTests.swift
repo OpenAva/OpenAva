@@ -161,6 +161,34 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: createdProfile.avatarURL.path))
     }
 
+    func testCreateAgentDoesNotCreateWorkspaceAgentsFile() async throws {
+        let workspaceRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentCreationWorkspaceAgentsTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AgentCreationWorkspaceAgentsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        viewModel.data.userCallName = "Yuan"
+        viewModel.data.agentName = "Nova"
+        viewModel.data.agentEmoji = "🦊"
+
+        try await viewModel.createAgent(containerStore: containerStore)
+
+        let agentsURL = workspaceRootURL.appendingPathComponent("AGENTS.md", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: agentsURL.path))
+    }
+
     func testInitialModeRemainsSingleAgent() {
         let viewModel = AgentCreationViewModel(initialMode: .singleAgent, presets: [], userDirectoryURL: testDirectoryURL)
 

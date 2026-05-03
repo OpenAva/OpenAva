@@ -1,5 +1,14 @@
+"chat.workspace.sectionTitle" = "项目工作区 (Workspace)";
+"chat.workspace.import" = "导入工作区...";
+"chat.workspace.create" = "新建工作区...";
+"chat.workspace.openDirectory" = "打开工作区目录";
+"chat.workspace.namePlaceholder" = "工作区名称";
+"chat.workspace.createMessage" = "将创建一个新文件夹。";
+"chat.session.sectionTitle" = "团队与 Agent";
 "agent.onboarding.title" = "你的 Agent 团队";
 "agent.onboarding.subtitle" = "本地隐私 · 群体进化 · 自动运行";
+"agent.onboarding.workspace.title" = "当前工作区";
+"agent.onboarding.workspace.subtitle" = "现在创建的 Agent 会把文件、记忆和团队数据保存在这个工作区。";
 "agent.onboarding.sectionTitle" = "开始使用";
 "agent.onboarding.createLocal.title" = "创建本地 Agent";
 "agent.onboarding.createLocal.subtitle" = "在你的设备上安全运行 AI Agent";
@@ -140,7 +149,7 @@
 "settings.llm.testConnection" = "测试连接";
 "settings.llm.verification.header" = "校验";
 
-"settings.context.navigationTitle" = "上下文";
+"settings.context.navigationTitle" = "Agent 设定";
 "settings.cron.navigationTitle" = "定时任务";
 "settings.skills.navigationTitle" = "技能";
 "settings.remoteControl.navigationTitle" = "遥控";
@@ -314,7 +323,8 @@
 "chat.menu.deleteAlert.title" = "删除当前 Agent？";
 "chat.menu.deleteAlert.message" = "确认删除 %@ 吗？此操作不可撤销。";
 "chat.menu.noAgentsAvailable" = "暂无可用 Agent";
-"chat.menu.globalTeam" = "全局团队";
+"chat.menu.allAgentsTeam" = "全员团队";
+"chat.teamAgents.message" = "当前群内 Agent";
 "chat.menu.newLocalAgent" = "新建 Agent";
 "chat.team.mention.everyone" = "all";
 "chat.team.broadcast.emptyMessage" = "请在 %@ 后输入消息。";
@@ -441,10 +451,15 @@
 "settings.skills.workspace.header" = "工作区技能";
 "settings.skills.workspace.footer" = "点击可编辑，左滑可删除。";
 "settings.skills.workspace.footer.mac" = "点击可编辑，右键可删除。";
+"settings.skills.global.header" = "全局技能";
+"settings.skills.global.footer" = "安装在 ~/.agents/skills 的技能。点击可编辑，左滑可删除。";
+"settings.skills.global.footer.mac" = "安装在 ~/.agents/skills 的技能。点击可编辑，右键可删除。";
 "settings.skills.builtin.header" = "内置技能";
 "settings.skills.builtin.footer" = "内置技能为只读。创建同名工作区技能可覆盖。";
 "settings.skills.emptyWorkspace.title" = "暂无工作区技能";
 "settings.skills.emptyWorkspace.message" = "点击右上角 + 按钮创建。";
+"settings.skills.emptyGlobal.title" = "暂无全局技能";
+"settings.skills.emptyGlobal.message" = "将技能安装到 ~/.agents/skills 后，即可在所有工作区使用。";
 "settings.skills.emptyBuiltin.title" = "暂无内置技能";
 "settings.skills.emptyBuiltin.message" = "未找到内置技能包。";
 "settings.skills.delete.confirmTitle" = "删除技能？";
@@ -464,9 +479,9 @@
 "settings.skills.error.invalidName.format" = "仅支持字母、数字、横线或下划线。";
 "settings.skills.error.invalidName.formatShort" = "名称格式无效。";
 "settings.skills.error.missingEditTarget" = "未选择要编辑的技能。";
-"settings.skills.error.readOnly" = "内置技能为只读。";
+"settings.skills.error.readOnly" = "该技能为只读。";
 "settings.skills.error.alreadyExists" = "名为 \"%@\" 的技能已存在。";
-"settings.skills.error.invalidPath" = "技能路径不在工作区 skills 目录内。";
+"settings.skills.error.invalidPath" = "技能路径不在对应的 skills 管理目录内。";
 "settings.skills.editor.newTitle" = "新建技能";
 "settings.skills.editor.editTitle" = "编辑技能";
 "settings.skills.editor.viewTitle" = "技能详情";
