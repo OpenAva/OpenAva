@@ -38,6 +38,7 @@ extension BashService: ToolDefinitionProvider {
                         "additionalProperties": false,
                     ] as [String: Any]),
                     isReadOnly: false,
+                    permissionProfile: .bashCommand,
                     isDestructive: true,
                     isConcurrencySafe: false,
                     maxResultSizeChars: 30 * 1024

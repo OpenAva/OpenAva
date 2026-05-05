@@ -73,6 +73,7 @@ final class MemoryTools: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .autoReviewAllowedMutation,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),

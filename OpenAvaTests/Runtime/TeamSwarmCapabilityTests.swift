@@ -34,6 +34,10 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         XCTAssertFalse(functionNames.contains("Agent"))
 
         XCTAssertEqual(byName["team_status"]?.isReadOnly, true)
+        XCTAssertEqual(byName["team_message_send"]?.permissionProfile, .teamMessage)
+        XCTAssertEqual(byName["team_plan_approve"]?.permissionProfile, .teamPlanApproval)
+        XCTAssertEqual(byName["team_task_create"]?.permissionProfile, .teamTaskStateUpdate)
+        XCTAssertEqual(byName["team_task_update"]?.permissionProfile, .teamTaskStateUpdate)
         XCTAssertEqual(byName["team_task_list"]?.isReadOnly, true)
         XCTAssertEqual(byName["team_task_get"]?.isReadOnly, true)
         XCTAssertEqual(byName["team_status"]?.isConcurrencySafe, true)

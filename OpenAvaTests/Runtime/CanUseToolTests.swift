@@ -19,7 +19,7 @@ final class CanUseToolTests: XCTestCase {
     func testDefaultToolPermissionPolicyAsksForAbsoluteReadPathOutsideAllowedRoots() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-read-absolute", name: "fs_read", arguments: #"{"path":"/tmp/outside.txt"}"#),
-            makeTool(functionName: "fs_read", isReadOnly: true),
+            makeTool(functionName: "fs_read", isReadOnly: true, permissionProfile: .fileRead),
             makeContext(toolProvider: PermissionScopeToolProvider(
                 workspaceRootURL: URL(fileURLWithPath: "/workspace"),
                 readableRootURLs: [URL(fileURLWithPath: "/workspace")]
@@ -46,7 +46,7 @@ final class CanUseToolTests: XCTestCase {
 
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-read-denied", name: "fs_read", arguments: #"{"path":"/tmp/outside.txt"}"#),
-            makeTool(functionName: "fs_read", isReadOnly: true),
+            makeTool(functionName: "fs_read", isReadOnly: true, permissionProfile: .fileRead),
             makeContext(
                 session: session,
                 toolProvider: PermissionScopeToolProvider(
@@ -127,7 +127,7 @@ final class CanUseToolTests: XCTestCase {
         )
 
         XCTAssertEqual(decision.behavior, .allow)
-        XCTAssertEqual(decision.reason, "internal_todo_state_update")
+        XCTAssertEqual(decision.reason, "internal_state_update")
         XCTAssertNil(decision.message)
     }
 
@@ -160,6 +160,226 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertEqual(decision.reason, "permission_mode_bypass")
     }
 
+    func testDefaultToolPermissionPolicyAllowsSafeFileEditsInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-auto-write", name: "fs_write", arguments: #"{"path":"Sources/App.swift","content":"x"}"#),
+            makeTool(functionName: "fs_write", permissionProfile: .fileMutation, isDestructive: true),
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "permission_mode_auto_review")
+    }
+
+    func testDefaultToolPermissionPolicyAllowsWriteLocalBashInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-auto-bash-write", name: "bash", arguments: #"{"command":"go test ./..."}"#),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "permission_mode_auto_review")
+    }
+
+    func testDefaultToolPermissionPolicyStillAsksForWriteLocalBashOutsideAutoReviewMode() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-bash-write", name: "bash", arguments: #"{"command":"go test ./..."}"#),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
+            makeContext()
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "bash_write_command_requires_approval")
+    }
+
+    func testDefaultToolPermissionPolicyAsksForSensitiveBashPathInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-auto-bash-sensitive", name: "bash", arguments: #"{"command":"ls ~/.ssh"}"#),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "bash_sensitive_path_requires_approval")
+    }
+
+    func testDefaultToolPermissionPolicyAllowsDefaultAllowedMutationProfiles() async {
+        let cases = [
+            "memory_upsert": makeTool(functionName: "memory_upsert", permissionProfile: .autoReviewAllowedMutation, isDestructive: true),
+            "calendar_add": makeTool(functionName: "calendar_add", permissionProfile: .autoReviewAllowedMutation),
+            "reminders_add": makeTool(functionName: "reminders_add", permissionProfile: .autoReviewAllowedMutation),
+            "text_to_social_images": makeTool(functionName: "text_to_social_images", permissionProfile: .autoReviewAllowedMutation),
+            "image_remove_background": makeTool(functionName: "image_remove_background", permissionProfile: .autoReviewAllowedMutation),
+            "contacts_add": makeTool(functionName: "contacts_add", permissionProfile: .autoReviewAllowedMutation),
+            "blog_watch": makeTool(functionName: "blog_watch", permissionProfile: .autoReviewAllowedMutation),
+            "notify_user": makeTool(functionName: "notify_user", permissionProfile: .autoReviewAllowedMutation),
+            "watch_notify": makeTool(functionName: "watch_notify", permissionProfile: .autoReviewAllowedMutation),
+        ]
+
+        for (toolName, tool) in cases {
+            let decision = await defaultToolPermissionPolicy(
+                ToolRequest(id: "tool-default-\(toolName)", name: toolName, arguments: "{}"),
+                tool,
+                makeContext()
+            )
+
+            XCTAssertEqual(decision.behavior, .allow, toolName)
+            XCTAssertEqual(decision.reason, "default_allowed_tool_profile", toolName)
+        }
+    }
+
+    func testDefaultToolPermissionPolicyAllowsProfiledLocalMutationToolsInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let cases = [
+            "memory_upsert": makeTool(functionName: "memory_upsert", permissionProfile: .autoReviewAllowedMutation, isDestructive: true),
+            "calendar_add": makeTool(functionName: "calendar_add", permissionProfile: .autoReviewAllowedMutation),
+            "reminders_add": makeTool(functionName: "reminders_add", permissionProfile: .autoReviewAllowedMutation),
+            "text_to_social_images": makeTool(functionName: "text_to_social_images", permissionProfile: .autoReviewAllowedMutation),
+        ]
+
+        for (toolName, tool) in cases {
+            let decision = await defaultToolPermissionPolicy(
+                ToolRequest(id: "tool-auto-\(toolName)", name: toolName, arguments: "{}"),
+                tool,
+                makeContext(session: session)
+            )
+
+            XCTAssertEqual(decision.behavior, .allow, toolName)
+            XCTAssertEqual(decision.reason, "permission_mode_auto_review", toolName)
+        }
+    }
+
+    func testDefaultToolPermissionPolicyAllowsCronActionsInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let cases = [
+            #"{"action":"add","prompt":"ping"}"#,
+            #"{"action":"list"}"#,
+            #"{"action":"remove","id":"job-1"}"#,
+            #"{"action":"update","id":"job-1"}"#,
+            #"{}"#,
+        ]
+
+        for arguments in cases {
+            let decision = await defaultToolPermissionPolicy(
+                ToolRequest(id: "tool-auto-cron", name: "cron", arguments: arguments),
+                makeTool(functionName: "cron", permissionProfile: .cron),
+                makeContext(session: session)
+            )
+
+            XCTAssertEqual(decision.behavior, .allow, arguments)
+            XCTAssertEqual(decision.reason, "permission_mode_auto_review", arguments)
+        }
+    }
+
+    func testDefaultToolPermissionPolicyAllowsCronOutsideAutoReviewMode() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-cron-remove", name: "cron", arguments: #"{"action":"remove","id":"job-1"}"#),
+            makeTool(functionName: "cron", permissionProfile: .cron),
+            makeContext()
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "default_allowed_tool_profile")
+    }
+
+    func testDefaultToolPermissionPolicyAllowsInstructionOrchestrationToolsInAutoReviewMode() async throws {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+        let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
+
+        let cases = [
+            (
+                ToolRequest(id: "tool-auto-js", name: "javascript_execute", arguments: #"{"code":"return 1"}"#),
+                makeTool(functionName: "javascript_execute", permissionProfile: .autoReviewAllowedInstructionOrchestration)
+            ),
+            (
+                ToolRequest(id: "tool-auto-skill", name: "skill_invoke", arguments: #"{"name":"commit"}"#),
+                skillInvoke
+            ),
+        ]
+
+        for (request, tool) in cases {
+            let decision = await defaultToolPermissionPolicy(
+                request,
+                tool,
+                makeContext(session: session)
+            )
+
+            XCTAssertEqual(decision.behavior, .allow, request.name)
+            XCTAssertEqual(decision.reason, "permission_mode_auto_review", request.name)
+        }
+    }
+
+    func testDefaultToolPermissionPolicyDoesNotAutoAllowInstructionOrchestrationNameWithoutProfile() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-auto-js-unprofiled", name: "javascript_execute", arguments: #"{"code":"return 1"}"#),
+            makeTool(functionName: "javascript_execute"),
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_requires_approval")
+    }
+
+    func testDefaultToolPermissionPolicyAsksForSensitiveOutputPathInAutoReviewMode() async {
+        let session = ConversationSession(
+            id: UUID().uuidString,
+            configuration: .init(storage: DisposableStorageProvider())
+        )
+        session.setToolPermissionMode(.auto)
+
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(
+                id: "tool-auto-sensitive-output",
+                name: "image_remove_background",
+                arguments: #"{"inputPath":"image.png","outputPath":"~/.ssh/output.png"}"#
+            ),
+            makeTool(functionName: "image_remove_background", permissionProfile: .autoReviewAllowedMutation),
+            makeContext(session: session)
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "sensitive_path_requires_approval")
+    }
+
     func testDefaultToolPermissionPolicyUsesSessionAllowRule() async {
         let session = ConversationSession(
             id: UUID().uuidString,
@@ -175,7 +395,7 @@ final class CanUseToolTests: XCTestCase {
 
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-write-rule", name: "fs_write", arguments: #"{"path":"Sources/App.swift","content":"x"}"#),
-            makeTool(functionName: "fs_write", isDestructive: true),
+            makeTool(functionName: "fs_write", permissionProfile: .fileMutation, isDestructive: true),
             makeContext(session: session)
         )
 
@@ -198,7 +418,7 @@ final class CanUseToolTests: XCTestCase {
 
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-bash-deny-rule", name: "bash", arguments: #"{"command":"curl https://example.com"}"#),
-            makeTool(functionName: "bash", isDestructive: true),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
             makeContext(session: session)
         )
 
@@ -209,7 +429,7 @@ final class CanUseToolTests: XCTestCase {
     func testDefaultToolPermissionPolicyAllowsReadOnlyBashCommands() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-bash-readonly", name: "bash", arguments: #"{"command":"git status && git diff"}"#),
-            makeTool(functionName: "bash", isDestructive: true),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
             makeContext()
         )
 
@@ -220,7 +440,7 @@ final class CanUseToolTests: XCTestCase {
     func testDefaultToolPermissionPolicyAsksForHighRiskBashCommands() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-bash-risk", name: "bash", arguments: #"{"command":"sudo rm -rf /tmp/example"}"#),
-            makeTool(functionName: "bash", isDestructive: true),
+            makeTool(functionName: "bash", permissionProfile: .bashCommand, isDestructive: true),
             makeContext()
         )
 
@@ -231,7 +451,7 @@ final class CanUseToolTests: XCTestCase {
     func testDefaultToolPermissionPolicyAsksForSensitivePathEvenWhenReadOnly() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-sensitive-read", name: "fs_read", arguments: #"{"path":"~/.ssh/id_rsa"}"#),
-            makeTool(functionName: "fs_read", isReadOnly: true),
+            makeTool(functionName: "fs_read", isReadOnly: true, permissionProfile: .fileRead),
             makeContext()
         )
 
@@ -297,19 +517,18 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertTrue(session.pendingToolPermissionRequests.isEmpty)
     }
 
-    func testDefaultToolPermissionPolicyAsksForUnclassifiedMutableTools() async {
+    func testDefaultToolPermissionPolicyAllowsJavaScriptExecuteOutsideAutoReviewMode() async {
         let decision = await defaultToolPermissionPolicy(
             ToolRequest(id: "tool-js", name: "javascript_execute", arguments: "{}"),
-            makeTool(functionName: "javascript_execute"),
+            makeTool(functionName: "javascript_execute", permissionProfile: .autoReviewAllowedInstructionOrchestration),
             makeContext()
         )
 
-        XCTAssertEqual(decision.behavior, .ask)
-        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_requires_approval")
-        XCTAssertEqual(decision.message, "Tool execution requires approval because this tool can modify local app state or invoke additional instructions.")
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "default_allowed_tool_profile")
     }
 
-    func testDefaultToolPermissionPolicyAsksForSkillInvokeThroughGenericUnclassifiedPolicy() async throws {
+    func testDefaultToolPermissionPolicyAllowsSkillInvokeOutsideAutoReviewMode() async throws {
         let skillInvoke = try XCTUnwrap(SkillTools().toolDefinitions().first { $0.functionName == "skill_invoke" })
 
         let decision = await defaultToolPermissionPolicy(
@@ -318,9 +537,8 @@ final class CanUseToolTests: XCTestCase {
             makeContext()
         )
 
-        XCTAssertEqual(decision.behavior, .ask)
-        XCTAssertEqual(decision.reason, "unclassified_mutating_tool_requires_approval")
-        XCTAssertEqual(decision.message, "Tool execution requires approval because this tool can modify local app state or invoke additional instructions.")
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "default_allowed_tool_profile")
     }
 
     func testDefaultToolPermissionPolicyUsesSessionExactArgumentsAllowRule() async throws {
@@ -444,6 +662,7 @@ final class CanUseToolTests: XCTestCase {
     private func makeTool(
         functionName: String,
         isReadOnly: Bool = false,
+        permissionProfile: ToolPermissionProfile = .standard,
         isDestructive: Bool = false
     ) -> ToolDefinition {
         ToolDefinition(
@@ -452,6 +671,7 @@ final class CanUseToolTests: XCTestCase {
             description: "",
             parametersSchema: .init([:] as [String: Any]),
             isReadOnly: isReadOnly,
+            permissionProfile: permissionProfile,
             isDestructive: isDestructive
         )
     }

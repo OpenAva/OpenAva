@@ -40,7 +40,8 @@ final class TeamTools: ToolDefinitionProvider {
                     ],
                     "required": ["to", "message"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .teamMessage
             ),
             ToolDefinition(
                 functionName: "team_plan_approve",
@@ -63,7 +64,8 @@ final class TeamTools: ToolDefinitionProvider {
                         ],
                     ],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .teamPlanApproval
             ),
             ToolDefinition(
                 functionName: "team_task_create",
@@ -83,7 +85,8 @@ final class TeamTools: ToolDefinitionProvider {
                     ],
                     "required": ["title"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .teamTaskStateUpdate
             ),
             ToolDefinition(
                 functionName: "team_task_list",
@@ -153,7 +156,8 @@ final class TeamTools: ToolDefinitionProvider {
                     ],
                     "required": ["task_id"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .teamTaskStateUpdate
             ),
         ]
     }

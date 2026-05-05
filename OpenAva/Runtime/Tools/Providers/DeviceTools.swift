@@ -227,7 +227,8 @@ final class DeviceTools: ToolDefinitionProvider {
                         ],
                     ],
                     "required": ["message"],
-                ]
+                ],
+                permissionProfile: .autoReviewAllowedMutation
             ),
             makeTool(
                 functionName: "location_get",
@@ -322,7 +323,8 @@ final class DeviceTools: ToolDefinitionProvider {
                     ],
                     "required": ["inputPath"],
                     "additionalProperties": false,
-                ]
+                ],
+                permissionProfile: .autoReviewAllowedMutation
             ),
             makeTool(
                 functionName: "contacts_search",
@@ -354,7 +356,8 @@ final class DeviceTools: ToolDefinitionProvider {
                         "emails": ["type": "array", "items": ["type": "string"]],
                     ],
                     "additionalProperties": false,
-                ]
+                ],
+                permissionProfile: .autoReviewAllowedMutation
             ),
             makeTool(
                 functionName: "calendar_events",
@@ -390,7 +393,8 @@ final class DeviceTools: ToolDefinitionProvider {
                     ],
                     "required": ["title", "startISO", "endISO"],
                     "additionalProperties": false,
-                ]
+                ],
+                permissionProfile: .autoReviewAllowedMutation
             ),
             makeTool(
                 functionName: "reminders_list",
@@ -422,7 +426,8 @@ final class DeviceTools: ToolDefinitionProvider {
                     ],
                     "required": ["title"],
                     "additionalProperties": false,
-                ]
+                ],
+                permissionProfile: .autoReviewAllowedMutation
             ),
             makeTool(
                 functionName: "cron",
@@ -445,7 +450,8 @@ final class DeviceTools: ToolDefinitionProvider {
                     ],
                     "required": ["action"],
                     "additionalProperties": false,
-                ]
+                ],
+                permissionProfile: .cron
             ),
             makeTool(
                 functionName: "camera_list",
@@ -528,7 +534,8 @@ final class DeviceTools: ToolDefinitionProvider {
                         ],
                         "required": ["title", "body"],
                         "additionalProperties": false,
-                    ]
+                    ],
+                    permissionProfile: .autoReviewAllowedMutation
                 ),
             ])
         }
@@ -1550,6 +1557,7 @@ private func makeTool(
     description: String,
     schema: [String: Any] = [:],
     isReadOnly: Bool = false,
+    permissionProfile: ToolPermissionProfile = .standard,
     isDestructive: Bool = false,
     isConcurrencySafe: Bool = true,
     maxResultSizeChars: Int? = nil
@@ -1560,6 +1568,7 @@ private func makeTool(
         description: description,
         parametersSchema: AnyCodable(schema),
         isReadOnly: isReadOnly,
+        permissionProfile: permissionProfile,
         isDestructive: isDestructive,
         isConcurrencySafe: isConcurrencySafe,
         maxResultSizeChars: maxResultSizeChars

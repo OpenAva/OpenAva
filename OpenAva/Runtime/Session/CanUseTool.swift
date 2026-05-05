@@ -8,9 +8,8 @@ enum ToolPermissionBehavior: String, Codable {
     case ask
 }
 
-enum ToolPermissionMode: String, Codable, Equatable {
+enum ToolPermissionMode: String, Equatable {
     case `default`
-    case acceptEdits
     case bypassPermissions
     case auto
 }
@@ -19,8 +18,6 @@ struct ToolPermissionRule: Codable, Identifiable, Equatable {
     enum Scope: String, Codable {
         case session
         case project
-        case user
-        case system
     }
 
     let id: String
@@ -53,21 +50,6 @@ enum ToolPermissionMatcher: Codable, Equatable {
     case commandPrefix(String)
     case argumentContains(String)
     case argumentsEqual(String)
-}
-
-enum BashCommandRisk: String, Codable, Equatable {
-    case readOnly
-    case writeLocal
-    case network
-    case destructive
-    case privilegeEscalation
-    case unknown
-}
-
-struct BashPermissionClassification: Equatable {
-    let command: String
-    let risk: BashCommandRisk
-    let reason: String
 }
 
 struct ToolPermissionDecision: Equatable {
@@ -124,15 +106,15 @@ func defaultToolPermissionPolicy(_ request: ToolRequest, _ tool: any ToolExecuto
         return ruleDecision
     }
 
-    if let parameterDecision = parameterAwarePermissionDecision(for: request) {
+    if let parameterDecision = parameterAwarePermissionDecision(for: request, tool: tool) {
         return parameterDecision
     }
 
-    if let internalStateDecision = internalStateToolPermissionDecision(for: request) {
+    if let internalStateDecision = internalStateToolPermissionDecision(for: tool) {
         return internalStateDecision
     }
 
-    if let fileReadDecision = fileReadPermissionDecision(for: request, context: context) {
+    if let fileReadDecision = fileReadPermissionDecision(for: request, tool: tool, context: context) {
         return fileReadDecision
     }
 
@@ -144,19 +126,29 @@ func defaultToolPermissionPolicy(_ request: ToolRequest, _ tool: any ToolExecuto
         )
     }
 
-    if let teamToolDecision = defaultTeamToolPermissionDecision(for: request) {
+    if let teamToolDecision = defaultTeamToolPermissionDecision(for: request, tool: tool) {
         return teamToolDecision
     }
 
-    if let bashDecision = bashPermissionDecision(for: request) {
+    if let bashDecision = bashPermissionDecision(for: request, tool: tool, mode: context.session.toolPermissionMode) {
         return bashDecision
     }
 
-    if acceptsEditWithoutPrompt(request: request, tool: tool, mode: context.session.toolPermissionMode) {
+    if context.session.toolPermissionMode == .auto,
+       allowsAutoReviewedToolWithoutPrompt(tool: tool)
+    {
         return ToolPermissionDecision(
             behavior: .allow,
             message: nil,
-            reason: "permission_mode_accept_edits"
+            reason: "permission_mode_auto_review"
+        )
+    }
+
+    if allowsDefaultReviewedToolWithoutPrompt(tool: tool) {
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "default_allowed_tool_profile"
         )
     }
 
@@ -173,22 +165,21 @@ func defaultToolPermissionPolicy(_ request: ToolRequest, _ tool: any ToolExecuto
     )
 }
 
-private func internalStateToolPermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
-    switch request.name {
-    case SessionTodoTools.functionName, "TodoWrite":
-        return ToolPermissionDecision(
-            behavior: .allow,
-            message: nil,
-            reason: "internal_todo_state_update"
-        )
-    default:
+private func internalStateToolPermissionDecision(for tool: any ToolExecutor) -> ToolPermissionDecision? {
+    guard tool.permissionProfile == .internalStateMutation else {
         return nil
     }
+
+    return ToolPermissionDecision(
+        behavior: .allow,
+        message: nil,
+        reason: "internal_state_update"
+    )
 }
 
-private func defaultTeamToolPermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
-    switch request.name {
-    case "team_message_send":
+private func defaultTeamToolPermissionDecision(for request: ToolRequest, tool: any ToolExecutor) -> ToolPermissionDecision? {
+    switch tool.permissionProfile {
+    case .teamMessage:
         if teamMessageSendRequestsShutdown(request.arguments) {
             return .ask(
                 message: String.localized("Stopping a teammate requires approval."),
@@ -201,14 +192,14 @@ private func defaultTeamToolPermissionDecision(for request: ToolRequest) -> Tool
             reason: "internal_team_message"
         )
 
-    case "team_plan_approve":
+    case .teamPlanApproval:
         return ToolPermissionDecision(
             behavior: .allow,
             message: nil,
             reason: "team_plan_approval"
         )
 
-    case "team_task_create", "team_task_update":
+    case .teamTaskStateUpdate:
         return ToolPermissionDecision(
             behavior: .allow,
             message: nil,
@@ -294,8 +285,8 @@ private func normalizedPermissionArguments(_ arguments: String) -> String {
     return normalizedText
 }
 
-private func fileReadPermissionDecision(for request: ToolRequest, context: ToolExecutionContext) -> ToolPermissionDecision? {
-    guard isFileReadTool(request.name) else {
+private func fileReadPermissionDecision(for request: ToolRequest, tool: any ToolExecutor, context: ToolExecutionContext) -> ToolPermissionDecision? {
+    guard tool.permissionProfile == .fileRead else {
         return nil
     }
 
@@ -333,10 +324,6 @@ private func fileReadPermissionDecision(for request: ToolRequest, context: ToolE
     )
 }
 
-private func isFileReadTool(_ name: String) -> Bool {
-    ["fs_read", "fs_list", "fs_find", "fs_grep"].contains(name)
-}
-
 private func isPermissionPath(_ path: String, withinRoot root: String) -> Bool {
     let normalizedPath = normalizedPermissionPath(path)
     let normalizedRoot = normalizedPermissionPath(root)
@@ -347,15 +334,15 @@ private func isPermissionPath(_ path: String, withinRoot root: String) -> Bool {
     return normalizedPath.hasPrefix(rootWithSeparator)
 }
 
-private func parameterAwarePermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
-    if let path = permissionArgumentString(for: ["path", "file_path", "filePath"], in: request.arguments), isSensitivePermissionPath(path) {
+private func parameterAwarePermissionDecision(for request: ToolRequest, tool: any ToolExecutor) -> ToolPermissionDecision? {
+    if permissionPathArguments(in: request.arguments).contains(where: isSensitivePermissionPath) {
         return .ask(
             message: String.localized("Tool execution requires approval because it touches a sensitive path."),
             reason: "sensitive_path_requires_approval"
         )
     }
 
-    if request.name == "fs_delete", deletesWorkspaceRoot(request.arguments) {
+    if tool.permissionProfile == .fileDelete, deletesWorkspaceRoot(request.arguments) {
         return .ask(
             message: String.localized("Deleting the workspace root requires approval."),
             reason: "workspace_root_delete_requires_approval"
@@ -365,11 +352,11 @@ private func parameterAwarePermissionDecision(for request: ToolRequest) -> ToolP
     return nil
 }
 
-private func bashPermissionDecision(for request: ToolRequest) -> ToolPermissionDecision? {
-    guard request.name == "bash" || request.name == "bash.execute" else {
+private func bashPermissionDecision(for request: ToolRequest, tool: any ToolExecutor, mode: ToolPermissionMode) -> ToolPermissionDecision? {
+    guard tool.permissionProfile == .bashCommand else {
         return nil
     }
-    guard let classification = classifyBashCommand(arguments: request.arguments) else {
+    guard let classification = BashPermissionClassifier.default.classify(arguments: request.arguments) else {
         return .ask(
             message: String.localized("Bash command requires approval because it could not be classified."),
             reason: "bash_command_unclassified"
@@ -383,12 +370,24 @@ private func bashPermissionDecision(for request: ToolRequest) -> ToolPermissionD
             message: nil,
             reason: classification.reason
         )
-    case .privilegeEscalation, .destructive:
+    case .writeLocal:
+        if mode == .auto {
+            return ToolPermissionDecision(
+                behavior: .allow,
+                message: nil,
+                reason: "permission_mode_auto_review"
+            )
+        }
         return .ask(
-            message: String.localized("Bash command requires approval because it is potentially destructive or privileged."),
+            message: String.localized("Bash command requires approval because it may modify local state, access the network, or has unknown risk."),
             reason: classification.reason
         )
-    case .writeLocal, .network, .unknown:
+    case .privilegeEscalation, .destructive, .sensitivePath:
+        return .ask(
+            message: String.localized("Bash command requires approval because it is potentially destructive, privileged, or touches a sensitive path."),
+            reason: classification.reason
+        )
+    case .network, .unknown:
         return .ask(
             message: String.localized("Bash command requires approval because it may modify local state, access the network, or has unknown risk."),
             reason: classification.reason
@@ -396,111 +395,43 @@ private func bashPermissionDecision(for request: ToolRequest) -> ToolPermissionD
     }
 }
 
-func classifyBashCommand(arguments: String) -> BashPermissionClassification? {
-    guard let command = permissionArgumentString(for: ["command"], in: arguments)?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-        return nil
-    }
-    return classifyBashCommand(command)
-}
-
-func classifyBashCommand(_ command: String) -> BashPermissionClassification {
-    let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-    let lowered = trimmed.lowercased()
-
-    if matchesAnyBashPattern(lowered, patterns: privilegeEscalationBashPatterns) {
-        return BashPermissionClassification(command: trimmed, risk: .privilegeEscalation, reason: "bash_privilege_escalation_requires_approval")
-    }
-    if matchesAnyBashPattern(lowered, patterns: destructiveBashPatterns) {
-        return BashPermissionClassification(command: trimmed, risk: .destructive, reason: "bash_destructive_command_requires_approval")
-    }
-    if isReadOnlyBashCommand(lowered) {
-        return BashPermissionClassification(command: trimmed, risk: .readOnly, reason: "bash_read_only_command")
-    }
-    if matchesAnyBashPattern(lowered, patterns: networkBashPatterns) {
-        return BashPermissionClassification(command: trimmed, risk: .network, reason: "bash_network_command_requires_approval")
-    }
-    if matchesAnyBashPattern(lowered, patterns: writeLocalBashPatterns) {
-        return BashPermissionClassification(command: trimmed, risk: .writeLocal, reason: "bash_write_command_requires_approval")
-    }
-
-    return BashPermissionClassification(command: trimmed, risk: .unknown, reason: "bash_unknown_command_requires_approval")
-}
-
-private let privilegeEscalationBashPatterns = [
-    #"(^|[;&|]{1,2})\s*(sudo|su|doas)\b"#,
-]
-
-private let destructiveBashPatterns = [
-    #"(^|[;&|]{1,2})\s*rm\b"#,
-    #"(^|[;&|]{1,2})\s*(dd|mkfs|diskutil)\b"#,
-    #"chmod\s+-r\s+777\b"#,
-    #"(^|[;&|]{1,2})\s*find\b.*\s-delete\b"#,
-    #"(curl|wget)\b.*\|\s*(sh|bash)\b"#,
-    #"(^|[;&|]{1,2})\s*git\s+(reset\s+--hard|clean\s+-)"#,
-]
-
-private let networkBashPatterns = [
-    #"(^|[;&|]{1,2})\s*(curl|wget|scp|sftp|ssh|ftp|telnet)\b"#,
-]
-
-private let writeLocalBashPatterns = [
-    #"(^|[;&|]{1,2})\s*(npm|pnpm|yarn|bun)\s+(install|add|remove|update)\b"#,
-    #"(^|[;&|]{1,2})\s*(go\s+mod\s+tidy|cargo\s+build|swift\s+(build|test)|xcodebuild)\b"#,
-    #"(^|[;&|]{1,2})\s*(mkdir|touch|mv|cp|chmod|chown|ln|git\s+(checkout|switch|restore|stash|commit|add))\b"#,
-]
-
-private func isReadOnlyBashCommand(_ loweredCommand: String) -> Bool {
-    guard loweredCommand.range(of: #"[|<>]"#, options: .regularExpression) == nil else {
+private func allowsDefaultReviewedToolWithoutPrompt(tool: any ToolExecutor) -> Bool {
+    switch tool.permissionProfile {
+    case .autoReviewAllowedMutation,
+         .autoReviewAllowedInstructionOrchestration,
+         .cron:
+        return true
+    case .standard,
+         .fileRead,
+         .fileMutation,
+         .fileDelete,
+         .bashCommand,
+         .internalStateMutation,
+         .teamMessage,
+         .teamPlanApproval,
+         .teamTaskStateUpdate:
         return false
     }
-
-    let segments = loweredCommand
-        .replacingOccurrences(of: "&&", with: ";")
-        .split(separator: ";")
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-
-    guard !segments.isEmpty else { return false }
-    return segments.allSatisfy { segment in
-        let normalized = segment.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-        return readOnlyBashCommandPrefixes.contains { prefix in
-            normalized == prefix || normalized.hasPrefix(prefix + " ")
-        }
-    }
 }
 
-private let readOnlyBashCommandPrefixes: [String] = [
-    "pwd",
-    "ls",
-    "find",
-    "grep",
-    "git status",
-    "git diff",
-    "git log",
-    "git branch",
-    "git rev-parse",
-    "swift --version",
-    "node --version",
-    "npm --version",
-    "python --version",
-    "python3 --version",
-]
+private func allowsAutoReviewedToolWithoutPrompt(tool: any ToolExecutor) -> Bool {
+    guard !tool.isReadOnly else { return true }
 
-private func matchesAnyBashPattern(_ command: String, patterns: [String]) -> Bool {
-    patterns.contains { command.range(of: $0, options: .regularExpression) != nil }
-}
-
-private func acceptsEditWithoutPrompt(request: ToolRequest, tool: any ToolExecutor, mode: ToolPermissionMode) -> Bool {
-    guard mode == .acceptEdits || mode == .auto else { return false }
-    guard isFileMutationTool(request.name), !request.name.contains("delete") else { return false }
-    if let path = permissionArgumentString(for: ["path", "file_path", "filePath"], in: request.arguments), isSensitivePermissionPath(path) {
+    switch tool.permissionProfile {
+    case .fileMutation:
+        return tool.isDestructive
+    case .autoReviewAllowedMutation, .autoReviewAllowedInstructionOrchestration, .cron:
+        return true
+    case .standard,
+         .fileRead,
+         .fileDelete,
+         .bashCommand,
+         .internalStateMutation,
+         .teamMessage,
+         .teamPlanApproval,
+         .teamTaskStateUpdate:
         return false
     }
-    return tool.isDestructive
-}
-
-private func isFileMutationTool(_ name: String) -> Bool {
-    ["fs_write", "fs_replace", "fs_append", "fs_mkdir"].contains(name)
 }
 
 private func deletesWorkspaceRoot(_ arguments: String) -> Bool {
@@ -509,13 +440,35 @@ private func deletesWorkspaceRoot(_ arguments: String) -> Bool {
     return trimmed == "." || trimmed == "./" || trimmed == "/"
 }
 
+private let permissionPathArgumentKeys = [
+    "path",
+    "file_path",
+    "filePath",
+    "input_path",
+    "inputPath",
+    "output_path",
+    "outputPath",
+    "script_path",
+    "scriptPath",
+]
+
+private let sensitivePermissionPathFragments = [
+    "/.ssh", "/.gnupg", "/.aws", "/.config", "/library/keychains",
+    ".env", ".pem", ".key", "id_rsa", "id_ed25519",
+]
+
 private func isSensitivePermissionPath(_ path: String) -> Bool {
     let normalized = normalizedPermissionPath(path).lowercased()
-    let sensitiveFragments = [
-        "/.ssh", "/.gnupg", "/.aws", "/.config", "/library/keychains",
-        ".env", ".pem", ".key", "id_rsa", "id_ed25519",
-    ]
-    return sensitiveFragments.contains { normalized.contains($0) }
+    return sensitivePermissionPathFragments.contains { normalized.contains($0) }
+}
+
+private func containsSensitivePermissionPath(_ text: String) -> Bool {
+    let lowered = text.lowercased()
+    return sensitivePermissionPathFragments.contains { lowered.contains($0) }
+}
+
+private func permissionPathArguments(in arguments: String) -> [String] {
+    permissionArgumentStrings(for: permissionPathArgumentKeys, in: arguments)
 }
 
 private func normalizedPermissionPath(_ path: String) -> String {
@@ -523,17 +476,18 @@ private func normalizedPermissionPath(_ path: String) -> String {
 }
 
 private func permissionArgumentString(for keys: [String], in arguments: String) -> String? {
+    permissionArgumentStrings(for: keys, in: arguments).first
+}
+
+private func permissionArgumentStrings(for keys: [String], in arguments: String) -> [String] {
     guard let data = arguments.data(using: .utf8),
           let object = try? JSONSerialization.jsonObject(with: data),
           let dictionary = object as? [String: Any]
     else {
-        return nil
+        return []
     }
 
-    for key in keys {
-        if let value = dictionary[key] as? String {
-            return value
-        }
+    return keys.compactMap { key in
+        dictionary[key] as? String
     }
-    return nil
 }

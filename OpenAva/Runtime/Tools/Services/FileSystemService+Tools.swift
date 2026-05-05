@@ -32,6 +32,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: true,
+                permissionProfile: .fileRead,
                 isConcurrencySafe: true,
                 maxResultSizeChars: 48 * 1024
             ),
@@ -59,6 +60,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .fileMutation,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),
@@ -86,6 +88,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .fileMutation,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),
@@ -109,6 +112,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .fileMutation,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),
@@ -128,6 +132,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: true,
+                permissionProfile: .fileRead,
                 isConcurrencySafe: true,
                 maxResultSizeChars: 24 * 1024
             ),
@@ -155,6 +160,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .fileMutation,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),
@@ -174,6 +180,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .fileDelete,
                 isDestructive: true,
                 isConcurrencySafe: false
             ),
@@ -201,6 +208,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: true,
+                permissionProfile: .fileRead,
                 isConcurrencySafe: true,
                 maxResultSizeChars: 24 * 1024
             ),
@@ -236,6 +244,7 @@ extension FileSystemService: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: true,
+                permissionProfile: .fileRead,
                 isConcurrencySafe: true,
                 maxResultSizeChars: 24 * 1024
             ),

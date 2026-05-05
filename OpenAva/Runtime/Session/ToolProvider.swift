@@ -9,12 +9,35 @@
 import ChatClient
 import Foundation
 
+/// Tool-level permission semantics declared by each tool definition.
+///
+/// This mirrors Claude Code's model where tools describe their own permission
+/// behavior (for example through `isReadOnly`, `checkPermissions`, and
+/// `toAutoClassifierInput`) while the global permission policy consumes that
+/// metadata instead of hard-coding tool names.
+public enum ToolPermissionProfile: String, Sendable, Equatable {
+    case standard
+    case fileRead
+    case fileMutation
+    case fileDelete
+    case bashCommand
+    case internalStateMutation
+    case teamMessage
+    case teamPlanApproval
+    case teamTaskStateUpdate
+    case autoReviewAllowedMutation
+    case autoReviewAllowedInstructionOrchestration
+    case cron
+}
+
 /// Information about an executable tool.
 public protocol ToolExecutor: Sendable {
     /// Display name for the tool.
     var displayName: String { get }
     /// Whether this tool is read-only from the agent's perspective.
     var isReadOnly: Bool { get }
+    /// Tool-declared permission behavior profile.
+    var permissionProfile: ToolPermissionProfile { get }
     /// Whether this tool can destroy or overwrite data.
     var isDestructive: Bool { get }
     /// Whether this tool is safe to execute in parallel with other tool calls.
@@ -26,6 +49,10 @@ public protocol ToolExecutor: Sendable {
 public extension ToolExecutor {
     var isReadOnly: Bool {
         false
+    }
+
+    var permissionProfile: ToolPermissionProfile {
+        .standard
     }
 
     var isDestructive: Bool {

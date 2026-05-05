@@ -48,6 +48,7 @@ final class BlogWatchTools: ToolDefinitionProvider {
                     "additionalProperties": false,
                 ] as [String: Any]),
                 isReadOnly: false,
+                permissionProfile: .autoReviewAllowedMutation,
                 isDestructive: false,
                 isConcurrencySafe: false,
                 maxResultSizeChars: 32 * 1024

@@ -62,7 +62,8 @@ extension JavaScriptService: ToolDefinitionProvider {
                         ["required": ["script_path"]],
                     ],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .autoReviewAllowedInstructionOrchestration
             ),
         ]
     }

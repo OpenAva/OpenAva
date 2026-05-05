@@ -8,6 +8,7 @@ struct ToolDefinition: Equatable {
     let description: String
     let parametersSchema: AnyCodable
     let isReadOnly: Bool
+    let permissionProfile: ToolPermissionProfile
     let isDestructive: Bool
     let isConcurrencySafe: Bool
     let maxResultSizeChars: Int?
@@ -18,6 +19,7 @@ struct ToolDefinition: Equatable {
         description: String,
         parametersSchema: AnyCodable,
         isReadOnly: Bool = false,
+        permissionProfile: ToolPermissionProfile = .standard,
         isDestructive: Bool = false,
         isConcurrencySafe: Bool = false,
         maxResultSizeChars: Int? = nil
@@ -27,6 +29,7 @@ struct ToolDefinition: Equatable {
         self.description = description
         self.parametersSchema = parametersSchema
         self.isReadOnly = isReadOnly
+        self.permissionProfile = permissionProfile
         self.isDestructive = isDestructive
         self.isConcurrencySafe = isConcurrencySafe
         self.maxResultSizeChars = maxResultSizeChars

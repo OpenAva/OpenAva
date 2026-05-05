@@ -24,7 +24,8 @@ final class SkillTools: ToolDefinitionProvider {
                     ],
                     "required": ["name"],
                     "additionalProperties": false,
-                ] as [String: Any])
+                ] as [String: Any]),
+                permissionProfile: .autoReviewAllowedInstructionOrchestration
             ),
             ToolDefinition(
                 functionName: "skill_upsert",
