@@ -19,7 +19,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
     @MainActor
     override func tearDown() {
-        TeamSwarmCoordinator.shared.configure(agentStoreRootURL: nil)
+        TeamSwarmCoordinator.shared.configure(workspaceRootURL: nil)
         TeamSwarmCoordinator.shared.reload()
         restoreSwarmStorageDirectory()
         restoreProjectFile()
@@ -185,7 +185,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let transcriptProvider = TranscriptStorageProvider.provider(supportRootURL: transcriptSupportURL)
@@ -275,7 +275,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         try coordinator.sendMessage(
@@ -335,7 +335,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         let agentStoreRootURL = transcriptSupportURL
         let coordinator = TeamSwarmCoordinator.shared
         coordinator.configure(
-            agentStoreRootURL: agentStoreRootURL
+            workspaceRootURL: agentStoreRootURL
         )
         coordinator.reload()
 
@@ -416,7 +416,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: agentStoreRootURL)
+        coordinator.configure(workspaceRootURL: agentStoreRootURL)
         coordinator.reload()
 
         _ = try coordinator.approvePlan(
@@ -434,7 +434,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         XCTAssertTrue(memberBeforeReconfigure.hasApprovedPlan)
         XCTAssertNil(memberBeforeReconfigure.pendingExecutionInput)
 
-        coordinator.configure(agentStoreRootURL: agentStoreRootURL)
+        coordinator.configure(workspaceRootURL: agentStoreRootURL)
 
         let memberAfterReconfigure = try XCTUnwrap(
             coordinator.snapshot(context: .init(sessionID: nil, senderMemberID: nil))?.team.members.first
@@ -524,7 +524,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let updated = try coordinator.updateTask(
@@ -604,7 +604,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let updated = try coordinator.updateTask(
@@ -702,7 +702,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let finished = try coordinator.test_finishMember(
@@ -796,7 +796,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let finished = try coordinator.test_finishMember(
@@ -891,7 +891,7 @@ final class TeamRuntimePersistenceTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let blockedTask = try coordinator.updateTask(

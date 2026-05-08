@@ -13,7 +13,7 @@ final class TeamSwarmCapabilityTests: XCTestCase {
     @MainActor
     override func tearDown() async throws {
         await ToolRegistry.shared.clear()
-        TeamSwarmCoordinator.shared.configure(agentStoreRootURL: nil)
+        TeamSwarmCoordinator.shared.configure(workspaceRootURL: nil)
         TeamSwarmCoordinator.shared.reload()
         try await super.tearDown()
     }
@@ -123,7 +123,7 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         }
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.configure(workspaceRootURL: workspaceRootURL)
         coordinator.reload()
 
         let snapshot = coordinator.snapshot(context: .init(sessionID: "\(agent.id.uuidString)::main"))
@@ -154,7 +154,7 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         }
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.configure(workspaceRootURL: workspaceRootURL)
         coordinator.reload()
 
         let snapshot = try XCTUnwrap(coordinator.snapshot(context: .init(sessionID: "\(first.id.uuidString)::main")))
@@ -185,7 +185,7 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         }
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.configure(workspaceRootURL: workspaceRootURL)
         coordinator.reload()
         _ = try coordinator.createTask(
             title: "Finish refactor",
@@ -246,7 +246,7 @@ final class TeamSwarmCapabilityTests: XCTestCase {
         }
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: workspaceRootURL)
+        coordinator.configure(workspaceRootURL: workspaceRootURL)
         coordinator.reload()
         _ = try coordinator.createTask(title: "Task A", detail: nil, context: .init(sessionID: nil, senderMemberID: nil))
         _ = try coordinator.createTask(title: "Task B", detail: nil, context: .init(sessionID: nil, senderMemberID: nil))

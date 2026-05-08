@@ -252,7 +252,7 @@ final class ToolRuntime: @unchecked Sendable {
         self.configureTeamSwarm = configureTeamSwarm
         if configureTeamSwarm {
             TeamSwarmCoordinator.shared.configure(
-                agentStoreRootURL: teamsRootURL
+                workspaceRootURL: workspaceRootURL
             )
         }
 

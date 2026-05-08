@@ -26,7 +26,7 @@ final class CronNotificationRouterTests: XCTestCase {
         CronNotificationRouter.removeCronJob = { jobID in
             _ = try? await CronService().remove(id: jobID)
         }
-        TeamSwarmCoordinator.shared.configure(agentStoreRootURL: nil)
+        TeamSwarmCoordinator.shared.configure(workspaceRootURL: nil)
         TeamSwarmCoordinator.shared.reload()
         restoreSwarmStorageDirectory()
         restoreProjectFile()
@@ -87,7 +87,7 @@ final class CronNotificationRouterTests: XCTestCase {
         try persistedData.write(to: teamDirectoryURL.appendingPathComponent("config.json", isDirectory: false), options: [.atomic])
 
         let coordinator = TeamSwarmCoordinator.shared
-        coordinator.configure(agentStoreRootURL: nil)
+        coordinator.configure(workspaceRootURL: nil)
         coordinator.reload()
 
         let request = makeNotificationRequest(

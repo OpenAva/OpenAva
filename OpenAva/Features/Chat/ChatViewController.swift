@@ -408,11 +408,63 @@ open class ChatViewController: UIViewController {
         messageListView.emptyStateTitle = "Hi, \(resolvedName.isEmpty ? "there" : resolvedName)"
     }
 
+    private static let fallbackInputHeight: CGFloat = 112
+
+    private func applyStableBackgrounds() {
+        view.backgroundColor = ChatUIDesign.Color.warmCream
+        view.isOpaque = true
+        messageListView.backgroundColor = ChatUIDesign.Color.warmCream
+        messageListView.isOpaque = true
+        chatInputView.backgroundColor = .clear
+        chatInputView.isOpaque = false
+    }
+
+    private func ensureChatChromeHierarchy() {
+        if messageListView.superview !== view {
+            messageListView.translatesAutoresizingMaskIntoConstraints = true
+            view.addSubview(messageListView)
+            if !(messageListView.gestureRecognizers ?? []).contains(where: { $0 === dismissKeyboardTapGesture }) {
+                messageListView.addGestureRecognizer(dismissKeyboardTapGesture)
+            }
+        }
+
+        if chatInputView.superview !== view {
+            chatInputView.translatesAutoresizingMaskIntoConstraints = true
+            view.addSubview(chatInputView)
+        }
+
+        if splitterHandleView.superview === view {
+            view.bringSubviewToFront(splitterHandleView)
+        }
+    }
+
+    private func restoreVisibleContentAfterLifecycleTransition() {
+        guard isViewLoaded else { return }
+        keyboardHeight = 0
+        applyStableBackgrounds()
+        ensureChatChromeHierarchy()
+        messageListView.restoreVisibleContentAfterLifecycleTransition()
+        chatInputView.restoreVisibleContentAfterLifecycleTransition()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        layoutViews()
+        updateCatalystTitlebarToolbarIfNeeded()
+    }
+
+    private func scheduleLifecycleLayoutRecovery() {
+        restoreVisibleContentAfterLifecycleTransition()
+        for delay in [0.05, 0.15, 0.35] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.restoreVisibleContentAfterLifecycleTransition()
+            }
+        }
+    }
+
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.layoutIfNeeded()
 
-        view.backgroundColor = ChatUIDesign.Color.warmCream
+        applyStableBackgrounds()
         chatInputView.usesAutoLayoutHeightConstraint = false
         chatInputView.translatesAutoresizingMaskIntoConstraints = true
         messageListView.translatesAutoresizingMaskIntoConstraints = true
@@ -442,19 +494,22 @@ open class ChatViewController: UIViewController {
 
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        applyStableBackgrounds()
         configureNavigationItems()
+        view.setNeedsLayout()
     }
 
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        updateCatalystTitlebarToolbarIfNeeded()
+        scheduleLifecycleLayoutRecovery()
     }
 
     private func layoutViews() {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
 
         let safeArea = view.safeAreaInsets
-        let inputHeight = chatInputView.heightPublisher.value
+        let measuredInputHeight = chatInputView.heightPublisher.value
+        let inputHeight = measuredInputHeight > 0 ? measuredInputHeight : Self.fallbackInputHeight
         let bottomPadding = max(safeArea.bottom, 0)
         let idleBottomSpacingReduction = keyboardHeight == 0 ? min(chatInputView.idleBottomSpacingReduction, bottomPadding) : 0
         let inputExtension = bottomPadding - idleBottomSpacingReduction
@@ -644,21 +699,8 @@ open class ChatViewController: UIViewController {
             ]
             Publishers.MergeMany(publishers)
                 .sink { [weak self] _ in
-                    guard let self else { return }
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, self.isViewLoaded else { return }
-                        self.keyboardHeight = 0
-
-                        self.chatInputView.setNeedsLayout()
-                        self.chatInputView.layoutIfNeeded()
-                        self.chatInputView.setNeedsDisplay()
-
-                        self.view.setNeedsLayout()
-                        self.view.layoutIfNeeded()
-                        self.view.setNeedsDisplay()
-
-                        self.layoutViews()
-                        self.updateCatalystTitlebarToolbarIfNeeded()
+                        self?.scheduleLifecycleLayoutRecovery()
                     }
                 }
                 .store(in: &cancellables)

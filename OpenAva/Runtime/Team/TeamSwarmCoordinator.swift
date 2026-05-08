@@ -158,7 +158,7 @@ final class TeamSwarmCoordinator {
     }
 
     private let colors = ["blue", "green", "orange", "pink", "purple", "teal"]
-    private var agentStoreRootURL: URL?
+    private var workspaceRootURL: URL?
     private var teamRecord: TeamRecord?
     private var memberSignals: [String: AsyncStream<Void>.Continuation] = [:]
     private var memberTasks: [String: Task<Void, Never>] = [:]
@@ -168,16 +168,16 @@ final class TeamSwarmCoordinator {
     private init() {}
 
     func configure(
-        agentStoreRootURL: URL?
+        workspaceRootURL: URL?
     ) {
-        let normalizedAgentStoreRootURL = agentStoreRootURL?.standardizedFileURL
-        let configurationSignature = normalizedAgentStoreRootURL?.path ?? ""
+        let normalizedRootURL = workspaceRootURL?.standardizedFileURL
+        let configurationSignature = normalizedRootURL?.path ?? ""
         if loadedConfigurationSignature != configurationSignature {
             loadedConfigurationSignature = configurationSignature
-            self.agentStoreRootURL = normalizedAgentStoreRootURL
+            self.workspaceRootURL = normalizedRootURL
             loadPersistedTeams()
         } else {
-            self.agentStoreRootURL = normalizedAgentStoreRootURL
+            self.workspaceRootURL = normalizedRootURL
         }
     }
 
@@ -841,7 +841,7 @@ final class TeamSwarmCoordinator {
     }
 
     private func loadAgentState() -> AgentStateSnapshot {
-        AgentStore.load(workspaceRootURL: agentStoreRootURL)
+        AgentStore.load(workspaceRootURL: workspaceRootURL)
     }
 
     private func resolvedModelConfig(for agent: AgentProfile, memberName: String) throws -> AppConfig.LLMModel {
@@ -1291,11 +1291,10 @@ final class TeamSwarmCoordinator {
     private var teamsRootURL: URL? {
         TeamStore.storageDirectoryURL(
             fileManager: .default,
-            workspaceRootURL: agentStoreRootURL,
+            workspaceRootURL: workspaceRootURL,
             createDirectoryIfNeeded: false
         )
     }
-
     private func teamDirectoryURL() -> URL? {
         teamsRootURL
     }
