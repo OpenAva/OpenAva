@@ -199,7 +199,8 @@ enum TeamStore {
             rootURL = resolvedRootURL
         }
 
-        let directoryURL = rootURL.appendingPathComponent(Storage.directoryName, isDirectory: true)
+        let supportURL = AgentStore.supportDirectoryURL(workspaceRootURL: rootURL)
+        let directoryURL = supportURL.appendingPathComponent(Storage.directoryName, isDirectory: true)
         if createDirectoryIfNeeded {
             try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         }

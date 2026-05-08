@@ -1292,7 +1292,7 @@ final class TeamSwarmCoordinator {
         TeamStore.storageDirectoryURL(
             fileManager: .default,
             workspaceRootURL: agentStoreRootURL,
-            createDirectoryIfNeeded: true
+            createDirectoryIfNeeded: false
         )
     }
 

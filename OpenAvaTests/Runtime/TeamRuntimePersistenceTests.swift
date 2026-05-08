@@ -115,10 +115,9 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
     func testTeamStoreUsesTeamsWorkspaceDirectory() throws {
         let storageURL = try XCTUnwrap(TeamStore.storageDirectoryURL(fileManager: .default, createDirectoryIfNeeded: false))
-        let supportURL = try XCTUnwrap(TeamStore.storageDirectoryURL(fileManager: .default, createDirectoryIfNeeded: false))
 
         XCTAssertEqual(storageURL.lastPathComponent, "teams")
-        XCTAssertEqual(supportURL.path, storageURL.path)
+        XCTAssertTrue(storageURL.path.contains(".openava"))
     }
 
     @MainActor

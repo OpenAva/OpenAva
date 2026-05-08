@@ -31,7 +31,7 @@ struct AppContainer {
         let toolRuntime = ToolRuntime.makeDefault(
             workspaceRootURL: config.agent.workspaceRootURL,
             supportRootURL: config.agent.supportRootURL,
-            teamsRootURL: TeamStore.storageDirectoryURL(workspaceRootURL: config.agent.workspaceRootURL, createDirectoryIfNeeded: true),
+            teamsRootURL: TeamStore.storageDirectoryURL(workspaceRootURL: config.agent.workspaceRootURL, createDirectoryIfNeeded: false),
             modelConfig: config.selectedLLMModel,
             agentCount: agentCount
         )
