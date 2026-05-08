@@ -10,6 +10,10 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+#if targetEnvironment(macCatalyst)
+    import AppKit
+#endif
+
 enum CatalystGlobalCommand: String {
     case openModelSettings
     case focusInput
@@ -47,14 +51,7 @@ struct OpenAvaApp: App {
     var body: some Scene {
         WindowGroup {
             AppRootView()
-                .environment(\.appContainerStore, containerStore)
                 .environment(\.appWindowCoordinator, windowCoordinator)
-                .onOpenURL { url in
-                    let container = containerStore.container
-                    Task {
-                        await SkillLaunchService.handleDeepLink(url: url, container: container)
-                    }
-                }
         }
 
         #if targetEnvironment(macCatalyst)
@@ -113,6 +110,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         UNUserNotificationCenter.current().delegate = self
 
         #if targetEnvironment(macCatalyst)
+            NSWindow.allowsAutomaticWindowTabbing = false
             CatalystWindowCoordinator.shared.install()
             RemoteControlService.shared.startIfNeeded()
             configureCatalystBarButtonAppearance()
@@ -224,8 +222,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
             super.buildMenu(with: builder)
             guard builder.system == .main else { return }
 
-            builder.remove(menu: .newScene)
-
             builder.insertSibling(
                 UIMenu(
                     title: "",
@@ -286,11 +282,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 #endif
 
 private struct AppRootView: View {
+    @State private var containerStore = AppContainerStore(container: .makeDefault())
+
     var body: some View {
         ZStack {
             Color(uiColor: ChatUIDesign.Color.warmCream)
                 .ignoresSafeArea()
             ChatRootView()
+        }
+        .environment(\.appContainerStore, containerStore)
+        .onOpenURL { url in
+            let container = containerStore.container
+            Task {
+                await SkillLaunchService.handleDeepLink(url: url, container: container)
+            }
         }
     }
 }

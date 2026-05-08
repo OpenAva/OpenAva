@@ -312,29 +312,6 @@ open class ChatInputView: EditorSectionView {
         heightPublisher.send(totalHeightForLayout + keyboardAdditionalHeight + spacing)
     }
 
-    /// Recompute editor geometry after app/display lifecycle transitions. On Catalyst,
-    /// display sleep can temporarily restore UIKit views with stale zero-sized backing
-    /// layers; forcing the editor text measurement and local layout prevents the parent
-    /// chat controller from keeping the input at height zero.
-    public func restoreVisibleContentAfterLifecycleTransition() {
-        isHidden = false
-        alpha = 1
-        backgroundColor = .clear
-        isOpaque = false
-        inputEditor.updateTextHeight()
-        inputEditor.isHidden = false
-        inputEditor.alpha = 1
-        shadowContainer.isHidden = false
-        shadowContainer.alpha = 1
-        for subview in sectionSubviews {
-            subview.isHidden = false
-            subview.setNeedsLayout()
-            subview.layoutIfNeeded()
-        }
-        setNeedsLayout()
-        layoutIfNeeded()
-    }
-
     public func quickSettingButton(forCommand command: String) -> UIView? {
         if command == "/context" {
             return inputEditor.contextButton

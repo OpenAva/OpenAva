@@ -213,7 +213,7 @@ final class ToolRuntime: @unchecked Sendable {
         xService: XService = XService(),
         workspaceRootURL: URL? = nil,
         supportRootURL: URL? = nil,
-        teamsRootURL: URL? = nil,
+        teamsRootURL _: URL? = nil,
         configureTeamSwarm: Bool = false
     ) {
         self.cameraService = cameraService

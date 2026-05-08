@@ -108,10 +108,6 @@ public final class MessageListView: UIView {
     public init() {
         super.init(frame: .zero)
 
-        backgroundColor = ChatUIDesign.Color.warmCream
-        isOpaque = true
-        listView.backgroundColor = ChatUIDesign.Color.warmCream
-        listView.isOpaque = true
         listView.delegate = self
         listView.adapter = self
         listView.alwaysBounceVertical = true
@@ -201,27 +197,6 @@ public final class MessageListView: UIView {
     public func stopLoading() {
         loadingMessage = nil
         updateFromUpstreamPublisher(renderedMessages, lastRenderScrolling, isLoading: nil)
-    }
-
-    /// Re-apply the current list/empty-state presentation after Catalyst display sleep or
-    /// screen-parameter transitions. Those transitions can leave the backing list hidden
-    /// or mid-fade without a new upstream message emission to make it visible again.
-    public func restoreVisibleContentAfterLifecycleTransition() {
-        backgroundColor = ChatUIDesign.Color.warmCream
-        isOpaque = true
-        listView.backgroundColor = ChatUIDesign.Color.warmCream
-        listView.isOpaque = true
-        isHidden = false
-        listView.isHidden = false
-        emptyStateView.isHidden = !(entryCount == 0 && loadingMessage == nil)
-        updateFromUpstreamPublisher(renderedMessages, false, isLoading: loadingMessage)
-        if alpha == 0 {
-            layer.removeAllAnimations()
-            alpha = 1
-        }
-        setNeedsLayout()
-        listView.setNeedsLayout()
-        emptyStateView.setNeedsLayout()
     }
 
     /// Render with fresh messages and clear loading state in a single pass.

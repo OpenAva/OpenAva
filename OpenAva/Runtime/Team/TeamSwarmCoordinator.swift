@@ -1295,6 +1295,7 @@ final class TeamSwarmCoordinator {
             createDirectoryIfNeeded: false
         )
     }
+
     private func teamDirectoryURL() -> URL? {
         teamsRootURL
     }
