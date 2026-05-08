@@ -780,6 +780,21 @@ actor BashService {
         return homeDirectoryURL.appendingPathComponent(".profile", isDirectory: false).path
     }
 
+    private func shellSnapshotFileName(for shellPath: String) -> String {
+        let shellType: String
+        if shellPath.contains("zsh") {
+            shellType = "zsh"
+        } else if shellPath.contains("bash") {
+            shellType = "bash"
+        } else {
+            shellType = "sh"
+        }
+
+        let timestampMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let randomID = String(UUID().uuidString.prefix(6)).lowercased()
+        return "snapshot-\(shellType)-\(timestampMs)-\(randomID).sh"
+    }
+
     private static func mergeSearchPaths(_ pathValues: [String?]) -> String {
         var seen = Set<String>()
         var merged: [String] = []
@@ -885,9 +900,17 @@ actor BashService {
     }
 
     private func storageDirectoryURL(named directoryName: String) -> URL {
-        let baseURL = supportRootURL ?? workspaceRootURL ?? FileManager.default.temporaryDirectory
-        return baseURL
+        let rawScopeName = (supportRootURL ?? workspaceRootURL)?.lastPathComponent ?? "default"
+        let allowedScalars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let sanitizedScopeName = String(rawScopeName.unicodeScalars.map { scalar in
+            allowedScalars.contains(scalar) ? Character(scalar) : "-"
+        })
+        let scopeName = sanitizedScopeName.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpenAva", isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(scopeName.isEmpty ? "default" : scopeName, isDirectory: true)
             .standardizedFileURL
     }
 
@@ -942,8 +965,7 @@ actor BashService {
         }
 
         let snapshotURL = snapshotsDirectoryURL
-            .appendingPathComponent("snapshot-\(UUID().uuidString)", isDirectory: false)
-            .appendingPathExtension("sh")
+            .appendingPathComponent(shellSnapshotFileName(for: shellPath), isDirectory: false)
         let configPath = shellConfigPath(for: shellPath)
         let script = makeShellSnapshotCreationScript(snapshotPath: snapshotURL.path, configPath: configPath)
 
