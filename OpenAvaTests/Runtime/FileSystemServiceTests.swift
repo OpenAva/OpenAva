@@ -132,6 +132,49 @@ final class FileSystemServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outsideURL.appendingPathComponent("leak.txt").path))
     }
 
+    func testReadFileAllowsConfiguredAdditionalReadableRoot() async throws {
+        let readableRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FileSystemServiceTestsReadableRoot")
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: readableRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: readableRootURL) }
+
+        let readableFileURL = readableRootURL.appendingPathComponent("reference.md")
+        try "supporting file".write(to: readableFileURL, atomically: true, encoding: .utf8)
+        let scopedService = FileSystemService(
+            baseDirectoryURL: workspaceURL,
+            additionalReadableRootURLs: [readableRootURL]
+        )
+
+        let result = try await scopedService.readFile(path: readableFileURL.path)
+
+        XCTAssertEqual(result.content, "supporting file")
+    }
+
+    func testWriteFileAllowsApprovedWritableRoot() async throws {
+        let writableRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FileSystemServiceTestsWritableRoot")
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: writableRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: writableRootURL) }
+
+        let writableFileURL = writableRootURL.appendingPathComponent("created.txt")
+
+        _ = try await ToolRuntime.InvocationContext.$approvedWritableRootURLs.withValue([writableRootURL]) {
+            try await service.writeFile(path: writableFileURL.path, content: "approved")
+        }
+
+        let content = try String(contentsOf: writableFileURL, encoding: .utf8)
+        XCTAssertEqual(content, "approved")
+    }
+
+    func testToolRuntimeDefaultReadableRootsIncludeGlobalSkillsRoot() {
+        let roots = ToolRuntime.defaultAdditionalReadableRootURLs(workspaceRootURL: nil)
+            .map { $0.standardizedFileURL.path }
+
+        XCTAssertTrue(roots.contains(AgentSkillsLoader.globalSkillsRoot().standardizedFileURL.path))
+    }
+
     func testNestedWorkspaceAgentsPayloadIsInjectedOncePerSession() async throws {
         try writeFile("Sources/Feature/AGENTS.md", content: "Feature dynamic rule")
         try writeFile("Sources/Feature/Nested.swift", content: "struct Nested {}")

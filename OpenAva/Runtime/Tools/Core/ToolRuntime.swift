@@ -166,8 +166,18 @@ final class ToolRuntime: @unchecked Sendable {
         )
     }
 
-    static func defaultAdditionalReadableRootURLs(workspaceRootURL _: URL?) -> [URL] {
-        AgentSkillsLoader.builtInSkillsRoot().map { [$0] } ?? []
+    nonisolated static func defaultAdditionalReadableRootURLs(workspaceRootURL _: URL?) -> [URL] {
+        let candidates = [
+            AgentSkillsLoader.globalSkillsRoot(),
+            AgentSkillsLoader.builtInSkillsRoot(),
+        ].compactMap { $0?.standardizedFileURL }
+
+        return candidates.reduce(into: [URL]()) { roots, candidate in
+            guard !roots.contains(where: { $0.path == candidate.path }) else {
+                return
+            }
+            roots.append(candidate)
+        }
     }
 
     init(
@@ -377,11 +387,13 @@ final class ToolRuntime: @unchecked Sendable {
         _ request: BridgeInvokeRequest,
         sessionID: String?,
         approvedReadableRootURLs: [URL],
-        approvedWritableRootURLs _: [URL]
+        approvedWritableRootURLs: [URL]
     ) async -> BridgeInvokeResponse {
         await InvocationContext.$sessionID.withValue(sessionID) {
             await InvocationContext.$approvedReadableRootURLs.withValue(approvedReadableRootURLs) {
-                await self.handle(request)
+                await InvocationContext.$approvedWritableRootURLs.withValue(approvedWritableRootURLs) {
+                    await self.handle(request)
+                }
             }
         }
     }
