@@ -152,7 +152,7 @@ extension ConversationContainerView: ChatInputDelegate {
     }
 
     public func chatInputDidReportError(_: ChatInputView, error: String) {
-        guard let viewController = parentViewController else { return }
+        guard let viewController = nearestViewController else { return }
         let alert = UIAlertController(title: String.localized("Error"), message: error, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
         viewController.present(alert, animated: true)
@@ -179,14 +179,5 @@ extension ConversationContainerView: ChatInputDelegate {
         }
         input.refill(withText: prompt, attachments: [])
         input.focus()
-    }
-
-    private var parentViewController: UIViewController? {
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let vc = next as? UIViewController { return vc }
-            responder = next
-        }
-        return nil
     }
 }

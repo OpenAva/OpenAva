@@ -188,15 +188,6 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
         return nil
     }
 
-    private var parentViewController: UIViewController? {
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let vc = next as? UIViewController { return vc }
-            responder = next
-        }
-        return nil
-    }
-
     private var previewTempDir: URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("ChatUI.Preview")
@@ -248,7 +239,7 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
                     }
                 )
             }
-            parentViewController?.present(textViewerController, animated: true)
+            nearestViewController?.present(textViewerController, animated: true)
             return
         }
 
@@ -256,14 +247,14 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
             let controller = QLPreviewController()
             controller.dataSource = previewDataSource
             controller.delegate = previewDataSource
-            parentViewController?.present(controller, animated: true)
+            nearestViewController?.present(controller, animated: true)
             previewItemDataSource = previewDataSource
             return
         }
 
         if !item.textContent.isEmpty {
             let textViewerController = makeTextViewer(text: item.textContent, editable: false)
-            parentViewController?.present(textViewerController, animated: true)
+            nearestViewController?.present(textViewerController, animated: true)
         }
     }
 

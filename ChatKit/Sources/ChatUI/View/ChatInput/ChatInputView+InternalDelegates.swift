@@ -202,7 +202,7 @@ extension ChatInputView {
 
 extension ChatInputView {
     func openCamera() {
-        guard let parent = parentViewController else { return }
+        guard let parent = nearestViewController else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             delegate?.chatInputDidReportError(self, error: String.localized("Camera is not available, please grant camera permission"))
             return
@@ -216,7 +216,7 @@ extension ChatInputView {
     }
 
     func openPhotoPicker() {
-        guard let parent = parentViewController else { return }
+        guard let parent = nearestViewController else { return }
         var config = PHPickerConfiguration()
         config.selectionLimit = 4
         config.filter = .images
@@ -226,7 +226,7 @@ extension ChatInputView {
     }
 
     func openFilePicker() {
-        guard let parent = parentViewController else { return }
+        guard let parent = nearestViewController else { return }
         let supportedTypes: [UTType] = [.data, .image, .text, .plainText, .pdf, .audio]
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes)
         picker.delegate = self
@@ -355,7 +355,7 @@ extension ChatInputView {
             popover.sourceView = self
             popover.sourceRect = bounds
         }
-        parentViewController?.present(alert, animated: true)
+        nearestViewController?.present(alert, animated: true)
     }
 
     func convertPDFToImages(pdfDocument: PDFDocument) {

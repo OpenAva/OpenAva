@@ -338,14 +338,15 @@ open class ChatInputView: EditorSectionView {
     }
 
     func updateHeightConstraint(_ height: CGFloat) {
+        let parentView = nearestViewController?.view
         guard usesAutoLayoutHeightConstraint else {
             if heightContraints.isActive {
                 heightContraints.isActive = false
             }
             setNeedsLayout()
             layoutIfNeeded()
-            parentViewController?.view.setNeedsLayout()
-            parentViewController?.view.layoutIfNeeded()
+            parentView?.setNeedsLayout()
+            parentView?.layoutIfNeeded()
             return
         }
         guard heightContraints.constant != height else { return }
@@ -355,8 +356,8 @@ open class ChatInputView: EditorSectionView {
         heightContraints.isActive = true
         setNeedsLayout()
         layoutIfNeeded()
-        parentViewController?.view.setNeedsLayout()
-        parentViewController?.view.layoutIfNeeded()
+        parentView?.setNeedsLayout()
+        parentView?.layoutIfNeeded()
     }
 
     func doCoordinatedLayoutAnimation(
@@ -364,8 +365,9 @@ open class ChatInputView: EditorSectionView {
         _ execute: @escaping () -> Void,
         completion: @escaping () -> Void = {}
     ) {
+        let parentView = nearestViewController?.view
         layoutIfNeeded()
-        parentViewController?.view.layoutIfNeeded()
+        parentView?.layoutIfNeeded()
         UIView.animate(
             withDuration: duration,
             delay: 0,
@@ -376,8 +378,8 @@ open class ChatInputView: EditorSectionView {
             execute()
             self.setNeedsLayout()
             self.layoutIfNeeded()
-            self.parentViewController?.view.setNeedsLayout()
-            self.parentViewController?.view.layoutIfNeeded()
+            parentView?.setNeedsLayout()
+            parentView?.layoutIfNeeded()
         } completion: { _ in
             completion()
         }
@@ -406,14 +408,14 @@ open class ChatInputView: EditorSectionView {
     }
 
     func dismissSkillListIfNeeded() {
-        guard let parent = parentViewController else { return }
+        guard let parent = nearestViewController else { return }
         if let presented = parent.presentedViewController as? SkillListPopoverController {
             presented.dismiss(animated: false)
         }
     }
 
     func presentSkillList() {
-        guard let parent = parentViewController else { return }
+        guard let parent = nearestViewController else { return }
         if parent.presentedViewController is SkillListPopoverController { return }
 
         var validItems: [QuickSettingItem] = []
@@ -488,16 +490,5 @@ open class ChatInputView: EditorSectionView {
     @objc private func applicationWillResignActive() {
         stopInlineSpeechRecognition(applyTranscript: false)
         publishNewEditorStatus()
-    }
-
-    // MARK: - Responder chain helper
-
-    var parentViewController: UIViewController? {
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let vc = next as? UIViewController { return vc }
-            responder = next
-        }
-        return nil
     }
 }
