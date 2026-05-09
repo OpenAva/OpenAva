@@ -27,6 +27,10 @@ struct TeamProfile: Codable, Equatable, Identifiable {
     var defaultTopology: TeamTopologyKind
     var createdAt: Date
     var updatedAt: Date
+    var selectedModelID: UUID?
+    var thinkingStrength: ChatThinkingStrength
+    var createdAtMs: Int64
+    var autoCompactEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -36,7 +40,11 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         agentPoolIDs: [UUID],
         defaultTopology: TeamTopologyKind = .automatic,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        selectedModelID: UUID? = nil,
+        thinkingStrength: ChatThinkingStrength = .medium,
+        createdAtMs: Int64? = nil,
+        autoCompactEnabled: Bool = true
     ) {
         self.id = id
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,6 +55,10 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         self.defaultTopology = defaultTopology
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.selectedModelID = selectedModelID
+        self.thinkingStrength = thinkingStrength
+        self.createdAtMs = createdAtMs ?? Int64(createdAt.timeIntervalSince1970 * 1000)
+        self.autoCompactEnabled = autoCompactEnabled
     }
 
     init(from decoder: any Decoder) throws {
@@ -59,5 +71,9 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         defaultTopology = try container.decode(TeamTopologyKind.self, forKey: .defaultTopology)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        selectedModelID = nil
+        thinkingStrength = .medium
+        createdAtMs = Int64(createdAt.timeIntervalSince1970 * 1000)
+        autoCompactEnabled = true
     }
 }

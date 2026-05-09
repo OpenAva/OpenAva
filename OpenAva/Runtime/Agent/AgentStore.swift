@@ -241,7 +241,6 @@ enum OpenAvaProjectFile {
 enum AgentStore {
     static let openAvaDirectoryName = ".openava"
     private static let agentsDirectoryName = "agents"
-    private static let agentMetadataFileName = "metadata.json"
 
     typealias UserDefaults = OpenAvaUserDefaults
 
@@ -623,61 +622,18 @@ enum AgentStore {
         var emoji: String?
     }
 
-    private struct AgentMetadata: Codable {
-        var selectedModelID: UUID?
-        var thinkingStrength: ChatThinkingStrength
-        var createdAtMs: Int64
-        var autoCompactEnabled: Bool
-
-        init(
-            selectedModelID: UUID?,
-            thinkingStrength: ChatThinkingStrength = .medium,
-            createdAtMs: Int64,
-            autoCompactEnabled: Bool
-        ) {
-            self.selectedModelID = selectedModelID
-            self.thinkingStrength = thinkingStrength
-            self.createdAtMs = createdAtMs
-            self.autoCompactEnabled = autoCompactEnabled
-        }
-
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            selectedModelID = try container.decodeIfPresent(UUID.self, forKey: .selectedModelID)
-            thinkingStrength = try container.decodeIfPresent(ChatThinkingStrength.self, forKey: .thinkingStrength) ?? .medium
-            createdAtMs = try container.decode(Int64.self, forKey: .createdAtMs)
-            autoCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoCompactEnabled) ?? true
-        }
-    }
-
-    private static func agentMetadataURL(for agentID: UUID, workspaceRootURL: URL) -> URL {
-        agentContextDirectory(for: agentID, workspaceRootURL: workspaceRootURL)
-            .appendingPathComponent(agentMetadataFileName, isDirectory: false)
-    }
-
-    private static func loadAgentMetadata(agentID: UUID, workspaceRootURL: URL) -> AgentMetadata? {
-        let url = agentMetadataURL(for: agentID, workspaceRootURL: workspaceRootURL)
-        guard let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(AgentMetadata.self, from: data)
+    private static func loadAgentMetadata(agentID: UUID, workspaceRootURL: URL) -> ChatContextMetadata? {
+        ChatContextMetadata.load(from: agentContextDirectory(for: agentID, workspaceRootURL: workspaceRootURL))
     }
 
     private static func persistAgentMetadata(_ profile: AgentProfile, fileManager: FileManager) {
-        let metadata = AgentMetadata(
+        let metadata = ChatContextMetadata(
             selectedModelID: profile.selectedModelID,
             thinkingStrength: profile.thinkingStrength,
             createdAtMs: profile.createdAtMs,
             autoCompactEnabled: profile.autoCompactEnabled
         )
-        let url = profile.contextURL.appendingPathComponent(agentMetadataFileName, isDirectory: false)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(metadata) else {
-            return
-        }
-        try? fileManager.createDirectory(at: profile.contextURL, withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic])
+        ChatContextMetadata.persist(metadata, to: profile.contextURL, fileManager: fileManager)
     }
 
     private static func scanAgentDirectories(

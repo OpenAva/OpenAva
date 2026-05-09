@@ -5,13 +5,18 @@ struct TeamStateSnapshot: Equatable {
 }
 
 enum TeamStore {
+    static let allAgentsTeamID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     private enum Storage {
         static let directoryName = "teams"
     }
 
     static func load(fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> TeamStateSnapshot {
         let teams = OpenAvaProjectFile.load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)?.teams ?? []
-        return TeamStateSnapshot(teams: teams.sorted { $0.createdAt < $1.createdAt })
+        let resolvedTeams = teams.map { team in
+            applyMetadata(to: team, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        }
+        return TeamStateSnapshot(teams: resolvedTeams.sorted { $0.createdAtMs < $1.createdAtMs })
     }
 
     static func team(id teamID: UUID, fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> TeamProfile? {
@@ -48,6 +53,17 @@ enum TeamStore {
             agentPoolIDs: normalizedAgentPoolIDs,
             defaultTopology: defaultTopology
         )
+        persistMetadata(
+            ChatContextMetadata(
+                selectedModelID: team.selectedModelID,
+                thinkingStrength: team.thinkingStrength,
+                createdAtMs: team.createdAtMs,
+                autoCompactEnabled: team.autoCompactEnabled
+            ),
+            for: .team(team.id),
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL
+        )
         state.teams.append(team)
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return team
@@ -57,6 +73,9 @@ enum TeamStore {
         var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         state.teams.removeAll { $0.id == teamID }
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        if let directoryURL = contextDirectoryURL(for: .team(teamID), fileManager: fileManager, workspaceRootURL: workspaceRootURL) {
+            try? fileManager.removeItem(at: directoryURL)
+        }
     }
 
     static func teams(containing agentID: UUID, fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> [TeamProfile] {
@@ -181,6 +200,98 @@ enum TeamStore {
         OpenAvaProjectFile.persist(payload, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
+    static func loadMetadata(
+        for context: ActiveSessionContext,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> ChatContextMetadata? {
+        guard let directoryURL = contextDirectoryURL(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL
+        ) else {
+            return nil
+        }
+        return ChatContextMetadata.load(from: directoryURL)
+    }
+
+    @discardableResult
+    static func setSelectedModel(
+        _ selectedModelID: UUID?,
+        for context: ActiveSessionContext,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> Bool {
+        guard var metadata = editableMetadata(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL
+        ) else {
+            return false
+        }
+        metadata.selectedModelID = selectedModelID
+        persistMetadata(metadata, for: context, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        return true
+    }
+
+    @discardableResult
+    static func setThinkingStrength(
+        _ thinkingStrength: ChatThinkingStrength,
+        for context: ActiveSessionContext,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> Bool {
+        guard var metadata = editableMetadata(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL
+        ) else {
+            return false
+        }
+        metadata.thinkingStrength = thinkingStrength
+        persistMetadata(metadata, for: context, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        return true
+    }
+
+    @discardableResult
+    static func setAutoCompact(
+        _ enabled: Bool,
+        for context: ActiveSessionContext,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) -> Bool {
+        guard var metadata = editableMetadata(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL
+        ) else {
+            return false
+        }
+        metadata.autoCompactEnabled = enabled
+        persistMetadata(metadata, for: context, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        return true
+    }
+
+    static func repairSelectedModel(
+        afterDeleting deletedModelID: UUID,
+        replacement: UUID?,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil
+    ) {
+        var contexts: [ActiveSessionContext] = [.allAgentsTeam]
+        contexts.append(contentsOf: load(fileManager: fileManager, workspaceRootURL: workspaceRootURL).teams.map { .team($0.id) })
+
+        for context in contexts {
+            guard var metadata = loadMetadata(for: context, fileManager: fileManager, workspaceRootURL: workspaceRootURL),
+                  metadata.selectedModelID == deletedModelID
+            else {
+                continue
+            }
+            metadata.selectedModelID = replacement
+            persistMetadata(metadata, for: context, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        }
+    }
+
     static func storageDirectoryURL(
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil,
@@ -205,6 +316,82 @@ enum TeamStore {
             try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         }
         return directoryURL
+    }
+
+    static func contextDirectoryURL(
+        for context: ActiveSessionContext,
+        fileManager: FileManager = .default,
+        workspaceRootURL: URL? = nil,
+        createDirectoryIfNeeded: Bool = false
+    ) -> URL? {
+        switch context {
+        case .allAgentsTeam:
+            return storageDirectoryURL(
+                fileManager: fileManager,
+                workspaceRootURL: workspaceRootURL,
+                createDirectoryIfNeeded: createDirectoryIfNeeded
+            )?
+                .appendingPathComponent(allAgentsTeamID.uuidString, isDirectory: true)
+        case let .team(teamID):
+            return storageDirectoryURL(
+                fileManager: fileManager,
+                workspaceRootURL: workspaceRootURL,
+                createDirectoryIfNeeded: createDirectoryIfNeeded
+            )?
+                .appendingPathComponent(teamID.uuidString, isDirectory: true)
+        case .agent:
+            return nil
+        }
+    }
+
+    private static func editableMetadata(
+        for context: ActiveSessionContext,
+        fileManager: FileManager,
+        workspaceRootURL: URL?
+    ) -> ChatContextMetadata? {
+        if case .agent = context {
+            return nil
+        }
+        guard let directoryURL = contextDirectoryURL(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL,
+            createDirectoryIfNeeded: true
+        ) else {
+            return nil
+        }
+        return ChatContextMetadata.load(from: directoryURL) ?? ChatContextMetadata(selectedModelID: nil)
+    }
+
+    private static func persistMetadata(
+        _ metadata: ChatContextMetadata,
+        for context: ActiveSessionContext,
+        fileManager: FileManager,
+        workspaceRootURL: URL?
+    ) {
+        guard let directoryURL = contextDirectoryURL(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: workspaceRootURL,
+            createDirectoryIfNeeded: true
+        ) else {
+            return
+        }
+        ChatContextMetadata.persist(metadata, to: directoryURL, fileManager: fileManager)
+    }
+
+    private static func applyMetadata(
+        to team: TeamProfile,
+        fileManager: FileManager,
+        workspaceRootURL: URL?
+    ) -> TeamProfile {
+        var team = team
+        let metadata = loadMetadata(for: .team(team.id), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        team.selectedModelID = metadata?.selectedModelID
+        team.thinkingStrength = metadata?.thinkingStrength ?? .medium
+        team.createdAtMs = metadata?.createdAtMs ?? Int64(team.createdAt.timeIntervalSince1970 * 1000)
+        team.autoCompactEnabled = metadata?.autoCompactEnabled ?? true
+        return team
     }
 
     private static func nextUniqueName(baseName: String, existingNames: [String]) -> String {

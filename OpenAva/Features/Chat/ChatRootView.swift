@@ -133,7 +133,7 @@ struct ChatRootView: View {
         }
         .onAppear {
             normalizeSessionContextForVisibleMenu()
-            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
+            autoCompactEnabled = containerStore.activeAutoCompactEnabled
             RemoteControlCoordinator.shared.bind(containerStore: containerStore)
             presentOnboardingIfNeeded()
             drainPendingAutoSend()
@@ -164,12 +164,12 @@ struct ChatRootView: View {
                 return
             }
             drainPendingAutoSend()
-            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
+            autoCompactEnabled = containerStore.activeAutoCompactEnabled
             updateHeartbeatService()
         }
         .onChange(of: containerStore.activeSessionContext) { _, _ in
             normalizeSessionContextForVisibleMenu()
-            autoCompactEnabled = containerStore.activeAgent?.autoCompactEnabled ?? true
+            autoCompactEnabled = containerStore.activeAutoCompactEnabled
         }
         .onChange(of: containerAgent) { _, _ in
             updateHeartbeatService()

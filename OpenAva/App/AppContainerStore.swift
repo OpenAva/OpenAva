@@ -37,7 +37,12 @@ final class AppContainerStore {
     }
 
     var teamSessionsRootURL: URL? {
-        Self.allAgentsTeamSupportRootURL(workspaceRootURL: agentWorkspaceRootURL)
+        TeamStore.contextDirectoryURL(
+            for: activeSessionContext,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL,
+            createDirectoryIfNeeded: false
+        )
     }
 
     var activeAgent: AgentProfile? {
@@ -45,6 +50,28 @@ final class AppContainerStore {
             return agentState.agents.first(where: { $0.id == id })
         }
         return nil
+    }
+
+    var activeTeam: TeamProfile? {
+        if case let .team(id) = activeSessionContext {
+            return teamState.teams.first(where: { $0.id == id })
+        }
+        return nil
+    }
+
+    var activeAutoCompactEnabled: Bool {
+        switch activeSessionContext {
+        case .agent:
+            return activeAgent?.autoCompactEnabled ?? true
+        case .team:
+            return activeTeam?.autoCompactEnabled ?? true
+        case .allAgentsTeam:
+            return TeamStore.loadMetadata(
+                for: .allAgentsTeam,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )?.autoCompactEnabled ?? true
+        }
     }
 
     var agents: [AgentProfile] {
@@ -142,11 +169,17 @@ final class AppContainerStore {
         var config = container.config
         config.agent.selectedLLMModelID = id
 
-        // Persist agent-scoped selection when an active agent exists.
         if let activeAgentID = activeAgent?.id {
             _ = AgentStore.setSelectedModel(
                 id,
                 for: activeAgentID,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )
+        } else {
+            _ = TeamStore.setSelectedModel(
+                id,
+                for: activeSessionContext,
                 fileManager: fileManager,
                 workspaceRootURL: agentWorkspaceRootURL
             )
@@ -158,7 +191,6 @@ final class AppContainerStore {
         var config = container.config
         config.agent.thinkingStrength = thinkingStrength
 
-        // Persist agent-scoped selection when an active agent exists.
         if let activeAgentID = activeAgent?.id {
             _ = AgentStore.setThinkingStrength(
                 thinkingStrength,
@@ -169,6 +201,14 @@ final class AppContainerStore {
             // `rebuildContainer` reapplies active-agent preferences from `agentState`.
             // Refresh it first so the new thinking strength is not overwritten by stale state.
             agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+        } else {
+            _ = TeamStore.setThinkingStrength(
+                thinkingStrength,
+                for: activeSessionContext,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )
+            teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         }
         rebuildContainer(with: config)
     }
@@ -192,6 +232,12 @@ final class AppContainerStore {
         let updatedCollection = LLMConfigStore.loadCollection()
         // Fallback to first available model when repairing deleted references.
         AgentStore.repairSelectedModel(
+            afterDeleting: id,
+            replacement: updatedCollection.models.first?.id,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
+        TeamStore.repairSelectedModel(
             afterDeleting: id,
             replacement: updatedCollection.models.first?.id,
             fileManager: fileManager,
@@ -386,15 +432,25 @@ final class AppContainerStore {
 
     @discardableResult
     func setAutoCompact(_ enabled: Bool) -> Bool {
-        guard let activeAgentID = activeAgent?.id else { return false }
-        let changed = AgentStore.setAutoCompact(
-            enabled,
-            for: activeAgentID,
-            fileManager: fileManager,
-            workspaceRootURL: agentWorkspaceRootURL
-        )
+        let changed: Bool
+        if let activeAgentID = activeAgent?.id {
+            changed = AgentStore.setAutoCompact(
+                enabled,
+                for: activeAgentID,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )
+        } else {
+            changed = TeamStore.setAutoCompact(
+                enabled,
+                for: activeSessionContext,
+                fileManager: fileManager,
+                workspaceRootURL: agentWorkspaceRootURL
+            )
+        }
         if changed {
             agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+            teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         }
         return changed
     }
@@ -493,7 +549,19 @@ final class AppContainerStore {
     private func rebuildContainer(with baseConfig: AppConfig) {
         agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
-        let resolvedConfig = Self.applyAgent(to: baseConfig, activeAgent: activeAgent, workspaceRootURL: agentWorkspaceRootURL)
+        let teamMetadata = TeamStore.loadMetadata(
+            for: activeSessionContext,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
+        let resolvedConfig = Self.applyActiveSession(
+            to: baseConfig,
+            activeSessionContext: activeSessionContext,
+            activeAgent: activeAgent,
+            activeTeam: activeTeam,
+            teamMetadata: teamMetadata,
+            workspaceRootURL: agentWorkspaceRootURL
+        )
         container = AppContainer.make(config: resolvedConfig)
         SkillLauncherCatalogPublisher.publish(activeAgent: activeAgent)
     }
@@ -509,7 +577,14 @@ final class AppContainerStore {
         rebuildContainer(with: container.config)
     }
 
-    private static func applyAgent(to baseConfig: AppConfig, activeAgent: AgentProfile?, workspaceRootURL: URL?) -> AppConfig {
+    private static func applyActiveSession(
+        to baseConfig: AppConfig,
+        activeSessionContext: ActiveSessionContext,
+        activeAgent: AgentProfile?,
+        activeTeam: TeamProfile?,
+        teamMetadata: ChatContextMetadata?,
+        workspaceRootURL: URL?
+    ) -> AppConfig {
         var config = baseConfig
 
         // Keep selected model id valid even before an active agent is resolved.
@@ -517,6 +592,23 @@ final class AppContainerStore {
             in: config.llmCollection,
             preferredID: config.agent.selectedLLMModelID
         )
+
+        guard case .agent = activeSessionContext else {
+            let selectedModelID = Self.resolveSelectedModelID(
+                in: config.llmCollection,
+                preferredID: teamMetadata?.selectedModelID ?? activeTeam?.selectedModelID ?? config.agent.selectedLLMModelID
+            )
+            config.agent = AppConfig.Agent(
+                id: nil,
+                name: "Agent",
+                emoji: "🤖",
+                selectedLLMModelID: selectedModelID,
+                thinkingStrength: teamMetadata?.thinkingStrength ?? activeTeam?.thinkingStrength ?? config.agent.thinkingStrength,
+                workspaceRootURL: workspaceRootURL,
+                supportRootURL: supportRootURL(workspaceRootURL: workspaceRootURL)
+            )
+            return config
+        }
 
         guard let activeAgent = activeAgent else {
             config.agent = AppConfig.Agent(
@@ -553,11 +645,6 @@ final class AppContainerStore {
     private static func supportRootURL(workspaceRootURL: URL?) -> URL? {
         workspaceRootURL?
             .appendingPathComponent(AgentStore.openAvaDirectoryName, isDirectory: true)
-    }
-
-    private static func allAgentsTeamSupportRootURL(workspaceRootURL: URL?) -> URL? {
-        supportRootURL(workspaceRootURL: workspaceRootURL)?
-            .appendingPathComponent("all-agents-team", isDirectory: true)
     }
 
     private static func resolveSelectedModelID(

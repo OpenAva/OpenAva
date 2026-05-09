@@ -192,6 +192,40 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(containerStore.activeSessionContext, .team(team.id))
     }
 
+    func testAllAgentsTeamPersistsModelPreferencesToMetadata() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+        let modelID = UUID()
+
+        XCTAssertEqual(containerStore.activeSessionContext, .allAgentsTeam)
+        containerStore.selectLLMModel(id: modelID)
+        containerStore.selectThinkingStrength(.high)
+
+        let metadata = try XCTUnwrap(TeamStore.loadMetadata(for: .allAgentsTeam, workspaceRootURL: workspaceRootURL))
+        XCTAssertEqual(metadata.selectedModelID, modelID)
+        XCTAssertEqual(metadata.thinkingStrength, .high)
+        XCTAssertTrue(metadata.autoCompactEnabled)
+        XCTAssertGreaterThan(metadata.createdAtMs, 0)
+
+        let metadataURL = workspaceRootURL
+            .appendingPathComponent(".openava", isDirectory: true)
+            .appendingPathComponent("teams", isDirectory: true)
+            .appendingPathComponent(TeamStore.allAgentsTeamID.uuidString, isDirectory: true)
+            .appendingPathComponent("metadata.json", isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
+    }
+
     func testSwitchingFromAgentBackToAllAgentsTeamClearsAgentScopedWorkspaceConfig() throws {
         let workspaceRootURL = makeTemporaryWorkspaceRoot()
         defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
@@ -208,7 +242,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         )
         let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
 
-        XCTAssertTrue(containerStore.setActiveSessionContext(.agent(agent.id)))
+        _ = containerStore.setActiveSessionContext(.agent(agent.id))
         XCTAssertEqual(containerStore.container.config.agent.id, agent.id.uuidString)
         XCTAssertEqual(
             containerStore.container.config.agent.workspaceRootURL?.standardizedFileURL,
@@ -222,17 +256,29 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertTrue(containerStore.setActiveSessionContext(.allAgentsTeam))
         XCTAssertEqual(containerStore.activeSessionContext, .allAgentsTeam)
         XCTAssertNil(containerStore.container.config.agent.id)
-        XCTAssertNil(containerStore.container.config.agent.workspaceRootURL)
-        XCTAssertNil(containerStore.container.config.agent.supportRootURL)
+        XCTAssertEqual(
+            containerStore.container.config.agent.workspaceRootURL?.standardizedFileURL,
+            workspaceRootURL.standardizedFileURL
+        )
+        XCTAssertEqual(
+            containerStore.container.config.agent.supportRootURL?.standardizedFileURL,
+            workspaceRootURL
+                .appendingPathComponent(".openava", isDirectory: true)
+                .standardizedFileURL
+        )
         let teamSupportURL = containerStore.teamSessionsRootURL
         XCTAssertEqual(
             teamSupportURL?.standardizedFileURL,
             workspaceRootURL
                 .appendingPathComponent(".openava", isDirectory: true)
-                .appendingPathComponent("all-agents-team", isDirectory: true)
+                .appendingPathComponent("teams", isDirectory: true)
+                .appendingPathComponent(TeamStore.allAgentsTeamID.uuidString, isDirectory: true)
                 .standardizedFileURL
         )
-        XCTAssertFalse(teamSupportURL?.standardizedFileURL.path.hasPrefix(agent.workspaceURL.standardizedFileURL.path) ?? true)
+        XCTAssertNotEqual(
+            teamSupportURL?.standardizedFileURL,
+            agent.contextURL.standardizedFileURL
+        )
     }
 
     private func removeProjectFile() {
