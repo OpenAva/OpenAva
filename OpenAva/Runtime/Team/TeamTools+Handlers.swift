@@ -166,22 +166,28 @@ extension TeamTools {
     private static func renderTeamStatus(_ snapshot: TeamSwarmCoordinator.TeamSnapshot) -> String {
         let team = snapshot.team
         let pendingPermissions = snapshot.pendingPermissions
+        let completedTaskIDs = Set(team.tasks.filter { $0.status == .completed }.map(\.id))
+        let openTasks = team.tasks.filter { $0.status != .completed }
+        let availableTasks = openTasks.filter { task in
+            task.status == .pending
+                && task.owner == nil
+                && unresolvedBlockedBy(task, completedTaskIDs: completedTaskIDs).isEmpty
+        }
+        let busyCount = team.members.filter { $0.status == .busy }.count
+        let approvalCount = team.members.filter { $0.status == .awaitingPlanApproval || $0.awaitingPlanApproval }.count
+        let failedCount = team.members.filter { $0.status == .failed }.count
         var lines = [
             "## Team Status",
-            "- created_at: \(iso8601(team.createdAt))",
-            "- updated_at: \(iso8601(team.updatedAt))",
-            "- pending_permission_requests: \(pendingPermissions.count)",
+            "- members: \(team.members.count) total, \(busyCount) busy, \(approvalCount) awaiting approval, \(failedCount) failed",
+            "- tasks: \(openTasks.count) open, \(availableTasks.count) available, \(completedTaskIDs.count) completed",
+            "- pending_permissions: \(pendingPermissions.count)",
             "",
             "### Members",
         ].compactMap { $0 }
         if team.members.isEmpty {
             lines.append("- none")
         } else {
-            lines.append(contentsOf: team.members.map { member in
-                let planMode = member.planModeRequired ? "required" : "off"
-                let error = member.lastError ?? "none"
-                return "- \(member.name) | status=\(member.status.rawValue) | agent_type=\(member.agentType) | plan_mode=\(planMode) | error=\(error)"
-            })
+            lines.append(contentsOf: team.members.map(renderMemberLine))
         }
 
         if let allowedPaths = team.allowedPaths, !allowedPaths.isEmpty {
@@ -196,24 +202,71 @@ extension TeamTools {
             lines.append("")
             lines.append("### Pending Permissions")
             lines.append(contentsOf: pendingPermissions.map { request in
-                "- \(request.workerName) | kind=\(request.kind) | tool=\(request.toolName) | status=\(request.status.rawValue) | created_at=\(iso8601(request.createdAt)) | \(request.description)"
+                var parts = [
+                    "- \(request.workerName)",
+                    "tool=\(request.toolName)",
+                    "kind=\(request.kind)",
+                    "created=\(iso8601(request.createdAt))",
+                ]
+                if request.toolName == "team.plan.approve" {
+                    parts.append("action=team_plan_approve name=\(request.workerName)")
+                }
+                parts.append("summary=\(trimmedSummary(request.description, limit: 180))")
+                return parts.joined(separator: " | ")
             })
         }
         lines.append("")
         lines.append("### Tasks")
         if team.tasks.isEmpty {
-            lines.append("- none")
+            lines.append("- no shared tasks. Use team_task_create to define work, or team_message_send to coordinate directly.")
         } else {
-            lines.append(contentsOf: team.tasks.sorted { $0.id < $1.id }.map { task in
-                let completedTaskIDs = Set(team.tasks.filter { $0.status == .completed }.map(\.id))
-                var line = renderTaskLine(task, completedTaskIDs: completedTaskIDs)
-                if let detail = task.detail, !detail.isEmpty {
-                    line += " | detail=\(detail)"
-                }
-                return line
-            })
+            let sortedOpenTasks = openTasks.sorted { $0.id < $1.id }
+            if sortedOpenTasks.isEmpty {
+                lines.append("- all tasks completed.")
+            } else {
+                lines.append(contentsOf: sortedOpenTasks.map { task in
+                    renderTaskLine(task, completedTaskIDs: completedTaskIDs)
+                })
+            }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func renderMemberLine(_ member: TeamSwarmCoordinator.TeamMember) -> String {
+        var parts = [
+            "- \(member.name)",
+            "status=\(memberStatusLabel(member))",
+        ]
+        if member.agentType != "general-purpose" {
+            parts.append("type=\(member.agentType)")
+        }
+        if member.planModeRequired {
+            parts.append(member.awaitingPlanApproval ? "plan=awaiting_approval" : "plan=required")
+        }
+        if let permissionMode = AppConfig.nonEmpty(member.permissionMode) {
+            parts.append("mode=\(permissionMode)")
+        }
+        if member.shutdownRequested {
+            parts.append("shutdown_requested=true")
+        }
+        parts.append("updated=\(iso8601(member.lastUpdatedAt))")
+        if let summary = AppConfig.nonEmpty(member.lastIdleSummary ?? member.lastResult) {
+            parts.append("summary=\(trimmedSummary(summary, limit: 160))")
+        }
+        if let error = AppConfig.nonEmpty(member.lastError) {
+            parts.append("error=\(trimmedSummary(error, limit: 160))")
+        }
+        return parts.joined(separator: " | ")
+    }
+
+    private static func memberStatusLabel(_ member: TeamSwarmCoordinator.TeamMember) -> String {
+        if member.status == .stopped, member.shutdownRequested {
+            return "stopped"
+        }
+        if member.status == .stopped {
+            return "stopped_waiting"
+        }
+        return member.status.rawValue
     }
 
     private static func renderTask(_ task: TeamSwarmCoordinator.TeamTask, heading: String) -> String {
@@ -245,6 +298,15 @@ extension TeamTools {
         completedTaskIDs: Set<Int>
     ) -> [Int] {
         task.blockedBy.filter { !completedTaskIDs.contains($0) }
+    }
+
+    private static func trimmedSummary(_ value: String, limit: Int) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else {
+            return trimmed
+        }
+        let endIndex = trimmed.index(trimmed.startIndex, offsetBy: limit)
+        return String(trimmed[..<endIndex]) + "..."
     }
 
     private static func iso8601(_ date: Date) -> String {
