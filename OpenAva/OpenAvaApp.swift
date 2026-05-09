@@ -110,7 +110,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         UNUserNotificationCenter.current().delegate = self
 
         #if targetEnvironment(macCatalyst)
-            NSWindow.allowsAutomaticWindowTabbing = false
             CatalystWindowCoordinator.shared.install()
             RemoteControlService.shared.startIfNeeded()
             configureCatalystBarButtonAppearance()
