@@ -442,7 +442,7 @@ final class TeamRoomOrchestrator {
     func buildAgentRequestMessages(
         roomSession: ConversationSession,
         capabilities: Set<ModelCapability>,
-        turnID: String
+        turnID _: String
     ) async -> [ChatRequestBody.Message] {
         var requestMessages = roomSession.historyMessages()
             .flatMap { message in

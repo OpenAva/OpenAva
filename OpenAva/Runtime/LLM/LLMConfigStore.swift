@@ -23,7 +23,8 @@ enum LLMConfigStore {
         let models: [AppConfig.LLMModel]
         if let data = defaults.data(forKey: DefaultsKey.collection),
            let decoded = try? JSONDecoder().decode([AppConfig.LLMModel].self, from: data),
-           !decoded.isEmpty {
+           !decoded.isEmpty
+        {
             models = decoded
         } else {
             models = defaultModels()
@@ -112,7 +113,7 @@ enum LLMConfigStore {
 
         // Sync API key to other models with the same account
         let account = keychainAccount(for: model.provider, endpoint: model.endpoint)
-        for i in 0..<collection.models.count {
+        for i in 0 ..< collection.models.count {
             let m = collection.models[i]
             if keychainAccount(for: m.provider, endpoint: m.endpoint) == account {
                 collection.models[i].apiKey = model.apiKey
@@ -156,7 +157,7 @@ enum EnvKeyFetcher {
     /// Try to fetch common API keys from standard environment variables and user's shell profile.
     static func fetchCommonAPIKeys() -> [LLMProvider: String] {
         var keys: [LLMProvider: String] = [:]
-        
+
         let possibleEnvNames: [LLMProvider: [String]] = [
             .openai: ["OPENAI_API_KEY"],
             .anthropic: ["ANTHROPIC_API_KEY"],
@@ -164,9 +165,9 @@ enum EnvKeyFetcher {
             .deepseek: ["DEEPSEEK_API_KEY"],
             .grok: ["XAI_API_KEY", "GROK_API_KEY"],
             .moonshot: ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
-            .openrouter: ["OPENROUTER_API_KEY"]
+            .openrouter: ["OPENROUTER_API_KEY"],
         ]
-        
+
         // 1. First, read from current ProcessInfo (if app was launched from terminal or env vars were passed)
         let processEnvs = ProcessInfo.processInfo.environment
         for (provider, envNames) in possibleEnvNames {
@@ -177,35 +178,36 @@ enum EnvKeyFetcher {
                 }
             }
         }
-        
+
         #if targetEnvironment(macCatalyst) || os(macOS)
-        // 2. Read from user's shell configuration files
-        let homePath = NSHomeDirectory()
-        let homeUrl = URL(fileURLWithPath: homePath)
-        let shellFiles = [".zshrc", ".zprofile", ".bash_profile", ".bashrc"]
-        
-        for file in shellFiles {
-            let fileUrl = homeUrl.appendingPathComponent(file)
-            if let content = try? String(contentsOf: fileUrl, encoding: .utf8) {
-                let lines = content.components(separatedBy: .newlines)
-                for line in lines {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("export ") {
-                        let exportPart = trimmed.dropFirst(7).trimmingCharacters(in: .whitespaces)
-                        let parts = exportPart.split(separator: "=", maxSplits: 1)
-                        if parts.count == 2 {
-                            let key = String(parts[0])
-                            var value = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                            
-                            // Handle inline comments
-                            if let commentIndex = value.firstIndex(of: "#") {
-                                value = String(value[..<commentIndex]).trimmingCharacters(in: .whitespaces)
-                            }
-                            
-                            if !value.isEmpty {
-                                if let provider = possibleEnvNames.first(where: { $0.value.contains(key) })?.key {
-                                    if keys[provider] == nil {
-                                        keys[provider] = value
+            // 2. Read from user's shell configuration files
+            let homePath = NSHomeDirectory()
+            let homeUrl = URL(fileURLWithPath: homePath)
+            let shellFiles = [".zshrc", ".zprofile", ".bash_profile", ".bashrc"]
+
+            for file in shellFiles {
+                let fileUrl = homeUrl.appendingPathComponent(file)
+                if let content = try? String(contentsOf: fileUrl, encoding: .utf8) {
+                    let lines = content.components(separatedBy: .newlines)
+                    for line in lines {
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.hasPrefix("export ") {
+                            let exportPart = trimmed.dropFirst(7).trimmingCharacters(in: .whitespaces)
+                            let parts = exportPart.split(separator: "=", maxSplits: 1)
+                            if parts.count == 2 {
+                                let key = String(parts[0])
+                                var value = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+
+                                // Handle inline comments
+                                if let commentIndex = value.firstIndex(of: "#") {
+                                    value = String(value[..<commentIndex]).trimmingCharacters(in: .whitespaces)
+                                }
+
+                                if !value.isEmpty {
+                                    if let provider = possibleEnvNames.first(where: { $0.value.contains(key) })?.key {
+                                        if keys[provider] == nil {
+                                            keys[provider] = value
+                                        }
                                     }
                                 }
                             }
@@ -213,9 +215,8 @@ enum EnvKeyFetcher {
                     }
                 }
             }
-        }
         #endif
-        
+
         return keys
     }
 }

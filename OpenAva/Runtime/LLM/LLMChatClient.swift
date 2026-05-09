@@ -165,7 +165,7 @@ open class LLMChatClient: ChatClient, @unchecked Sendable {
             configureOpenAICompatibleEndpoint(client: client, requestURL: requestURL)
             applyAPIKeyHeaderOverride(client: client, apiKey: apiKey, apiKeyHeader: apiKeyHeader)
             return client
-        case .openai, .custom:
+        case .openai, .ollama, .custom:
             let client = OpenAICompatibleClient(
                 model: model,
                 baseURL: requestURL.absoluteString,

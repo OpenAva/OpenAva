@@ -11,7 +11,7 @@ struct LLMListView: View {
     @State private var editingModel: AppConfig.LLMModel?
     @State private var modelToDelete: AppConfig.LLMModel?
     @State private var showResetUsageConfirmation = false
-    
+
     @State private var envKeys: [LLMProvider: String] = [:]
 
     private var selectedModel: AppConfig.LLMModel? {
@@ -119,7 +119,7 @@ struct LLMListView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 16)
-                    
+
                     if !envKeys.isEmpty {
                         envKeysBanner
                             .padding(.horizontal, 16)
@@ -159,32 +159,31 @@ struct LLMListView: View {
             if $0.key == "openai-compatible" { return false }
             if $1.key == "openai-compatible" { return true }
             return $0.key < $1.key
-        }).map { (providerRaw, models) in
+        }).map { providerRaw, models in
             let displayName = LLMProvider(rawValue: providerRaw)?.displayName ?? providerRaw
             return (displayName, models)
         }
     }
 
-    @ViewBuilder
     private var envKeysBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "terminal")
                 .font(.system(size: 16))
                 .foregroundStyle(Color(uiColor: ChatUIDesign.Color.brandOrange))
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.tr("settings.llmList.envDetected.title"))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                
+
                 let providerNames = envKeys.keys.map { $0.displayName }.sorted().joined(separator: ", ")
                 Text(L10n.tr("settings.llmList.envDetected.message", providerNames))
                     .font(.system(size: 12))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
             }
-            
+
             Spacer()
-            
+
             Button {
                 applyEnvKeys()
             } label: {
@@ -264,35 +263,35 @@ struct LLMListView: View {
 
     private func fetchEnvKeys() {
         #if targetEnvironment(macCatalyst) || os(macOS)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let keys = EnvKeyFetcher.fetchCommonAPIKeys()
-            DispatchQueue.main.async {
-                // Only keep keys that are not already configured in any model of that provider
-                var newEnvKeys: [LLMProvider: String] = [:]
-                let collection = self.containerStore.container.config.llmCollection
-                
-                for (provider, key) in keys {
-                    let hasConfiguredModel = collection.models.contains { m in
-                        m.provider == provider.rawValue && m.apiKey != nil && !m.apiKey!.isEmpty
+            DispatchQueue.global(qos: .userInitiated).async {
+                let keys = EnvKeyFetcher.fetchCommonAPIKeys()
+                DispatchQueue.main.async {
+                    // Only keep keys that are not already configured in any model of that provider
+                    var newEnvKeys: [LLMProvider: String] = [:]
+                    let collection = self.containerStore.container.config.llmCollection
+
+                    for (provider, key) in keys {
+                        let hasConfiguredModel = collection.models.contains { m in
+                            m.provider == provider.rawValue && m.apiKey != nil && !m.apiKey!.isEmpty
+                        }
+                        if !hasConfiguredModel {
+                            newEnvKeys[provider] = key
+                        }
                     }
-                    if !hasConfiguredModel {
-                        newEnvKeys[provider] = key
-                    }
+                    self.envKeys = newEnvKeys
                 }
-                self.envKeys = newEnvKeys
             }
-        }
         #endif
     }
-    
+
     private func applyEnvKeys() {
         var collection = containerStore.container.config.llmCollection
         var updated = false
-        
+
         for (provider, apiKey) in envKeys {
             // Find all models for this provider
             var providerUpdated = false
-            for i in 0..<collection.models.count {
+            for i in 0 ..< collection.models.count {
                 if collection.models[i].provider == provider.rawValue {
                     if collection.models[i].apiKey == nil || collection.models[i].apiKey!.isEmpty {
                         collection.models[i].apiKey = apiKey
@@ -301,7 +300,7 @@ struct LLMListView: View {
                     }
                 }
             }
-            
+
             // If provider updated, sync keychain
             if providerUpdated {
                 // Save any model of this provider to trigger keychain sync in store
@@ -310,7 +309,7 @@ struct LLMListView: View {
                 }
             }
         }
-        
+
         if updated {
             refreshModels()
             envKeys.removeAll()

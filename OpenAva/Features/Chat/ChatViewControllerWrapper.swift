@@ -952,15 +952,17 @@ extension ChatViewControllerWrapper {
 
             for model in models {
                 let isSelected = model.name == self.selectedModelName
-                
+
                 var image: UIImage? = nil
-                if let providerType = LLMProvider(rawValue: model.provider) {
-                    image = UIImage(named: providerType.iconName)
+                if let providerType = LLMProvider(rawValue: model.provider),
+                   let rawImage = UIImage(named: providerType.iconName)
+                {
+                    image = standardizedMenuIcon(rawImage)
                 }
                 if image == nil {
                     image = UIImage(systemName: "cpu")
                 }
-                
+
                 let action = UIAction(title: model.name, image: image, state: isSelected ? .on : .off) { [weak self] _ in
                     self?.onModelSwitch?(model.id)
                 }
@@ -996,7 +998,11 @@ extension ChatViewControllerWrapper {
             }
 
             let modelSection = UIMenu(options: .displayInline, children: actions)
-            let thinkingSection = UIMenu(title: L10n.tr("chat.thinkingStrength.title"), children: thinkingActions)
+            let thinkingSection = UIMenu(
+                title: L10n.tr("chat.thinkingStrength.title"),
+                image: UIImage(systemName: selectedThinkingStrength.systemImageName),
+                children: thinkingActions
+            )
             let managementSection = UIMenu(options: .displayInline, children: [addModelAction])
 
             return UIMenu(children: [modelSection, thinkingSection, managementSection])

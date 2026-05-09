@@ -12,6 +12,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     case grok
     case moonshot
     case openrouter
+    case ollama
     case custom = "openai-compatible"
 
     var id: String {
@@ -27,10 +28,11 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .grok: return "xAI (Grok)"
         case .moonshot: return "Moonshot (Kimi)"
         case .openrouter: return "OpenRouter"
+        case .ollama: return "Ollama"
         case .custom: return "Custom (OpenAI Compatible)"
         }
     }
-    
+
     var iconName: String {
         switch self {
         case .openai: return "OpenAI"
@@ -38,8 +40,9 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .google: return "Gemini"
         case .deepseek: return "DeepSeek"
         case .grok: return "Grok"
-        case .moonshot: return "Moonshot" // You might need to add this icon if it doesn't exist
+        case .moonshot: return "Kimi"
         case .openrouter: return "OpenRouter"
+        case .ollama: return "Ollama"
         case .custom: return "Custom" // Or fallback
         }
     }
@@ -54,6 +57,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .grok: return "https://api.x.ai/v1"
         case .moonshot: return "https://api.moonshot.cn/v1"
         case .openrouter: return "https://openrouter.ai/api/v1"
+        case .ollama: return "http://127.0.0.1:11434/v1"
         case .custom: return ""
         }
     }
@@ -61,7 +65,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     /// API path for chat/completions endpoint
     var chatApiPath: String {
         switch self {
-        case .openai, .deepseek, .grok, .moonshot, .openrouter, .custom:
+        case .openai, .deepseek, .grok, .moonshot, .openrouter, .ollama, .custom:
             return "/chat/completions"
         case .anthropic:
             return "/v1/messages"
@@ -73,7 +77,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     /// Default API key header name
     var defaultApiKeyHeader: String {
         switch self {
-        case .openai, .anthropic, .deepseek, .grok, .moonshot, .openrouter, .custom:
+        case .openai, .anthropic, .deepseek, .grok, .moonshot, .openrouter, .ollama, .custom:
             return "Authorization"
         case .google:
             return "x-goog-api-key"
@@ -125,6 +129,12 @@ enum LLMProvider: String, CaseIterable, Identifiable {
                 .init(id: "openai/gpt-5.4", displayName: "OpenAI GPT-5.4", maxContextTokens: 320_000),
                 .init(id: "anthropic/claude-sonnet-4-6", displayName: "Anthropic Claude Sonnet 4.6", maxContextTokens: 200_000),
                 .init(id: "google/gemini-3-flash-preview", displayName: "Google Gemini 3 Flash", maxContextTokens: 320_000),
+            ]
+        case .ollama:
+            return [
+                .init(id: "llama3.3", displayName: "Llama 3.3", maxContextTokens: 128_000),
+                .init(id: "qwen2.5", displayName: "Qwen 2.5", maxContextTokens: 128_000),
+                .init(id: "mistral", displayName: "Mistral", maxContextTokens: 32000),
             ]
         case .custom:
             return []
@@ -186,7 +196,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
 
         // Check if the URL already contains the API path (backward compatibility)
         switch self {
-        case .openai, .deepseek, .grok, .moonshot, .openrouter, .custom:
+        case .openai, .deepseek, .grok, .moonshot, .openrouter, .ollama, .custom:
             if baseString.contains("/chat/completions") {
                 return baseURL
             }
@@ -257,6 +267,9 @@ enum LLMProvider: String, CaseIterable, Identifiable {
             if normalizedEndpoint.contains("moonshot.cn") { return .moonshot }
             if normalizedEndpoint.contains("openrouter.ai") {
                 return .openrouter
+            }
+            if normalizedEndpoint.contains("localhost") || normalizedEndpoint.contains("127.0.0.1") {
+                return .ollama
             }
         }
         if normalizedHeader.caseInsensitiveCompare("x-goog-api-key") == .orderedSame {
