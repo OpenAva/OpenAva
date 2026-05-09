@@ -479,9 +479,20 @@ private struct ModelRow: View {
                 .fill(model.isConfigured ? Color(uiColor: ChatUIDesign.Color.black80).opacity(0.05) : Color(uiColor: ChatUIDesign.Color.black80).opacity(0.02))
                 .frame(width: 40, height: 40)
                 .overlay(
-                    Image(systemName: "cpu")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(model.isConfigured ? Color(uiColor: ChatUIDesign.Color.black60) : Color(uiColor: ChatUIDesign.Color.black50))
+                    Group {
+                        if let providerType = LLMProvider(rawValue: model.provider) {
+                            Image(providerType.iconName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .opacity(model.isConfigured ? 1.0 : 0.4)
+                                .grayscale(model.isConfigured ? 0 : 0.8)
+                        } else {
+                            Image(systemName: "cpu")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(model.isConfigured ? Color(uiColor: ChatUIDesign.Color.black60) : Color(uiColor: ChatUIDesign.Color.black50))
+                        }
+                    }
                 )
 
             // Info

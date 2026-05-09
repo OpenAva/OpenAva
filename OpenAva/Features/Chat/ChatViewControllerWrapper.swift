@@ -952,7 +952,16 @@ extension ChatViewControllerWrapper {
 
             for model in models {
                 let isSelected = model.name == self.selectedModelName
-                let action = UIAction(title: model.name, state: isSelected ? .on : .off) { [weak self] _ in
+                
+                var image: UIImage? = nil
+                if let providerType = LLMProvider(rawValue: model.provider) {
+                    image = UIImage(named: providerType.iconName)
+                }
+                if image == nil {
+                    image = UIImage(systemName: "cpu")
+                }
+                
+                let action = UIAction(title: model.name, image: image, state: isSelected ? .on : .off) { [weak self] _ in
                     self?.onModelSwitch?(model.id)
                 }
                 actions.append(action)

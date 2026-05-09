@@ -30,6 +30,19 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .custom: return "Custom (OpenAI Compatible)"
         }
     }
+    
+    var iconName: String {
+        switch self {
+        case .openai: return "OpenAI"
+        case .anthropic: return "Claude"
+        case .google: return "Gemini"
+        case .deepseek: return "DeepSeek"
+        case .grok: return "Grok"
+        case .moonshot: return "Moonshot" // You might need to add this icon if it doesn't exist
+        case .openrouter: return "OpenRouter"
+        case .custom: return "Custom" // Or fallback
+        }
+    }
 
     /// Default base endpoint URL without API path
     var defaultEndpoint: String {
