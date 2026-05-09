@@ -8,7 +8,7 @@ import UIKit
 
 final class InputEditor: EditorSectionView {
     private let primaryActionSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)
-    let font = UIFont.systemFont(ofSize: 16, weight: .regular)
+    let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     let textHeight: CurrentValueSubject<CGFloat, Never> = .init(0)
     let maxTextEditorHeight: CGFloat = 200
     private var isApplyingTextPresentation = false
@@ -41,6 +41,11 @@ final class InputEditor: EditorSectionView {
             button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
             button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 4)
         }
+        
+        if #available(iOS 16.0, *) {
+            button.preferredMenuElementOrder = .fixed
+        }
+        
         button.showsMenuAsPrimaryAction = true
         return button
     }()
@@ -78,6 +83,10 @@ final class InputEditor: EditorSectionView {
         } else {
             button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 8)
             button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        }
+
+        if #available(iOS 16.0, *) {
+            button.preferredMenuElementOrder = .fixed
         }
 
         button.showsMenuAsPrimaryAction = true
@@ -367,7 +376,14 @@ final class InputEditor: EditorSectionView {
         let image = systemImageName.flatMap { UIImage(systemName: $0)?.withRenderingMode(.alwaysTemplate) }
         if #available(iOS 15.0, *) {
             var configuration = permissionButton.configuration ?? .plain()
-            configuration.title = title
+            if let title, !title.isEmpty {
+                var attributedTitle = AttributedString(title)
+                attributedTitle.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+                configuration.attributedTitle = attributedTitle
+            } else {
+                configuration.attributedTitle = nil
+                configuration.title = nil
+            }
             configuration.image = image
             permissionButton.configuration = configuration
         } else {

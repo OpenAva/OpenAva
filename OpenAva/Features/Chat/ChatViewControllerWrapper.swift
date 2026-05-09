@@ -835,6 +835,7 @@ extension ChatViewControllerWrapper {
         var autoCompactEnabled: Bool
         var onToggleAutoCompact: (() -> Void)?
         weak var chatViewController: ChatViewController?
+        private var titleTapObserver: Any?
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
@@ -889,6 +890,21 @@ extension ChatViewControllerWrapper {
             self.onRenameCurrentAgent = onRenameCurrentAgent
             self.onToggleAutoCompact = onToggleAutoCompact
             super.init()
+
+            self.titleTapObserver = NotificationCenter.default.addObserver(
+                forName: .openAvaDidTapPrincipalTitle,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, let controller = self.chatViewController else { return }
+                self.chatViewControllerDidTapModelTitle(controller)
+            }
+        }
+
+        deinit {
+            if let observer = titleTapObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
 
         private var includesAgentManagementActions: Bool {
@@ -961,7 +977,12 @@ extension ChatViewControllerWrapper {
                 }
             }
 
-            let addModelAction = UIAction(title: L10n.tr("settings.llmList.addModel"), image: UIImage(systemName: "plus")) { [weak self] _ in
+            #if targetEnvironment(macCatalyst)
+            let addModelImage = UIImage(systemName: "plus")
+            #else
+            let addModelImage: UIImage? = nil
+            #endif
+            let addModelAction = UIAction(title: L10n.tr("settings.llmList.addModel"), image: addModelImage) { [weak self] _ in
                 self?.onMenuAction?(.openLLM)
             }
 
