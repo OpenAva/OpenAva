@@ -946,11 +946,7 @@ extension ChatViewControllerWrapper {
                 }
             }
 
-            #if targetEnvironment(macCatalyst)
-                let addModelImage = UIImage(systemName: "plus")
-            #else
-                let addModelImage: UIImage? = nil
-            #endif
+            let addModelImage = UIImage(systemName: "plus")
             let addModelAction = UIAction(title: L10n.tr("settings.llmList.addModel"), image: addModelImage) { [weak self] _ in
                 self?.onMenuAction?(.openLLM)
             }
