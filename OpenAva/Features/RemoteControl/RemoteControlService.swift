@@ -51,11 +51,12 @@ final class RemoteControlService {
                         },
                         onAdvertiserStatusChanged: { status in
                             await MainActor.run {
-                                Self.applyAdvertiserStatus(status)
+                                self.applyAdvertiserStatus(status)
                             }
                         }
                     )
                 } catch {
+                    await host.stop()
                     started = false
                     RemoteControlStatusStore.shared.clearAdvertiseState()
                     RemoteControlStatusStore.shared.updateAdvertiseStatus(
@@ -77,7 +78,7 @@ final class RemoteControlService {
         }
     }
 
-    private static func applyAdvertiserStatus(_ status: LocalControlAdvertiserStatus) {
+    private func applyAdvertiserStatus(_ status: LocalControlAdvertiserStatus) {
         switch status {
         case .setup:
             RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(nil)
@@ -100,6 +101,7 @@ final class RemoteControlService {
             RemoteControlStatusStore.shared.updateAdvertiseStatus(
                 L10n.tr("settings.remoteControl.host.discovery.failed", message)
             )
+            resetAfterAdvertiserStopped()
         case let .serviceRegistered(endpointDescription):
             RemoteControlStatusStore.shared.updateAdvertiseRegistrationStatus(
                 L10n.tr("settings.remoteControl.host.registration.added", endpointDescription)
@@ -110,6 +112,14 @@ final class RemoteControlService {
             )
         case .cancelled:
             RemoteControlStatusStore.shared.clearAdvertiseState()
+            resetAfterAdvertiserStopped()
+        }
+    }
+
+    private func resetAfterAdvertiserStopped() {
+        started = false
+        Task {
+            await host.stop()
         }
     }
 
