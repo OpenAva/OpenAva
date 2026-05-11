@@ -221,6 +221,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let chatClient: (any ChatClient)?
     let toolProvider: ToolProvider?
     let systemPrompt: String?
+    let allAgentsTeam: TeamProfile?
     let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeContext: ActiveSessionContext
@@ -256,7 +257,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     private var resolvedSessionTitle: String {
         switch activeContext {
         case .allAgentsTeam:
-            return L10n.tr("chat.menu.allAgentsTeam")
+            let title = allAgentsTeam?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return title.isEmpty ? L10n.tr("chat.menu.allAgentsTeam") : title
         case let .team(teamID):
             let title = teams.first(where: { $0.id == teamID })?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return title.isEmpty ? L10n.tr("chat.activeTeam.fallbackName") : title
@@ -269,7 +271,8 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     private var resolvedSessionEmoji: String {
         switch activeContext {
         case .allAgentsTeam:
-            return ""
+            let emoji = allAgentsTeam?.emoji.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return emoji.isEmpty ? "👥" : emoji
         case let .team(teamID):
             let emoji = teams.first(where: { $0.id == teamID })?.emoji.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return emoji.isEmpty ? "👥" : emoji
@@ -413,6 +416,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onMenuAction: onMenuAction,
+            allAgentsTeam: allAgentsTeam,
             teams: teams,
             agents: agents,
             activeContext: activeContext,
@@ -566,6 +570,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         } else if sessionContext.isTeamSession {
             let teamRoomContext = TeamRoomOrchestrator.SubmissionContext(
                 activeContext: activeContext,
+                allAgentsTeam: allAgentsTeam,
                 teams: teams,
                 agents: agents,
                 fallbackModelConfig: modelConfig,
@@ -699,6 +704,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
 
         // Keep callbacks and data updated when SwiftUI state changes.
         context.coordinator.onMenuAction = onMenuAction
+        context.coordinator.allAgentsTeam = allAgentsTeam
         context.coordinator.teams = teams
         context.coordinator.agents = agents
         context.coordinator.activeContext = activeContext
@@ -774,6 +780,7 @@ extension ChatViewControllerWrapper {
         /// Tracks the last auto-sent request ID to prevent re-submission on re-render.
         var processedAutoSendID: String?
         var onMenuAction: ((MenuAction) -> Void)?
+        var allAgentsTeam: TeamProfile?
         var teams: [TeamProfile]
         var agents: [AgentProfile]
         var activeContext: ActiveSessionContext
@@ -798,9 +805,12 @@ extension ChatViewControllerWrapper {
         var onToggleAutoCompact: (() -> Void)?
         weak var chatViewController: ChatViewController?
         private var titleTapObserver: Any?
+        private static let remoteAvatarImageCache = NSCache<NSURL, UIImage>()
+        private static var loadingRemoteAvatarURLs = Set<URL>()
 
         init(
             onMenuAction: ((MenuAction) -> Void)?,
+            allAgentsTeam: TeamProfile?,
             teams: [TeamProfile],
             agents: [AgentProfile],
             activeContext: ActiveSessionContext,
@@ -825,6 +835,7 @@ extension ChatViewControllerWrapper {
             onToggleAutoCompact: (() -> Void)?
         ) {
             self.onMenuAction = onMenuAction
+            self.allAgentsTeam = allAgentsTeam
             self.teams = teams
             self.agents = agents
             self.activeContext = activeContext
@@ -868,6 +879,15 @@ extension ChatViewControllerWrapper {
         private var includesAgentManagementActions: Bool {
             if case .agent = activeContext { return activeAgentID != nil }
             return false
+        }
+
+        private var includesTeamRenameAction: Bool {
+            switch activeContext {
+            case .allAgentsTeam, .team:
+                return true
+            case .agent:
+                return false
+            }
         }
 
         func configureInputControls(on controller: ChatViewController) {
@@ -967,7 +987,8 @@ extension ChatViewControllerWrapper {
                 autoCompactEnabled: autoCompactEnabled,
                 isBackgroundEnabled: BackgroundExecutionPreferences.shared.isEnabled,
                 includeBackgroundExecution: true,
-                includeAgentManagement: includesAgentManagementActions
+                includeAgentManagement: includesAgentManagementActions,
+                includeTeamRename: includesTeamRenameAction
             )
             let menus = sections.map { section in
                 UIMenu(
@@ -998,7 +1019,6 @@ extension ChatViewControllerWrapper {
         }
 
         private func presentRenameCurrentAgentAlert(from controller: ChatViewController) {
-            guard activeAgentID != nil else { return }
             let alert = UIAlertController(
                 title: L10n.tr("chat.menu.renameAgentNamed", activeAgentName),
                 message: L10n.tr("chat.menu.renameAlert.message"),
@@ -1171,7 +1191,7 @@ extension ChatViewControllerWrapper {
 
         private func buildAgentMenu() -> UIMenu {
             let workspaceEntries = ChatTopBar.workspaceMenuEntries(workspaces: projectWorkspaces, activeWorkspaceID: activeProjectWorkspaceID)
-            let entries = ChatTopBar.sessionMenuEntries(teams: teams, agents: agents, activeContext: activeContext)
+            let entries = ChatTopBar.sessionMenuEntries(allAgentsTeam: allAgentsTeam, teams: teams, agents: agents, activeContext: activeContext)
             var workspaceListChildren: [UIMenuElement] = []
             var workspaceActionChildren: [UIMenuElement] = []
             var roomChildren: [UIMenuElement] = []
@@ -1401,18 +1421,24 @@ extension ChatViewControllerWrapper {
             )
         }
 
-        private func loadAgentAvatarImage(for profile: AgentProfile) -> UIImage? {
-            guard let data = try? Data(contentsOf: profile.avatarURL), let image = UIImage(data: data) else {
-                return nil
+        private func makeAvatarMenuImage(for profile: AgentProfile, showsRunningIndicator: Bool) -> UIImage? {
+            if let avatarImage = AgentAvatarDefaults.localImage(
+                for: profile.avatarDescriptor,
+                canvasSize: 34
+            ) {
+                return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
             }
-            return image
+
+            if profile.avatarKind == .diceBear,
+               let avatarImage = remoteDiceBearAvatarImage(for: profile.avatarDescriptor.diceBearURL)
+            {
+                return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
+            }
+
+            return nil
         }
 
-        private func makeAvatarMenuImage(for profile: AgentProfile, showsRunningIndicator: Bool) -> UIImage? {
-            guard let avatarImage = loadAgentAvatarImage(for: profile) else {
-                return nil
-            }
-
+        private func makeAvatarMenuImage(from avatarImage: UIImage, showsRunningIndicator: Bool) -> UIImage {
             let size = CGSize(width: 17, height: 17)
             let renderer = UIGraphicsImageRenderer(size: size)
             let image = renderer.image { context in
@@ -1440,13 +1466,38 @@ extension ChatViewControllerWrapper {
             return image.withRenderingMode(.alwaysOriginal)
         }
 
+        private func remoteDiceBearAvatarImage(for url: URL) -> UIImage? {
+            if let cached = Self.remoteAvatarImageCache.object(forKey: url as NSURL) {
+                return cached
+            }
+
+            guard !Self.loadingRemoteAvatarURLs.contains(url) else {
+                return nil
+            }
+            Self.loadingRemoteAvatarURLs.insert(url)
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                let image = data.flatMap(UIImage.init(data:))
+                DispatchQueue.main.async {
+                    Self.loadingRemoteAvatarURLs.remove(url)
+                    if let image {
+                        Self.remoteAvatarImageCache.setObject(image, forKey: url as NSURL)
+                        self?.chatViewController?.refreshNavigationMenus()
+                    }
+                }
+            }.resume()
+            return nil
+        }
+
         private func makeAgentMenuImage(for agentID: UUID, fallbackEmoji: String) -> UIImage? {
             let prefix = "agent:\(agentID.uuidString)::"
             let isRunning = ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
-            if let profile = agents.first(where: { $0.id == agentID }),
-               let avatarImage = makeAvatarMenuImage(for: profile, showsRunningIndicator: isRunning)
-            {
-                return avatarImage
+            if let profile = agents.first(where: { $0.id == agentID }) {
+                if let avatarImage = makeAvatarMenuImage(for: profile, showsRunningIndicator: isRunning) {
+                    return avatarImage
+                }
+                if profile.avatarKind == .diceBear, !isRunning {
+                    return UIImage(systemName: "person.crop.circle")?.withRenderingMode(.alwaysTemplate)
+                }
             }
             return makeEmojiMenuImage(from: fallbackEmoji, showsRunningIndicator: isRunning)
         }

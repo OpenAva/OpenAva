@@ -98,6 +98,19 @@ final class AgentCreationViewModel {
             !data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var agentAvatarDescriptor: AgentAvatarDescriptor {
+        AgentAvatarDefaults.descriptor(
+            kind: data.agentAvatarKind,
+            name: data.agentName,
+            emoji: data.agentEmoji,
+            diceBearSeed: data.agentAvatarSeed
+        )
+    }
+
+    var defaultAgentAvatarURL: URL {
+        agentAvatarDescriptor.diceBearURL
+    }
+
     // MARK: - Initial Setup
 
     func applyAgentDefaultsIfNeeded(avoiding usedEmojis: Set<String>, usedAgentNames: Set<String>) {
@@ -110,7 +123,28 @@ final class AgentCreationViewModel {
 
     func setAgentEmoji(_ emoji: String) {
         data.agentEmoji = emoji
+        data.agentAvatarKind = .emoji
+        data.agentAvatarData = nil
         emojiNoticeText = nil
+    }
+
+    func selectDiceBearAvatar() {
+        data.agentAvatarKind = .diceBear
+        data.agentAvatarData = nil
+        errorText = nil
+    }
+
+    func randomizeDiceBearAvatar() {
+        data.agentAvatarKind = .diceBear
+        data.agentAvatarData = nil
+        data.agentAvatarSeed = UUID().uuidString
+        errorText = nil
+    }
+
+    func randomizeAgentEmojiAvatar(avoiding usedEmojis: Set<String>) {
+        data.agentAvatarKind = .emoji
+        data.agentAvatarData = nil
+        randomizeAgentEmoji(avoiding: usedEmojis)
     }
 
     @discardableResult
@@ -118,12 +152,14 @@ final class AgentCreationViewModel {
         guard !imageData.isEmpty, UIImage(data: imageData) != nil else {
             return false
         }
+        data.agentAvatarKind = .uploaded
         data.agentAvatarData = imageData
         errorText = nil
         return true
     }
 
     func clearAgentAvatar() {
+        data.agentAvatarKind = .diceBear
         data.agentAvatarData = nil
         errorText = nil
     }
@@ -138,11 +174,15 @@ final class AgentCreationViewModel {
         data.agentName = preset.agentName
         data.agentVibe = preset.agentVibe
         data.soulCoreTruths = preset.soulCoreTruths
+        data.agentAvatarKind = .diceBear
+        data.agentAvatarSeed = preset.id
+        data.agentAvatarData = nil
 
         if preset.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             randomizeAgentEmoji(avoiding: usedEmojis)
         } else {
-            setAgentEmoji(preset.agentEmoji)
+            data.agentEmoji = preset.agentEmoji
+            emojiNoticeText = nil
         }
     }
 
@@ -204,7 +244,9 @@ final class AgentCreationViewModel {
 
         let profile = try containerStore.createAgent(
             name: data.agentName,
-            emoji: data.agentEmoji
+            emoji: data.agentEmoji,
+            avatarKind: data.agentAvatarKind,
+            avatarSeed: data.agentAvatarSeed
         )
 
         if let avatarData = data.agentAvatarData {

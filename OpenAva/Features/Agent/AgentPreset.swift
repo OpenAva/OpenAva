@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 struct AgentPreset: Identifiable, Codable, Equatable {
     var id: String
@@ -28,6 +29,147 @@ struct AgentPreset: Identifiable, Codable, Equatable {
         }
 
         return normalized
+    }
+}
+
+enum AgentAvatarKind: String, Codable, Equatable {
+    case diceBear
+    case emoji
+    case uploaded
+}
+
+struct AgentAvatarDescriptor: Equatable {
+    var kind: AgentAvatarKind
+    var name: String
+    var emoji: String
+    var avatarFileURL: URL?
+    var diceBearSeed: String?
+
+    var diceBearURL: URL {
+        AgentAvatarDefaults.diceBearURL(seed: resolvedDiceBearSeed)
+    }
+
+    var resolvedDiceBearSeed: String {
+        let seed = diceBearSeed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !seed.isEmpty {
+            return seed
+        }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? "openava-agent" : trimmedName
+    }
+
+    var displayEmoji: String {
+        let trimmed = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "🤖" : trimmed
+    }
+}
+
+enum AgentAvatarDefaults {
+    static let diceBearBaseURLString = "https://api.dicebear.com/9.x/notionists/png"
+    static let uploadedAvatarIdentityValue = ".avatar"
+
+    static func diceBearURL(seed rawSeed: String) -> URL {
+        var components = URLComponents(string: diceBearBaseURLString)!
+        let seed = rawSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+        components.queryItems = [
+            URLQueryItem(name: "seed", value: seed.isEmpty ? "openava-agent" : seed),
+        ]
+        return components.url!
+    }
+
+    static func descriptor(
+        kind: AgentAvatarKind,
+        name: String,
+        emoji: String,
+        avatarFileURL: URL? = nil,
+        diceBearSeed: String? = nil
+    ) -> AgentAvatarDescriptor {
+        AgentAvatarDescriptor(
+            kind: kind,
+            name: name,
+            emoji: emoji,
+            avatarFileURL: avatarFileURL,
+            diceBearSeed: diceBearSeed
+        )
+    }
+
+    static func localImage(for descriptor: AgentAvatarDescriptor, canvasSize: CGFloat) -> UIImage? {
+        switch descriptor.kind {
+        case .uploaded, .diceBear:
+            guard let avatarFileURL = descriptor.avatarFileURL,
+                  let data = try? Data(contentsOf: avatarFileURL),
+                  let image = UIImage(data: data)
+            else {
+                return nil
+            }
+            return image
+        case .emoji:
+            return emojiImage(from: descriptor.displayEmoji, canvasSize: canvasSize)
+        }
+    }
+
+    static func emojiImage(from emoji: String, canvasSize: CGFloat) -> UIImage? {
+        let trimmed = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        let size = CGSize(width: canvasSize, height: canvasSize)
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let fontSize = canvasSize * 0.62
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: fontSize),
+                .paragraphStyle: paragraph,
+            ]
+            let text = trimmed as NSString
+            let textSize = text.size(withAttributes: attributes)
+            let rect = CGRect(
+                x: (size.width - textSize.width) / 2,
+                y: (size.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            text.draw(in: rect, withAttributes: attributes)
+        }
+    }
+
+    static func identityValue(for descriptor: AgentAvatarDescriptor) -> String? {
+        switch descriptor.kind {
+        case .diceBear:
+            return descriptor.diceBearURL.absoluteString
+        case .uploaded:
+            return uploadedAvatarIdentityValue
+        case .emoji:
+            return nil
+        }
+    }
+
+    static func identityComponents(from value: String?) -> (kind: AgentAvatarKind, seed: String?)? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty
+        else {
+            return nil
+        }
+
+        if let url = URL(string: normalized),
+           url.scheme == "https" || url.scheme == "http",
+           url.host == "api.dicebear.com",
+           url.path == "/9.x/notionists/png"
+        {
+            let seed = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "seed" })?
+                .value
+            return (.diceBear, seed)
+        }
+
+        if normalized == uploadedAvatarIdentityValue {
+            return (.uploaded, nil)
+        }
+
+        return nil
     }
 }
 

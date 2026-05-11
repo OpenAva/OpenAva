@@ -7,7 +7,14 @@ enum AgentTemplateWriter {
     private struct IdentityDocument {
         let name: String
         let emoji: String
+        let avatar: String?
         let vibe: String?
+    }
+
+    private struct TeamIdentityDocument {
+        let name: String
+        let emoji: String
+        let description: String?
     }
 
     private struct UserDocument {
@@ -27,10 +34,11 @@ enum AgentTemplateWriter {
         at workspaceURL: URL,
         name: String,
         emoji: String,
+        avatar: String? = nil,
         vibe: String = "",
         fileManager: FileManager = .default
     ) throws {
-        let content = Self.renderAgent(name: name, emoji: emoji, vibe: vibe)
+        let content = Self.renderAgent(name: name, emoji: emoji, avatar: avatar, vibe: vibe)
         try Self.writeDocument(at: workspaceURL, kind: .identity, content: content, fileManager: fileManager)
     }
 
@@ -46,6 +54,7 @@ enum AgentTemplateWriter {
         at workspaceURL: URL,
         name: String,
         emoji: String?,
+        avatar: String? = nil,
         fileManager: FileManager = .default
     ) throws {
         let normalizedName = defaultedAgentName(from: name)
@@ -60,28 +69,83 @@ enum AgentTemplateWriter {
             if let emoji {
                 updated = updateIdentityField(in: updated, fieldName: "Emoji", value: emoji)
             }
+            if let avatar {
+                updated = updateIdentityField(in: updated, fieldName: "Avatar", value: avatar)
+            }
             content = updated
         } else {
             // Create IDENTITY.md when it does not exist so profile edits always keep metadata in sync.
-            content = renderAgent(name: normalizedName, emoji: emoji ?? "🤖")
+            content = renderAgent(name: normalizedName, emoji: emoji ?? "🤖", avatar: avatar)
         }
 
         try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
         try content.write(to: identityURL, atomically: true, encoding: .utf8)
     }
 
-    static func renderAgent(name: String, emoji: String, vibe: String = "") -> String {
+    static func renderAgent(name: String, emoji: String, avatar: String? = nil, vibe: String = "") -> String {
         let document = IdentityDocument(
             name: Self.defaultedAgentName(from: name),
             emoji: emoji,
+            avatar: Self.normalizedOptional(avatar),
             vibe: Self.normalizedOptional(vibe)
         )
         return Self.serializeIdentity(document)
     }
 
-    static func renderAgent(template _: String, name: String, emoji: String, vibe: String = "") -> String {
+    static func renderAgent(template _: String, name: String, emoji: String, avatar: String? = nil, vibe: String = "") -> String {
         // Keep compatibility for existing call sites while using assembly rendering.
-        renderAgent(name: name, emoji: emoji, vibe: vibe)
+        renderAgent(name: name, emoji: emoji, avatar: avatar, vibe: vibe)
+    }
+
+    // MARK: - Team File
+
+    static func writeTeamFile(
+        at workspaceURL: URL,
+        name: String,
+        emoji: String,
+        description: String? = nil,
+        fileManager: FileManager = .default
+    ) throws {
+        let content = Self.renderTeam(name: name, emoji: emoji, description: description)
+        try Self.writeDocument(at: workspaceURL, kind: .identity, content: content, fileManager: fileManager)
+    }
+
+    static func syncTeamIdentityProfile(
+        at workspaceURL: URL,
+        name: String,
+        emoji: String,
+        description: String?,
+        fileManager: FileManager = .default
+    ) throws {
+        let identityURL = workspaceURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
+        let content: String
+        if fileManager.fileExists(atPath: identityURL.path),
+           let data = try? Data(contentsOf: identityURL),
+           let existing = String(data: data, encoding: .utf8)
+        {
+            var updated = updateIdentityField(in: existing, fieldName: "Name", value: defaultedTeamName(from: name))
+            updated = updateIdentityField(in: updated, fieldName: "Emoji", value: defaultedTeamEmoji(from: emoji))
+            updated = updateIdentityField(
+                in: updated,
+                fieldName: "Description",
+                value: normalizedOptional(description) ?? "_(What is this team trying to accomplish?)_"
+            )
+            content = updated
+        } else {
+            content = renderTeam(name: name, emoji: emoji, description: description)
+        }
+
+        try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        try content.write(to: identityURL, atomically: true, encoding: .utf8)
+    }
+
+    static func renderTeam(name: String, emoji: String, description: String? = nil) -> String {
+        let document = TeamIdentityDocument(
+            name: Self.defaultedTeamName(from: name),
+            emoji: Self.defaultedTeamEmoji(from: emoji),
+            description: Self.normalizedOptional(description)
+        )
+        return Self.serializeTeamIdentity(document)
     }
 
     // MARK: - User File
@@ -209,6 +273,8 @@ enum AgentTemplateWriter {
     private static func serializeIdentity(_ document: IdentityDocument) -> String {
         let vibeBlock = document.vibe.map(Self.indentedBlock)
             ?? "  _(how do you come across? sharp? warm? chaotic? calm?)_"
+        let avatarBlock = document.avatar.map(Self.indentedBlock)
+            ?? "  _(workspace-relative path, http(s) URL, or data URI)_"
 
         return """
         # IDENTITY.md - Who Am I?
@@ -224,7 +290,27 @@ enum AgentTemplateWriter {
         - **Vibe:**
         \(vibeBlock)
         - **Avatar:**
-          _(workspace-relative path, http(s) URL, or data URI)_
+        \(avatarBlock)
+
+        ---
+        """
+    }
+
+    private static func serializeTeamIdentity(_ document: TeamIdentityDocument) -> String {
+        let descriptionBlock = document.description.map(Self.indentedBlock)
+            ?? "  _(What is this team trying to accomplish?)_"
+
+        return """
+        # IDENTITY.md - Team Room
+
+        _Define this team's shared purpose and visible identity._
+
+        - **Name:**
+        \(Self.indentedBlock(document.name))
+        - **Emoji:**
+        \(Self.indentedBlock(document.emoji))
+        - **Description:**
+        \(descriptionBlock)
 
         ---
         """
@@ -325,6 +411,14 @@ enum AgentTemplateWriter {
         return localizedDefaultAgentName()
     }
 
+    private static func defaultedTeamName(from value: String) -> String {
+        normalizedOptional(value) ?? "Team"
+    }
+
+    private static func defaultedTeamEmoji(from value: String) -> String {
+        normalizedOptional(value) ?? "👥"
+    }
+
     private static func localizedDefaultAgentName() -> String {
         // Keep locale-aware default naming simple and predictable.
         let language = (Locale.preferredLanguages.first ?? "").lowercased()
@@ -359,9 +453,7 @@ enum AgentTemplateWriter {
         var lines = content.components(separatedBy: "\n")
         let marker = "- **\(fieldName):**"
         guard let fieldLineIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
-            // Fallback to append a minimal field when template markers are missing.
-            let suffix = content.isEmpty ? "" : "\n"
-            return content + "\(suffix)\(marker)\n\(indentedBlock(value))"
+            return content
         }
 
         let indentedValue = indentedBlock(value)
@@ -381,6 +473,29 @@ enum AgentTemplateWriter {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    static func identityFieldValue(named fieldName: String, in content: String) -> String? {
+        let marker = "- **\(fieldName):**"
+        let lines = content.components(separatedBy: "\n")
+        guard let markerIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
+            return nil
+        }
+
+        var valueLines: [String] = []
+        var index = markerIndex + 1
+        while index < lines.count {
+            let line = lines[index]
+            guard line.hasPrefix("  ") else { break }
+            valueLines.append(String(line.dropFirst(2)))
+            index += 1
+        }
+
+        let value = valueLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.hasPrefix("_(") else {
+            return nil
+        }
+        return value
     }
 
     private static func indentedBlock(_ value: String) -> String {

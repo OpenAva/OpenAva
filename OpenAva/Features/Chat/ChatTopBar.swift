@@ -148,14 +148,21 @@ enum ChatTopBar {
         return items
     }
 
-    static func sessionMenuEntries(teams: [TeamProfile], agents: [AgentProfile], activeContext: ActiveSessionContext) -> [SessionMenuEntry] {
+    static func sessionMenuEntries(
+        allAgentsTeam: TeamProfile? = nil,
+        teams: [TeamProfile],
+        agents: [AgentProfile],
+        activeContext: ActiveSessionContext
+    ) -> [SessionMenuEntry] {
         var items: [SessionMenuEntry] = []
+        let allAgentsTitle = allAgentsTeam?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let allAgentsEmoji = allAgentsTeam?.emoji.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         items.append(SessionMenuEntry(
             id: "session-globalTeam",
             kind: .allAgentsTeam,
-            title: L10n.tr("chat.menu.allAgentsTeam"),
-            emoji: "",
+            title: allAgentsTitle.isEmpty ? L10n.tr("chat.menu.allAgentsTeam") : allAgentsTitle,
+            emoji: allAgentsEmoji,
             isSelected: activeContext == .allAgentsTeam
         ))
 
@@ -208,7 +215,8 @@ enum ChatTopBar {
         autoCompactEnabled: Bool,
         isBackgroundEnabled: Bool,
         includeBackgroundExecution: Bool,
-        includeAgentManagement: Bool = true
+        includeAgentManagement: Bool = true,
+        includeTeamRename: Bool = false
     ) -> [ConfigurationSection] {
         let coreItems = [
             ConfigurationItem(
@@ -263,21 +271,25 @@ enum ChatTopBar {
         ]
 
         var managementItems: [ConfigurationItem] = []
-        if includeAgentManagement {
-            managementItems.append(contentsOf: [
+        if includeAgentManagement || includeTeamRename {
+            managementItems.append(
                 ConfigurationItem(
                     id: "rename-agent",
                     kind: .renameAgent,
                     title: L10n.tr("chat.menu.renameAgent"),
                     systemImage: "pencil"
-                ),
+                )
+            )
+        }
+        if includeAgentManagement {
+            managementItems.append(
                 ConfigurationItem(
                     id: "delete-agent",
                     kind: .deleteAgent,
                     title: L10n.tr("chat.menu.deleteAgent"),
                     systemImage: "trash"
-                ),
-            ])
+                )
+            )
         }
 
         var sections: [ConfigurationSection] = [

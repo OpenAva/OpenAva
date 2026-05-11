@@ -30,12 +30,62 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: profile.workspaceURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: profile.contextURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: profile.contextURL.path))
+        let metadata = try XCTUnwrap(ChatContextMetadata.load(from: profile.contextURL))
+        XCTAssertEqual(metadata.thinkingStrength, .medium)
+        XCTAssertTrue(metadata.autoCompactEnabled)
+        XCTAssertLessThanOrEqual(metadata.createdAt, Date())
 
         let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceRootURL))
         let projectText = try String(contentsOf: projectURL, encoding: .utf8)
         XCTAssertTrue(projectText.contains(profile.id.uuidString))
         XCTAssertTrue(projectText.contains("\"activeAgentID\""))
         XCTAssertFalse(projectText.contains("\"agents\""))
+    }
+
+    func testCreateAgentWritesDiceBearAvatarToIdentity() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Nova",
+            emoji: "🦊",
+            avatarKind: .diceBear,
+            avatarSeed: "nova-seed",
+            workspaceRootURL: workspaceRootURL
+        )
+
+        let identityText = try String(
+            contentsOf: profile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("- **Avatar:**"))
+        XCTAssertTrue(identityText.contains("https://api.dicebear.com/9.x/notionists/png?seed=nova-seed"))
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .diceBear)
+        XCTAssertEqual(snapshot.activeAgent?.avatarSeed, "nova-seed")
+    }
+
+    func testCreateAgentWritesUploadedAvatarPathToIdentity() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Nova",
+            emoji: "🦊",
+            avatarKind: .uploaded,
+            workspaceRootURL: workspaceRootURL
+        )
+
+        let identityText = try String(
+            contentsOf: profile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("- **Avatar:**"))
+        XCTAssertTrue(identityText.contains("  .avatar"))
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .uploaded)
     }
 
     func testSetSelectedModelPersistsForAgent() throws {
@@ -58,6 +108,8 @@ final class AgentStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(active.selectedModelID, modelID)
+        let metadata = try XCTUnwrap(ChatContextMetadata.load(from: active.contextURL))
+        XCTAssertEqual(metadata.selectedModelID, modelID)
     }
 
     func testUpdateAgentSyncsIdentityMetadataUsedByDiscovery() throws {
@@ -274,7 +326,8 @@ final class AgentStoreTests: XCTestCase {
         try AgentTemplateWriter.writeAgentFile(
             at: agentDirectoryURL,
             name: "Copied Agent",
-            emoji: "🧬"
+            emoji: "🧬",
+            avatar: "https://api.dicebear.com/9.x/notionists/png?seed=copied"
         )
 
         let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
@@ -283,6 +336,8 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.activeAgentID, agentID)
         XCTAssertEqual(snapshot.activeAgent?.name, "Copied Agent")
         XCTAssertEqual(snapshot.activeAgent?.emoji, "🧬")
+        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .diceBear)
+        XCTAssertEqual(snapshot.activeAgent?.avatarSeed, "copied")
         XCTAssertEqual(
             snapshot.activeAgent?.contextURL.path,
             agentDirectoryURL.path

@@ -40,6 +40,27 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         XCTAssertEqual(viewModel.data.agentEmoji, "⚡️")
         XCTAssertEqual(viewModel.data.agentVibe, "Direct")
         XCTAssertEqual(viewModel.data.soulCoreTruths, "Reason step by step\nOffer actionable suggestions")
+        XCTAssertEqual(viewModel.data.agentAvatarKind, .diceBear)
+        XCTAssertEqual(viewModel.data.agentAvatarSeed, "jett")
+    }
+
+    func testDefaultAvatarUsesDiceBearNotionistsURL() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        viewModel.data.agentName = "Nova Explorer"
+
+        XCTAssertEqual(
+            viewModel.defaultAgentAvatarURL.absoluteString,
+            "https://api.dicebear.com/9.x/notionists/png?seed=Nova%20Explorer"
+        )
+    }
+
+    func testSelectingEmojiSwitchesAvatarKindToEmoji() {
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+
+        viewModel.setAgentEmoji("🦊")
+
+        XCTAssertEqual(viewModel.data.agentAvatarKind, .emoji)
+        XCTAssertEqual(viewModel.agentAvatarDescriptor.displayEmoji, "🦊")
     }
 
     func testApplyPresetWithoutEmojiFallsBackToRandomEmoji() {
@@ -151,14 +172,16 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         viewModel.data.userCallName = "Yuan"
         viewModel.data.agentName = "Nova"
         viewModel.data.agentEmoji = "🦊"
-        viewModel.data.agentAvatarData = try XCTUnwrap(
+        let avatarData = try XCTUnwrap(
             Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5EYAAAAASUVORK5CYII=")
         )
+        XCTAssertTrue(viewModel.setAgentAvatarData(avatarData))
 
         try await viewModel.createAgent(containerStore: containerStore)
 
         let createdProfile = try XCTUnwrap(containerStore.activeAgent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: createdProfile.avatarURL.path))
+        XCTAssertEqual(createdProfile.avatarKind, .uploaded)
     }
 
     func testCreateAgentDoesNotCreateWorkspaceAgentsFile() async throws {

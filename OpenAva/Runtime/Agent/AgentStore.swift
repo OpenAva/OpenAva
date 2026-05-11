@@ -14,6 +14,10 @@ struct AgentProfile: Equatable, Identifiable {
     var selectedModelID: UUID?
     /// Per-agent reasoning/thinking strength preference.
     var thinkingStrength: ChatThinkingStrength
+    /// Visual avatar source for UI surfaces.
+    var avatarKind: AgentAvatarKind
+    /// Optional stable seed used by DiceBear avatars.
+    var avatarSeed: String?
     var createdAtMs: Int64
     /// Whether to automatically compact context when nearing the context window limit.
     var autoCompactEnabled: Bool
@@ -29,6 +33,16 @@ struct AgentProfile: Equatable, Identifiable {
 
     var avatarURL: URL {
         contextURL.appendingPathComponent(Self.avatarFileName, isDirectory: false)
+    }
+
+    var avatarDescriptor: AgentAvatarDescriptor {
+        AgentAvatarDefaults.descriptor(
+            kind: avatarKind,
+            name: name,
+            emoji: emoji,
+            avatarFileURL: avatarURL,
+            diceBearSeed: avatarSeed
+        )
     }
 
     /// Rebases a persisted sandbox-absolute path onto the current iOS app container.
@@ -68,6 +82,8 @@ struct AgentProfile: Equatable, Identifiable {
         localContextPath: String,
         selectedModelID: UUID? = nil,
         thinkingStrength: ChatThinkingStrength = .medium,
+        avatarKind: AgentAvatarKind = .emoji,
+        avatarSeed: String? = nil,
         createdAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
         autoCompactEnabled: Bool = true
     ) {
@@ -78,6 +94,8 @@ struct AgentProfile: Equatable, Identifiable {
         self.localContextPath = localContextPath
         self.selectedModelID = selectedModelID
         self.thinkingStrength = thinkingStrength
+        self.avatarKind = avatarKind
+        self.avatarSeed = avatarSeed
         self.createdAtMs = createdAtMs
         self.autoCompactEnabled = autoCompactEnabled
     }
@@ -85,22 +103,27 @@ struct AgentProfile: Equatable, Identifiable {
 
 extension AgentProfile: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, name, emoji, workspacePath, localContextPath
-        case selectedModelID, thinkingStrength, createdAtMs
-        case autoCompactEnabled
+        case id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        emoji = try c.decode(String.self, forKey: .emoji)
-        workspacePath = try c.decode(String.self, forKey: .workspacePath)
-        localContextPath = try c.decode(String.self, forKey: .localContextPath)
-        selectedModelID = try c.decodeIfPresent(UUID.self, forKey: .selectedModelID)
-        thinkingStrength = try c.decodeIfPresent(ChatThinkingStrength.self, forKey: .thinkingStrength) ?? .medium
-        createdAtMs = try c.decode(Int64.self, forKey: .createdAtMs)
-        autoCompactEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCompactEnabled) ?? true
+        name = ""
+        emoji = "🤖"
+        workspacePath = ""
+        localContextPath = ""
+        selectedModelID = nil
+        thinkingStrength = .medium
+        avatarKind = .emoji
+        avatarSeed = nil
+        createdAtMs = Int64(Date().timeIntervalSince1970 * 1000)
+        autoCompactEnabled = true
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
     }
 }
 
@@ -363,6 +386,8 @@ enum AgentStore {
     static func createAgent(
         name: String,
         emoji: String,
+        avatarKind: AgentAvatarKind = .emoji,
+        avatarSeed: String? = nil,
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) throws -> AgentProfile {
@@ -381,13 +406,16 @@ enum AgentStore {
             name: normalizedAgentName,
             emoji: normalizedEmoji(emoji),
             workspacePath: workspaceURL.path,
-            localContextPath: contextURL.path
+            localContextPath: contextURL.path,
+            avatarKind: avatarKind,
+            avatarSeed: normalizedAvatarSeed(avatarSeed)
         )
         persistAgentMetadata(profile, fileManager: fileManager)
         try AgentTemplateWriter.writeAgentFile(
             at: contextURL,
             name: profile.name,
             emoji: profile.emoji,
+            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
             fileManager: fileManager
         )
 
@@ -418,8 +446,10 @@ enum AgentStore {
             at: profile.contextURL,
             name: profile.name,
             emoji: profile.emoji,
+            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
             fileManager: fileManager
         )
+        persistAgentMetadata(profile, fileManager: fileManager)
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return profile
     }
@@ -456,6 +486,7 @@ enum AgentStore {
             name: profile.name,
             fileManager: fileManager
         )
+        persistAgentMetadata(profile, fileManager: fileManager)
         persist(state: state, fileManager: fileManager, workspaceRootURL: rootURL)
         return profile
     }
@@ -617,11 +648,6 @@ enum AgentStore {
             .appendingPathComponent(agentID.uuidString, isDirectory: true)
     }
 
-    private struct IdentityMetadata {
-        var name: String?
-        var emoji: String?
-    }
-
     private static func loadAgentMetadata(agentID: UUID, workspaceRootURL: URL) -> ChatContextMetadata? {
         ChatContextMetadata.load(from: agentContextDirectory(for: agentID, workspaceRootURL: workspaceRootURL))
     }
@@ -630,8 +656,11 @@ enum AgentStore {
         let metadata = ChatContextMetadata(
             selectedModelID: profile.selectedModelID,
             thinkingStrength: profile.thinkingStrength,
-            createdAtMs: profile.createdAtMs,
-            autoCompactEnabled: profile.autoCompactEnabled
+            createdAt: Date(timeIntervalSince1970: TimeInterval(profile.createdAtMs) / 1000),
+            updatedAt: Date(),
+            autoCompactEnabled: profile.autoCompactEnabled,
+            avatarKind: profile.avatarKind,
+            avatarSeed: profile.avatarSeed
         )
         ChatContextMetadata.persist(metadata, to: profile.contextURL, fileManager: fileManager)
     }
@@ -643,14 +672,14 @@ enum AgentStore {
         let agentsRootURL = agentsRootDirectory(workspaceRootURL: workspaceRootURL)
         guard let directoryURLs = try? fileManager.contentsOfDirectory(
             at: agentsRootURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .creationDateKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else {
             return []
         }
 
         return directoryURLs.compactMap { directoryURL -> AgentProfile? in
-            let resourceValues = try? directoryURL.resourceValues(forKeys: [.isDirectoryKey, .creationDateKey])
+            let resourceValues = try? directoryURL.resourceValues(forKeys: [.isDirectoryKey])
             guard resourceValues?.isDirectory == true,
                   let agentID = UUID(uuidString: directoryURL.lastPathComponent)
             else {
@@ -658,25 +687,28 @@ enum AgentStore {
             }
 
             let identityURL = directoryURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
-            guard fileManager.fileExists(atPath: identityURL.path) else {
+            guard let agentMetadata = loadAgentMetadata(agentID: agentID, workspaceRootURL: workspaceRootURL),
+                  let identity = identityMetadata(at: identityURL),
+                  let name = identity.name,
+                  let emoji = identity.emoji
+            else {
                 return nil
             }
 
-            let identityMetadata = identityMetadata(at: identityURL)
-            let agentMetadata = loadAgentMetadata(agentID: agentID, workspaceRootURL: workspaceRootURL)
-            let createdAtMs = agentMetadata?.createdAtMs
-                ?? Int64((resourceValues?.creationDate ?? Date()).timeIntervalSince1970 * 1000)
+            let identityAvatar = AgentAvatarDefaults.identityComponents(from: identity.avatar)
 
             return AgentProfile(
                 id: agentID,
-                name: normalizedName(identityMetadata.name ?? "Agent"),
-                emoji: normalizedEmoji(identityMetadata.emoji ?? "🤖"),
+                name: normalizedName(name),
+                emoji: normalizedEmoji(emoji),
                 workspacePath: workspaceRootURL.standardizedFileURL.path,
                 localContextPath: directoryURL.standardizedFileURL.path,
-                selectedModelID: agentMetadata?.selectedModelID,
-                thinkingStrength: agentMetadata?.thinkingStrength ?? .medium,
-                createdAtMs: createdAtMs,
-                autoCompactEnabled: agentMetadata?.autoCompactEnabled ?? true
+                selectedModelID: agentMetadata.selectedModelID,
+                thinkingStrength: agentMetadata.thinkingStrength,
+                avatarKind: identityAvatar?.kind ?? .emoji,
+                avatarSeed: normalizedAvatarSeed(identityAvatar?.seed),
+                createdAtMs: Int64(agentMetadata.createdAt.timeIntervalSince1970 * 1000),
+                autoCompactEnabled: agentMetadata.autoCompactEnabled
             )
         }
         .sorted { lhs, rhs in
@@ -687,40 +719,24 @@ enum AgentStore {
         }
     }
 
-    private static func identityMetadata(at identityURL: URL) -> IdentityMetadata {
+    private struct IdentityMetadata {
+        var name: String?
+        var emoji: String?
+        var avatar: String?
+    }
+
+    private static func identityMetadata(at identityURL: URL) -> IdentityMetadata? {
         guard let data = try? Data(contentsOf: identityURL),
               let content = String(data: data, encoding: .utf8)
         else {
-            return IdentityMetadata()
+            return nil
         }
 
         return IdentityMetadata(
-            name: markdownFieldValue(named: "Name", in: content),
-            emoji: markdownFieldValue(named: "Emoji", in: content)
+            name: AgentTemplateWriter.identityFieldValue(named: "Name", in: content),
+            emoji: AgentTemplateWriter.identityFieldValue(named: "Emoji", in: content),
+            avatar: AgentTemplateWriter.identityFieldValue(named: "Avatar", in: content)
         )
-    }
-
-    private static func markdownFieldValue(named fieldName: String, in content: String) -> String? {
-        let marker = "- **\(fieldName):**"
-        let lines = content.components(separatedBy: "\n")
-        guard let markerIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
-            return nil
-        }
-
-        var valueLines: [String] = []
-        var index = markerIndex + 1
-        while index < lines.count {
-            let line = lines[index]
-            guard line.hasPrefix("  ") else { break }
-            valueLines.append(String(line.dropFirst(2)))
-            index += 1
-        }
-
-        let value = valueLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !value.hasPrefix("_(") else {
-            return nil
-        }
-        return value
     }
 
     private static func resolvedWorkspaceRootDirectory(
@@ -778,6 +794,10 @@ enum AgentStore {
 
     private static func normalizedEmoji(_ value: String) -> String {
         nonEmpty(value) ?? "🤖"
+    }
+
+    private static func normalizedAvatarSeed(_ value: String?) -> String? {
+        nonEmpty(value)
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

@@ -328,10 +328,10 @@
 "chat.menu.renameAgentNamed" = "重命名「%@」";
 "chat.menu.deleteAgentNamed" = "删除「%@」";
 "chat.menu.thisAgent" = "该 Agent";
-"chat.menu.renameAlert.message" = "请输入新的 Agent 名称。";
-"chat.menu.renameAlert.placeholder" = "输入 Agent 名称";
+"chat.menu.renameAlert.message" = "请输入新的名称。";
+"chat.menu.renameAlert.placeholder" = "输入名称";
 "chat.menu.renameFailed.title" = "重命名失败";
-"chat.menu.renameFailed.message" = "无法重命名 Agent，请稍后重试。";
+"chat.menu.renameFailed.message" = "无法重命名当前项，请稍后重试。";
 "chat.menu.deleteAlert.title" = "删除当前 Agent？";
 "chat.menu.deleteAlert.message" = "确认删除 %@ 吗？此操作不可撤销。";
 "chat.menu.noAgentsAvailable" = "暂无可用 Agent";

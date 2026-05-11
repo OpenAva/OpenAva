@@ -18,6 +18,12 @@ struct AgentCreationData {
     /// Agent emoji signature.
     var agentEmoji: String = "🦞"
 
+    /// Selected avatar source.
+    var agentAvatarKind: AgentAvatarKind = .diceBear
+
+    /// Stable seed for a manually refreshed DiceBear avatar.
+    var agentAvatarSeed: String?
+
     /// Optional uploaded avatar image data.
     var agentAvatarData: Data?
 

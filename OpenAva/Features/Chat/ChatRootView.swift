@@ -210,6 +210,7 @@ struct ChatRootView: View {
             teamSessionsRootURL: containerStore.teamSessionsRootURL,
             projectWorkspaces: containerStore.projectWorkspaces,
             activeProjectWorkspaceID: containerStore.activeProjectWorkspace?.id,
+            allAgentsTeam: containerStore.allAgentsTeam,
             teams: containerStore.teams,
             agents: containerStore.agents,
             activeContext: activeContext,
@@ -229,7 +230,7 @@ struct ChatRootView: View {
             onCreateWorkspace: openWorkspaceCreation,
             onCreateLocalAgent: openLocalAgentCreation,
             onDeleteCurrentAgent: handleDeleteCurrentAgent,
-            onRenameCurrentAgent: handleRenameCurrentAgent,
+            onRenameCurrentAgent: handleRenameCurrentContext,
             autoCompactEnabled: autoCompactEnabled,
             showsSystemTopBar: isMainChatActive,
             onToggleAutoCompact: toggleAutoCompact
@@ -413,6 +414,15 @@ struct ChatRootView: View {
         return true
     }
 
+    private func handleRenameCurrentContext(_ name: String) -> Bool {
+        switch visibleActiveSessionContext {
+        case .agent:
+            return handleRenameCurrentAgent(name)
+        case .allAgentsTeam, .team:
+            return containerStore.renameActiveTeam(to: name)
+        }
+    }
+
     private func scopedSessionID(for sessionKey: String, context: ActiveSessionContext) -> String {
         switch context {
         case .allAgentsTeam, .team:
@@ -538,7 +548,7 @@ struct ChatRootView: View {
     private var currentActiveAgentName: String {
         switch visibleActiveSessionContext {
         case .allAgentsTeam:
-            return L10n.tr("chat.menu.allAgentsTeam")
+            return containerStore.allAgentsTeam?.name ?? L10n.tr("chat.menu.allAgentsTeam")
         case let .team(teamID):
             return activeTeamProfile(for: teamID)?.name ?? L10n.tr("chat.activeTeam.fallbackName")
         case .agent:
@@ -549,7 +559,7 @@ struct ChatRootView: View {
     private var currentActiveAgentEmoji: String {
         switch visibleActiveSessionContext {
         case .allAgentsTeam:
-            return ""
+            return containerStore.allAgentsTeam?.emoji ?? ""
         case let .team(teamID):
             return activeTeamProfile(for: teamID)?.emoji ?? "👥"
         case .agent:
@@ -574,6 +584,7 @@ private struct ChatScreen: View {
     let teamSessionsRootURL: URL?
     let projectWorkspaces: [ProjectWorkspaceProfile]
     let activeProjectWorkspaceID: UUID?
+    let allAgentsTeam: TeamProfile?
     let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeContext: ActiveSessionContext
@@ -668,7 +679,12 @@ private struct ChatScreen: View {
         }
 
         private var topBarSessionMenuEntries: [ChatTopBar.SessionMenuEntry] {
-            ChatTopBar.sessionMenuEntries(teams: teams, agents: agents, activeContext: activeContext)
+            ChatTopBar.sessionMenuEntries(
+                allAgentsTeam: allAgentsTeam,
+                teams: teams,
+                agents: agents,
+                activeContext: activeContext
+            )
         }
 
         private var topBarConfigurationSections: [ChatTopBar.ConfigurationSection] {
@@ -676,13 +692,23 @@ private struct ChatScreen: View {
                 autoCompactEnabled: autoCompactEnabled,
                 isBackgroundEnabled: BackgroundExecutionPreferences.shared.isEnabled,
                 includeBackgroundExecution: false,
-                includeAgentManagement: isAgentContext
+                includeAgentManagement: isAgentContext,
+                includeTeamRename: isTeamRoomContext
             )
         }
 
         private var isAgentContext: Bool {
             if case .agent = activeContext { return true }
             return false
+        }
+
+        private var isTeamRoomContext: Bool {
+            switch activeContext {
+            case .allAgentsTeam, .team:
+                return true
+            case .agent:
+                return false
+            }
         }
 
         private func shouldInsertDividerBeforeSessionEntry(at index: Int) -> Bool {
@@ -885,12 +911,14 @@ private struct ChatScreen: View {
         container.config.agent.thinkingStrength
     }
 
-    private var toolInvocationSessionID: String {
+    private var runtimeContextIdentity: String {
         switch activeContext {
-        case .allAgentsTeam, .team:
-            "global::\(scopedSessionID)"
+        case .allAgentsTeam:
+            "team:\(TeamStore.allAgentsTeamID.uuidString):\(scopedSessionID)"
+        case let .team(teamID):
+            "team:\(teamID.uuidString):\(scopedSessionID)"
         case .agent:
-            "\(activeAgentID?.uuidString ?? "global")::\(scopedSessionID)"
+            "agent:\(activeAgentID?.uuidString ?? "global"):\(scopedSessionID)"
         }
     }
 
@@ -903,9 +931,10 @@ private struct ChatScreen: View {
             chatClient: container.services.chatClient,
             toolProvider: ToolRegistryProvider(
                 toolRuntime: container.services.toolRuntime,
-                invocationSessionID: toolInvocationSessionID
+                invocationSessionID: runtimeContextIdentity
             ),
             systemPrompt: container.config.selectedLLMModel?.systemPrompt,
+            allAgentsTeam: allAgentsTeam,
             teams: teams,
             agents: agents,
             activeContext: activeContext,
@@ -936,7 +965,7 @@ private struct ChatScreen: View {
             showsSystemTopBar: showsSystemTopBar,
             onToggleAutoCompact: onToggleAutoCompact
         )
-        .id(scopedSessionID)
+        .id(runtimeContextIdentity)
         .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
         .ignoresSafeArea()
         #if targetEnvironment(macCatalyst)

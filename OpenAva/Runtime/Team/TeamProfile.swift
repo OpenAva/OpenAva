@@ -10,13 +10,6 @@ enum TeamTopologyKind: String, Codable, CaseIterable {
 struct TeamProfile: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id
-        case name
-        case emoji
-        case description
-        case agentPoolIDs
-        case defaultTopology
-        case createdAt
-        case updatedAt
     }
 
     var id: UUID
@@ -29,8 +22,8 @@ struct TeamProfile: Codable, Equatable, Identifiable {
     var updatedAt: Date
     var selectedModelID: UUID?
     var thinkingStrength: ChatThinkingStrength
-    var createdAtMs: Int64
     var autoCompactEnabled: Bool
+    var identityDocument: String?
 
     init(
         id: UUID = UUID(),
@@ -43,8 +36,8 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         updatedAt: Date = Date(),
         selectedModelID: UUID? = nil,
         thinkingStrength: ChatThinkingStrength = .medium,
-        createdAtMs: Int64? = nil,
-        autoCompactEnabled: Bool = true
+        autoCompactEnabled: Bool = true,
+        identityDocument: String? = nil
     ) {
         self.id = id
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,23 +50,23 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.selectedModelID = selectedModelID
         self.thinkingStrength = thinkingStrength
-        self.createdAtMs = createdAtMs ?? Int64(createdAt.timeIntervalSince1970 * 1000)
         self.autoCompactEnabled = autoCompactEnabled
+        self.identityDocument = identityDocument
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        emoji = try container.decodeIfPresent(String.self, forKey: .emoji) ?? "👥"
-        description = try container.decodeIfPresent(String.self, forKey: .description)
-        agentPoolIDs = try container.decode([UUID].self, forKey: .agentPoolIDs)
-        defaultTopology = try container.decode(TeamTopologyKind.self, forKey: .defaultTopology)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        name = ""
+        emoji = "👥"
+        description = nil
+        agentPoolIDs = []
+        defaultTopology = .automatic
+        createdAt = Date()
+        updatedAt = createdAt
         selectedModelID = nil
         thinkingStrength = .medium
-        createdAtMs = Int64(createdAt.timeIntervalSince1970 * 1000)
         autoCompactEnabled = true
+        identityDocument = nil
     }
 }

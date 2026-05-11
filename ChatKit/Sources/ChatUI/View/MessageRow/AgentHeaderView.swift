@@ -5,12 +5,17 @@
 //  Message-level identity header for team/agent assistant turns.
 //
 
+import Foundation
 import UIKit
+
+@MainActor private let agentHeaderAvatarImageCache = NSCache<NSURL, UIImage>()
 
 final class AgentHeaderView: MessageListRowView {
     private let avatarContainerView = UIView()
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
+    private var avatarTask: URLSessionDataTask?
+    private var representedAvatarURL: URL?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -22,7 +27,7 @@ final class AgentHeaderView: MessageListRowView {
         avatarContainerView.layer.borderColor = ChatUIDesign.Color.oatBorder.cgColor
         avatarContainerView.clipsToBounds = true
 
-        avatarImageView.contentMode = .center
+        avatarImageView.contentMode = .scaleAspectFill
         avatarContainerView.addSubview(avatarImageView)
 
         nameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -40,11 +45,16 @@ final class AgentHeaderView: MessageListRowView {
     func configure(with header: MessageListView.AgentHeaderRepresentation) {
         avatarImageView.image = header.displayEmoji.emojiImage(canvasSize: MessageListRowView.agentAvatarSize)
         nameLabel.text = header.displayName
+        representedAvatarURL = header.resolvedAvatarURL
+        loadAvatarImageIfNeeded(from: header.resolvedAvatarURL)
         setNeedsLayout()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        avatarTask?.cancel()
+        avatarTask = nil
+        representedAvatarURL = nil
         avatarImageView.image = nil
         nameLabel.text = nil
     }
@@ -63,5 +73,37 @@ final class AgentHeaderView: MessageListRowView {
             width: max(0, contentView.bounds.width - nameX),
             height: avatarSize
         )
+    }
+
+    private func loadAvatarImageIfNeeded(from url: URL?) {
+        avatarTask?.cancel()
+        avatarTask = nil
+
+        guard let url else { return }
+        if let cached = agentHeaderAvatarImageCache.object(forKey: url as NSURL) {
+            avatarImageView.image = cached
+            return
+        }
+
+        if url.isFileURL {
+            guard let data = try? Data(contentsOf: url),
+                  let image = UIImage(data: data)
+            else {
+                return
+            }
+            agentHeaderAvatarImageCache.setObject(image, forKey: url as NSURL)
+            avatarImageView.image = image
+            return
+        }
+
+        avatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                agentHeaderAvatarImageCache.setObject(image, forKey: url as NSURL)
+                guard let self, self.representedAvatarURL == url else { return }
+                self.avatarImageView.image = image
+            }
+        }
+        avatarTask?.resume()
     }
 }

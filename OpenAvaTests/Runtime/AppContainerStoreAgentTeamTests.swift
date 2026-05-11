@@ -112,11 +112,201 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         let team = try XCTUnwrap(containerStore.createTeam(name: "Core Team", emoji: "🧭", description: "Main coordination team"))
         XCTAssertEqual(containerStore.teams.map(\.name), ["Core Team"])
         XCTAssertEqual(containerStore.teams.map(\.emoji), ["🧭"])
+        XCTAssertEqual(containerStore.teams.first?.description, "Main coordination team")
         XCTAssertTrue(team.agentPoolIDs.isEmpty)
+
+        let metadata = try XCTUnwrap(TeamStore.loadMetadata(for: .team(team.id), workspaceRootURL: workspaceRootURL))
+        XCTAssertEqual(metadata.agentPoolIDs, [])
+        XCTAssertEqual(metadata.defaultTopology, .automatic)
+        let teamDirectoryURL = try XCTUnwrap(
+            TeamStore.contextDirectoryURL(for: .team(team.id), workspaceRootURL: workspaceRootURL)
+        )
+        let identityURL = teamDirectoryURL.appendingPathComponent("IDENTITY.md", isDirectory: false)
+        let identityText = try String(contentsOf: identityURL, encoding: .utf8)
+        XCTAssertTrue(identityText.contains("  Core Team"))
+        XCTAssertTrue(identityText.contains("  🧭"))
+        XCTAssertTrue(identityText.contains("  Main coordination team"))
 
         let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
         let updatedTeam = try XCTUnwrap(containerStore.addAgents([agent.id], toTeam: team.id))
         XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
+    }
+
+    func testCreateAgentDefaultsToFirstConfiguredModel() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let unavailableModelID = UUID()
+        let availableModelID = UUID()
+        let config = AppConfig(
+            session: .init(defaultSessionKey: "main"),
+            llmCollection: .init(models: [
+                .init(
+                    id: unavailableModelID,
+                    name: "Missing API Key",
+                    endpoint: URL(string: "https://example.invalid/v1"),
+                    apiKey: nil,
+                    apiKeyHeader: "Authorization",
+                    model: "missing-key",
+                    provider: LLMProvider.custom.rawValue,
+                    systemPrompt: nil,
+                    contextTokens: 128_000,
+                    requestTimeoutMs: 60000
+                ),
+                .init(
+                    id: availableModelID,
+                    name: "Configured",
+                    endpoint: URL(string: "https://example.invalid/v1"),
+                    apiKey: "test-key",
+                    apiKeyHeader: "Authorization",
+                    model: "configured-model",
+                    provider: LLMProvider.custom.rawValue,
+                    systemPrompt: nil,
+                    contextTokens: 128_000,
+                    requestTimeoutMs: 60000
+                ),
+            ]),
+            agent: .init(
+                id: nil,
+                name: "Agent",
+                emoji: "🤖",
+                selectedLLMModelID: nil,
+                thinkingStrength: .medium,
+                workspaceRootURL: nil,
+                supportRootURL: nil
+            )
+        )
+        let containerStore = AppContainerStore(
+            container: .make(config: config),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
+
+        let metadata = try XCTUnwrap(ChatContextMetadata.load(from: agent.contextURL))
+        XCTAssertEqual(metadata.selectedModelID, availableModelID)
+        XCTAssertNotEqual(metadata.selectedModelID, unavailableModelID)
+    }
+
+    func testRenameActiveTeamUpdatesIdentityDocumentAndReloadedProfile() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+        let team = try XCTUnwrap(containerStore.createTeam(name: "Core Team", emoji: "🧭", description: "Main coordination team"))
+
+        XCTAssertTrue(containerStore.setActiveSessionContext(.team(team.id)))
+        XCTAssertTrue(containerStore.renameActiveTeam(to: "Planning Room"))
+
+        let reloaded = try XCTUnwrap(TeamStore.team(id: team.id, workspaceRootURL: workspaceRootURL))
+        XCTAssertEqual(reloaded.name, "Planning Room")
+        XCTAssertEqual(reloaded.emoji, "🧭")
+        XCTAssertEqual(reloaded.description, "Main coordination team")
+
+        let teamDirectoryURL = try XCTUnwrap(
+            TeamStore.contextDirectoryURL(for: .team(team.id), workspaceRootURL: workspaceRootURL)
+        )
+        let identityText = try String(
+            contentsOf: teamDirectoryURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("  Planning Room"))
+        XCTAssertFalse(identityText.contains("  Core Team"))
+    }
+
+    func testAllAgentsTeamHasIdentityDocumentAndCanBeRenamed() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let initialTeam = try XCTUnwrap(containerStore.allAgentsTeam)
+        XCTAssertEqual(initialTeam.id, TeamStore.allAgentsTeamID)
+        XCTAssertFalse(initialTeam.name.isEmpty)
+
+        XCTAssertTrue(containerStore.renameActiveTeam(to: "Everyone Room"))
+
+        let renamedTeam = try XCTUnwrap(containerStore.allAgentsTeam)
+        XCTAssertEqual(renamedTeam.name, "Everyone Room")
+        XCTAssertEqual(renamedTeam.emoji, "👥")
+
+        let teamDirectoryURL = try XCTUnwrap(
+            TeamStore.contextDirectoryURL(for: .allAgentsTeam, workspaceRootURL: workspaceRootURL)
+        )
+        let identityText = try String(
+            contentsOf: teamDirectoryURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("  Everyone Room"))
+        XCTAssertTrue(identityText.contains("  👥"))
+    }
+
+    func testTeamDescriptionAndTopologyPersistToMetadataNotProjectState() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AppContainerStoreAgentTeamTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let team = try XCTUnwrap(containerStore.createTeam(
+            name: "Research Team",
+            emoji: "🔎",
+            description: "Find evidence before recommending.",
+            defaultTopology: .tree
+        ))
+
+        let metadata = try XCTUnwrap(TeamStore.loadMetadata(for: .team(team.id), workspaceRootURL: workspaceRootURL))
+        XCTAssertEqual(metadata.agentPoolIDs, [])
+        XCTAssertEqual(metadata.defaultTopology, .tree)
+        XCTAssertEqual(containerStore.teams.first?.description, "Find evidence before recommending.")
+        XCTAssertEqual(containerStore.teams.first?.defaultTopology, .tree)
+        XCTAssertTrue(containerStore.teams.first?.identityDocument?.contains("Research Team") == true)
+
+        let projectURL = try XCTUnwrap(OpenAvaProjectFile.fileURL(workspaceRootURL: workspaceRootURL))
+        let projectData = try Data(contentsOf: projectURL)
+        let projectObject = try XCTUnwrap(JSONSerialization.jsonObject(with: projectData) as? [String: Any])
+        let teams = try XCTUnwrap(projectObject["teams"] as? [[String: Any]])
+        let storedTeam = try XCTUnwrap(teams.first)
+        XCTAssertEqual(storedTeam["id"] as? String, team.id.uuidString)
+        XCTAssertNil(storedTeam["name"])
+        XCTAssertNil(storedTeam["emoji"])
+        XCTAssertNil(storedTeam["agentPoolIDs"])
+        XCTAssertNil(storedTeam["description"])
+        XCTAssertNil(storedTeam["defaultTopology"])
+        XCTAssertNil(storedTeam["createdAt"])
+        XCTAssertNil(storedTeam["updatedAt"])
     }
 
     func testChatSessionMenuIncludesCustomTeamAndSelection() {
@@ -147,15 +337,16 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
             autoCompactEnabled: true,
             isBackgroundEnabled: false,
             includeBackgroundExecution: true,
-            includeAgentManagement: false
+            includeAgentManagement: false,
+            includeTeamRename: true
         )
         let teamItemIDs = Set(teamSections.flatMap(\.items).map(\.id))
 
         XCTAssertTrue(teamItemIDs.contains("background-execution"))
         XCTAssertTrue(teamItemIDs.contains("open-cron"))
         XCTAssertTrue(teamItemIDs.contains("open-remote-control"))
+        XCTAssertTrue(teamItemIDs.contains("rename-agent"))
         XCTAssertFalse(teamItemIDs.contains("auto-compact"))
-        XCTAssertFalse(teamItemIDs.contains("rename-agent"))
         XCTAssertFalse(teamItemIDs.contains("delete-agent"))
 
         let agentSections = ChatTopBar.configurationSections(
@@ -216,7 +407,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(metadata.selectedModelID, modelID)
         XCTAssertEqual(metadata.thinkingStrength, .high)
         XCTAssertTrue(metadata.autoCompactEnabled)
-        XCTAssertGreaterThan(metadata.createdAtMs, 0)
+        XCTAssertLessThanOrEqual(metadata.createdAt, Date())
 
         let metadataURL = workspaceRootURL
             .appendingPathComponent(".openava", isDirectory: true)

@@ -437,26 +437,36 @@ struct AgentCreationView: View {
     private var identityRow: some View {
         HStack(spacing: 16) {
             Menu {
-                if viewModel.data.agentAvatarData != nil {
-                    Button(action: { isAvatarImporterPresented = true }) {
-                        Label(L10n.tr("agent.creation.avatar.change"), systemImage: "photo")
+                Section {
+                    Button(action: { viewModel.selectDiceBearAvatar() }) {
+                        Label("DiceBear", systemImage: "person.crop.circle")
                     }
+                    Button(action: { viewModel.randomizeDiceBearAvatar() }) {
+                        Label(L10n.tr("common.refresh"), systemImage: "shuffle")
+                    }
+                }
+
+                Section {
+                    Button(action: { isEmojiPickerPresented = true }) {
+                        Label(L10n.tr("agent.creation.emojiPicker.title"), systemImage: "face.smiling")
+                    }
+                    Button(action: { viewModel.randomizeAgentEmojiAvatar(avoiding: usedEmojis) }) {
+                        Label(L10n.tr("common.refresh"), systemImage: "shuffle")
+                    }
+                }
+
+                Section {
+                    Button(action: { isAvatarImporterPresented = true }) {
+                        Label(
+                            viewModel.data.agentAvatarKind == .uploaded ? L10n.tr("agent.creation.avatar.change") : L10n.tr("agent.creation.avatar.upload"),
+                            systemImage: "photo"
+                        )
+                    }
+                }
+
+                if viewModel.data.agentAvatarKind == .uploaded {
                     Button(role: .destructive, action: { viewModel.clearAgentAvatar() }) {
                         Label(L10n.tr("agent.creation.avatar.remove"), systemImage: "trash")
-                    }
-                } else {
-                    Section {
-                        Button(action: { isEmojiPickerPresented = true }) {
-                            Label(L10n.tr("agent.creation.emojiPicker.title"), systemImage: "face.smiling")
-                        }
-                        Button(action: { viewModel.randomizeAgentEmoji(avoiding: usedEmojis) }) {
-                            Label(L10n.tr("common.refresh"), systemImage: "shuffle")
-                        }
-                    }
-                    Section {
-                        Button(action: { isAvatarImporterPresented = true }) {
-                            Label(L10n.tr("agent.creation.avatar.upload"), systemImage: "photo")
-                        }
                     }
                 }
             } label: {
@@ -515,9 +525,11 @@ struct AgentCreationView: View {
                 Image(uiImage: avatarImage)
                     .resizable()
                     .scaledToFill()
-            } else {
-                Text(viewModel.data.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "🤖" : viewModel.data.agentEmoji)
+            } else if viewModel.data.agentAvatarKind == .emoji {
+                Text(viewModel.agentAvatarDescriptor.displayEmoji)
                     .font(.system(size: 24))
+            } else {
+                DiceBearAvatarImage(url: viewModel.defaultAgentAvatarURL)
             }
         }
         .frame(width: 54, height: 54)
@@ -646,7 +658,9 @@ struct AgentCreationView: View {
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(displayEmoji(for: preset))
+                DiceBearAvatarImage(url: AgentAvatarDefaults.diceBearURL(seed: preset.id))
+                    .frame(width: 24, height: 24)
+                    .clipShape(Circle())
                 Text(preset.title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
@@ -669,11 +683,6 @@ struct AgentCreationView: View {
                 .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func displayEmoji(for preset: AgentPreset) -> String {
-        let normalized = preset.agentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? "🤖" : normalized
     }
 
     // MARK: - Option Chips
@@ -736,6 +745,36 @@ struct AgentCreationView: View {
             onComplete()
         } catch {
             viewModel.errorText = error.localizedDescription
+        }
+    }
+}
+
+private struct DiceBearAvatarImage: View {
+    let url: URL
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case let .success(image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            case .empty:
+                fallback
+            case .failure:
+                fallback
+            @unknown default:
+                fallback
+            }
+        }
+    }
+
+    private var fallback: some View {
+        ZStack {
+            Color(uiColor: ChatUIDesign.Color.warmCream)
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 24))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
         }
     }
 }

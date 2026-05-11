@@ -11,6 +11,7 @@ final class TeamRoomOrchestrator {
 
     struct SubmissionContext {
         var activeContext: ActiveSessionContext
+        var allAgentsTeam: TeamProfile?
         var teams: [TeamProfile]
         var agents: [AgentProfile]
         var fallbackModelConfig: AppConfig.LLMModel?
@@ -185,6 +186,15 @@ final class TeamRoomOrchestrator {
         message.metadata["agentID"] = agent.id.uuidString
         message.metadata["agentName"] = agent.name
         message.metadata["agentEmoji"] = agent.emoji
+        message.metadata["agentAvatarKind"] = agent.avatarKind.rawValue
+        if let avatarSeed = agent.avatarSeed {
+            message.metadata["agentAvatarSeed"] = avatarSeed
+        }
+        if agent.avatarKind == .diceBear {
+            message.metadata["agentAvatarURL"] = agent.avatarDescriptor.diceBearURL.absoluteString
+        } else if agent.avatarKind == .uploaded {
+            message.metadata["agentAvatarURL"] = agent.avatarURL.absoluteString
+        }
         message.metadata["teamRoomContext"] = metadataContextValue(context.activeContext)
         message.metadata[ConversationSession.PromptInput.sourceMetadataKey] = source
         if let turnID {
@@ -298,7 +308,11 @@ final class TeamRoomOrchestrator {
         }
 
         let model = makeAgentModel(for: agent, modelConfig: modelConfig)
-        let invocationSessionID = "\(agent.id.uuidString)::\(roomSession.id)"
+        let invocationSessionID = Self.agentInvocationSessionID(
+            for: agent,
+            roomSessionID: roomSession.id,
+            context: context
+        )
         let toolProvider = makeAgentToolProvider(
             for: agent,
             modelConfig: modelConfig,
@@ -430,6 +444,21 @@ final class TeamRoomOrchestrator {
         return ToolRegistryProvider(toolRuntime: toolRuntime, invocationSessionID: invocationSessionID)
     }
 
+    private static func agentInvocationSessionID(
+        for agent: AgentProfile,
+        roomSessionID: String,
+        context: SubmissionContext
+    ) -> String {
+        switch context.activeContext {
+        case .allAgentsTeam:
+            return "agent:\(agent.id.uuidString):team:\(TeamStore.allAgentsTeamID.uuidString)::\(roomSessionID)"
+        case let .team(teamID):
+            return "agent:\(agent.id.uuidString):team:\(teamID.uuidString)::\(roomSessionID)"
+        case .agent:
+            return "agent:\(agent.id.uuidString)::\(roomSessionID)"
+        }
+    }
+
     private func enabledRequestTools(
         for capabilities: Set<ModelCapability>,
         using toolProvider: any ToolProvider
@@ -515,11 +544,18 @@ final class TeamRoomOrchestrator {
             agentCount: max(participantCount, 1)
         ) ?? modelConfig.systemPrompt ?? "You are a helpful assistant."
 
+        let activeTeam: TeamProfile? = {
+            if case .allAgentsTeam = context.activeContext {
+                return context.allAgentsTeam
+            }
+            guard case let .team(teamID) = context.activeContext else { return nil }
+            return context.teams.first(where: { $0.id == teamID })
+        }()
         let roomName: String = switch context.activeContext {
         case .allAgentsTeam:
-            "Global Team Room"
-        case let .team(teamID):
-            context.teams.first(where: { $0.id == teamID })?.name ?? "Team Room"
+            activeTeam?.name ?? "All Agents Team Room"
+        case .team:
+            activeTeam?.name ?? "Team Room"
         case .agent:
             "Team Room"
         }
@@ -527,10 +563,12 @@ final class TeamRoomOrchestrator {
         let participationNote = participantCount == 1
             ? "The user is addressing you directly."
             : "The user is asking the room, and \(participantCount) agent(s) may answer independently."
+        let teamGuidance = activeTeam.map(Self.teamGuidance)
 
         let roomInstruction = """
         You are \(agent.name), replying directly in \(roomName).
         The visible conversation transcript is the single source of truth for this Team Room.
+        \(teamGuidance ?? "")
         \(participationNote)
         Do not speak as a coordinator and do not summarize other agents unless the user explicitly asks you to.
         Keep your reply concise unless the user explicitly asks for detail.
@@ -541,6 +579,33 @@ final class TeamRoomOrchestrator {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+
+    private static func teamGuidance(for team: TeamProfile) -> String {
+        var lines = ["Team goal and collaboration rules:"]
+        if let identityDocument = team.identityDocument?.trimmingCharacters(in: .whitespacesAndNewlines), !identityDocument.isEmpty {
+            lines.append(
+                """
+                Team IDENTITY.md:
+                \(identityDocument)
+                """
+            )
+        }
+        lines.append("- Collaboration: \(topologyGuidance(for: team.defaultTopology))")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func topologyGuidance(for topology: TeamTopologyKind) -> String {
+        switch topology {
+        case .automatic:
+            "Adapt collaboration to the user's request; avoid unnecessary handoffs or summaries."
+        case .flat:
+            "Act as peer contributors; each agent should add an independent, non-duplicative point."
+        case .tree:
+            "Respect a lead-and-specialist flow; build on earlier replies and add only your specialist contribution."
+        case .custom:
+            "Follow the team's stated goal and any custom collaboration rules in the team description."
+        }
     }
 
     private static func agentMessageHooks(

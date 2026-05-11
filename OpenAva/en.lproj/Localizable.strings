@@ -328,10 +328,10 @@
 "chat.menu.renameAgentNamed" = "Rename %@";
 "chat.menu.deleteAgentNamed" = "Delete %@";
 "chat.menu.thisAgent" = "this agent";
-"chat.menu.renameAlert.message" = "Enter a new name for this agent.";
-"chat.menu.renameAlert.placeholder" = "Agent name";
+"chat.menu.renameAlert.message" = "Enter a new name.";
+"chat.menu.renameAlert.placeholder" = "Name";
 "chat.menu.renameFailed.title" = "Rename Failed";
-"chat.menu.renameFailed.message" = "Unable to rename this agent. Please try again.";
+"chat.menu.renameFailed.message" = "Unable to rename this item. Please try again.";
 "chat.menu.deleteAlert.title" = "Delete Current Agent?";
 "chat.menu.deleteAlert.message" = "Are you sure you want to delete %@? This action cannot be undone.";
 "chat.menu.noAgentsAvailable" = "No agents available";

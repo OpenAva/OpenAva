@@ -59,6 +59,10 @@ final class AppContainerStore {
         return nil
     }
 
+    var allAgentsTeam: TeamProfile? {
+        TeamStore.allAgentsTeam(fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
+    }
+
     var activeAutoCompactEnabled: Bool {
         switch activeSessionContext {
         case .agent:
@@ -120,6 +124,7 @@ final class AppContainerStore {
         workspaceState = loadedWorkspaceState
         let activeWorkspaceRootURL = loadedWorkspaceState.activeWorkspace.map(ProjectWorkspaceStore.resolvedURL(for:))
         agentState = AgentStore.load(fileManager: fileManager, workspaceRootURL: activeWorkspaceRootURL)
+        _ = TeamStore.allAgentsTeam(fileManager: fileManager, workspaceRootURL: activeWorkspaceRootURL)
         teamState = TeamStore.load(fileManager: fileManager, workspaceRootURL: activeWorkspaceRootURL)
         // Migration: clear stale explicit "en" override left from early development.
         // English is the fallback — storing it explicitly blocks system language negotiation.
@@ -258,10 +263,17 @@ final class AppContainerStore {
         rebuildContainer(with: config)
     }
 
-    func createAgent(name: String, emoji: String) throws -> AgentProfile {
+    func createAgent(
+        name: String,
+        emoji: String,
+        avatarKind: AgentAvatarKind = .emoji,
+        avatarSeed: String? = nil
+    ) throws -> AgentProfile {
         let profile = try AgentStore.createAgent(
             name: name,
             emoji: emoji,
+            avatarKind: avatarKind,
+            avatarSeed: avatarSeed,
             fileManager: fileManager,
             workspaceRootURL: agentWorkspaceRootURL
         )
@@ -283,7 +295,8 @@ final class AppContainerStore {
         try AgentTemplateWriter.writeAgentFile(
             at: profile.contextURL,
             name: profile.name,
-            emoji: profile.emoji
+            emoji: profile.emoji,
+            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor)
         )
         rebuildContainer(with: container.config)
         return profile
@@ -297,6 +310,8 @@ final class AppContainerStore {
                 let profile = try AgentStore.createAgent(
                     name: preset.agentName,
                     emoji: preset.agentEmoji,
+                    avatarKind: .diceBear,
+                    avatarSeed: preset.id,
                     fileManager: fileManager,
                     workspaceRootURL: agentWorkspaceRootURL
                 )
@@ -313,6 +328,7 @@ final class AppContainerStore {
                     at: profile.contextURL,
                     name: preset.agentName,
                     emoji: preset.agentEmoji,
+                    avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
                     vibe: preset.agentVibe
                 )
                 _ = AgentStore.setSelectedModel(
@@ -389,6 +405,31 @@ final class AppContainerStore {
             reloadTeamState()
         }
         return team
+    }
+
+    @discardableResult
+    func renameActiveTeam(to name: String) -> Bool {
+        let teamID: UUID
+        switch activeSessionContext {
+        case .allAgentsTeam:
+            teamID = TeamStore.allAgentsTeamID
+        case .team:
+            guard let activeTeam else { return false }
+            teamID = activeTeam.id
+        case .agent:
+            return false
+        }
+        guard TeamStore.renameTeam(
+            teamID,
+            name: name,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL
+        ) != nil else {
+            return false
+        }
+        reloadTeamState()
+        rebuildContainer(with: container.config)
+        return true
     }
 
     @discardableResult

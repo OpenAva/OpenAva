@@ -9,8 +9,11 @@ import Foundation
 import MarkdownView
 
 extension MessageListView {
-    static func hasAgentIdentity(name: String?, emoji: String?) -> Bool {
+    static func hasAgentIdentity(name: String?, emoji: String?, avatarURL: String? = nil) -> Bool {
         if let agentName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !agentName.isEmpty {
+            return true
+        }
+        if let avatarURL = avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines), !avatarURL.isEmpty {
             return true
         }
         if let agentEmoji = emoji?.trimmingCharacters(in: .whitespacesAndNewlines), !agentEmoji.isEmpty {
@@ -137,6 +140,7 @@ extension MessageListView {
         let createdAt: Date
         let name: String?
         let emoji: String?
+        let avatarURL: String?
 
         var displayName: String {
             if let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedName.isEmpty {
@@ -150,6 +154,13 @@ extension MessageListView {
                 return trimmedEmoji
             }
             return "🤖"
+        }
+
+        var resolvedAvatarURL: URL? {
+            guard let trimmed = avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+                return nil
+            }
+            return URL(string: trimmed)
         }
     }
 
@@ -426,25 +437,29 @@ extension MessageListView {
 
         func normalizedAgentIdentity(for message: ConversationMessage) -> String? {
             let trimmedName = message.metadata["agentName"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let trimmedAvatarURL = message.metadata["agentAvatarURL"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let trimmedEmoji = message.metadata["agentEmoji"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmedName.isEmpty || !trimmedEmoji.isEmpty else { return nil }
+            guard !trimmedName.isEmpty || !trimmedAvatarURL.isEmpty || !trimmedEmoji.isEmpty else { return nil }
 
-            return "\(trimmedName.lowercased())|\(trimmedEmoji)"
+            return "\(trimmedName.lowercased())|\(trimmedAvatarURL)|\(trimmedEmoji)"
         }
 
         func agentHeaderRepresentation(for message: ConversationMessage) -> AgentHeaderRepresentation? {
             let name = message.metadata["agentName"]
             let emoji = message.metadata["agentEmoji"]
+            let avatarURL = message.metadata["agentAvatarURL"]
             let hasName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let hasAvatarURL = avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             let hasEmoji = emoji?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            guard hasName || hasEmoji else { return nil }
+            guard hasName || hasAvatarURL || hasEmoji else { return nil }
 
             return AgentHeaderRepresentation(
                 id: "\(message.id).agent-header",
                 messageID: message.id,
                 createdAt: message.createdAt,
                 name: name,
-                emoji: emoji
+                emoji: emoji,
+                avatarURL: avatarURL
             )
         }
 
@@ -548,7 +563,8 @@ extension MessageListView {
             case .assistant:
                 messageLeadingInset = MessageListView.hasAgentIdentity(
                     name: message.metadata["agentName"],
-                    emoji: message.metadata["agentEmoji"]
+                    emoji: message.metadata["agentEmoji"],
+                    avatarURL: message.metadata["agentAvatarURL"]
                 ) ? MessageListRowView.agentContentLeadingOffset : 0
             case .tool:
                 // Tool results are visually part of the owning assistant turn.
@@ -560,7 +576,8 @@ extension MessageListView {
                 {
                     messageLeadingInset = MessageListView.hasAgentIdentity(
                         name: assistantMessage.metadata["agentName"],
-                        emoji: assistantMessage.metadata["agentEmoji"]
+                        emoji: assistantMessage.metadata["agentEmoji"],
+                        avatarURL: assistantMessage.metadata["agentAvatarURL"]
                     ) ? MessageListRowView.agentContentLeadingOffset : 0
                 } else {
                     messageLeadingInset = 0
@@ -614,7 +631,8 @@ extension MessageListView {
                 let summary = message.executionErrorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let errorInset: CGFloat = MessageListView.hasAgentIdentity(
                     name: message.metadata["agentName"],
-                    emoji: message.metadata["agentEmoji"]
+                    emoji: message.metadata["agentEmoji"],
+                    avatarURL: message.metadata["agentAvatarURL"]
                 ) ? MessageListRowView.agentContentLeadingOffset : 0
                 append(
                     .executionError(
