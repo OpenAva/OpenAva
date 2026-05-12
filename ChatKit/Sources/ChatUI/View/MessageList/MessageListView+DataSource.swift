@@ -129,6 +129,7 @@ extension MessageListView {
         let source: MessageSourceRepresentation
         var isRevealed: Bool
         var isThinking: Bool
+        var isInterrupted: Bool
         var thinkingDuration: TimeInterval
         var agentName: String?
         var agentEmoji: String?
@@ -415,6 +416,10 @@ extension MessageListView {
 
         func isReasoningStillStreaming(in message: ConversationMessage) -> Bool {
             guard message.role == .assistant else { return false }
+            if message.finishReason != nil {
+                return false
+            }
+
             var hasVisibleReasoning = false
 
             for part in message.parts {
@@ -606,6 +611,7 @@ extension MessageListView {
                 source: MessageSourceRepresentation.make(from: message.metadata),
                 isRevealed: !reasoningCollapsed,
                 isThinking: isThinking,
+                isInterrupted: message.finishReason == .cancelled,
                 thinkingDuration: reasoningDuration,
                 agentName: message.metadata["agentName"],
                 agentEmoji: message.metadata["agentEmoji"]
@@ -706,6 +712,7 @@ extension MessageListView {
                             source: MessageSourceRepresentation.make(from: message.metadata),
                             isRevealed: !reasoningPart.isCollapsed,
                             isThinking: isThinking,
+                            isInterrupted: message.finishReason == .cancelled,
                             thinkingDuration: reasoningPart.duration,
                             agentName: message.metadata["agentName"],
                             agentEmoji: message.metadata["agentEmoji"]
@@ -759,6 +766,7 @@ extension MessageListView {
                                 source: MessageSourceRepresentation.make(from: message.metadata),
                                 isRevealed: !reasoningCollapsed,
                                 isThinking: false,
+                                isInterrupted: message.finishReason == .cancelled,
                                 thinkingDuration: 0,
                                 agentName: message.metadata["agentName"],
                                 agentEmoji: message.metadata["agentEmoji"]

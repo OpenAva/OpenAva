@@ -49,6 +49,14 @@ final class ReasoningContentView: MessageListRowView {
         }
     }
 
+    var isInterrupted: Bool = false {
+        didSet {
+            thinkingTile.isInterrupted = isInterrupted
+            setNeedsLayout()
+            layoutIfNeeded()
+        }
+    }
+
     var isThinking: Bool = false {
         didSet {
             thinkingTile.isThinking = isThinking
@@ -183,6 +191,13 @@ extension ReasoningContentView {
             }
         }
 
+        var isInterrupted: Bool = false {
+            didSet {
+                updateThinkingDurationText()
+                setNeedsLayout()
+            }
+        }
+
         var isThinking: Bool = true {
             didSet {
                 loadingSymbol.isHidden = !isThinking
@@ -286,8 +301,11 @@ extension ReasoningContentView {
         }
 
         private func updateThinkingDurationText() {
-            let text = String.localized("Thought for \(Int(thinkingDuration)) seconds")
-            titleLabel.text = text
+            if isInterrupted {
+                titleLabel.text = String.localized("Reasoning interrupted")
+            } else {
+                titleLabel.text = String.localized("Thought for \(Int(thinkingDuration)) seconds")
+            }
         }
 
         override var intrinsicContentSize: CGSize {

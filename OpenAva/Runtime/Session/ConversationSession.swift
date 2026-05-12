@@ -386,6 +386,7 @@ public final class ConversationSession: Identifiable, Sendable {
     func refreshContentsFromDatabase(scrolling: Bool = true) {
         messages.removeAll()
         messages = storageProvider.messages(in: id)
+        showsInterruptedRetryAction = storageProvider.sessionExecutionState(for: id) == .interrupted
         notifyMessagesDidChange(scrolling: scrolling)
     }
 
@@ -448,9 +449,13 @@ public final class ConversationSession: Identifiable, Sendable {
 
     public func delete(_ messageID: String) {
         cancelCurrentTask(reason: .messageDeleted) { [self] in
-            storageProvider.delete([messageID])
-            refreshContentsFromDatabase()
+            removeMessageWithoutCancellingTask(messageID)
         }
+    }
+
+    func removeMessageWithoutCancellingTask(_ messageID: String) {
+        storageProvider.delete([messageID])
+        refreshContentsFromDatabase()
     }
 
     public func delete(after messageID: String, completion: @escaping () -> Void = {}) {

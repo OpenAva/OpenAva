@@ -789,6 +789,30 @@ final class TranscriptStorageProviderCollapsePersistenceTests: XCTestCase {
         XCTAssertTrue(reloadedSession.showsInterruptedRetryAction)
     }
 
+    func testDeletingInterruptedPromptClearsRetryAction() throws {
+        let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)
+        TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+        defer {
+            TranscriptStorageProvider.removeProvider(supportRootURL: supportRootURL)
+            try? FileManager.default.removeItem(at: supportRootURL)
+        }
+
+        let storage = TranscriptStorageProvider.provider(supportRootURL: supportRootURL)
+        let session = ConversationSession(id: "main", configuration: .init(storage: storage))
+
+        let interruptedPrompt = session.appendNewMessage(role: .user) { message in
+            message.textContent = "interrupted prompt"
+        }
+        session.persistMessages()
+        session.showsInterruptedRetryAction = true
+
+        session.delete(interruptedPrompt.id)
+
+        XCTAssertFalse(session.showsInterruptedRetryAction)
+        XCTAssertEqual(storage.sessionExecutionState(for: "main"), .idle)
+    }
+
     func testLargeTranscriptFullReplayAppliesPreBoundaryMetadataLastWins() throws {
         let supportRootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: supportRootURL, withIntermediateDirectories: true)

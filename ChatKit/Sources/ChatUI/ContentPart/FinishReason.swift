@@ -19,6 +19,8 @@ public enum FinishReason: String, Sendable, Hashable {
     case contentFilter
     /// An error occurred during generation.
     case error
+    /// The generation was cancelled or interrupted by the user or system.
+    case cancelled
     /// Reason is unknown or not reported.
     case unknown
 }

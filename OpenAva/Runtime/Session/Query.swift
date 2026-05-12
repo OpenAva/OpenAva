@@ -708,17 +708,17 @@ private func makeNoResponseError(from client: any ChatClient) -> Error {
 private func discardTransientAssistantMessageIfNeeded(
     _ message: ConversationMessage,
     from session: ConversationSession
-) {
+) -> Bool {
     let hasReasoning = message.reasoningContent?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .isEmpty == false
     let hasText = !message.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     let hasParts = !message.parts.isEmpty
     guard !hasReasoning, !hasText, !hasParts else {
-        return
+        return false
     }
-    session.messages.removeAll { $0.id == message.id }
-    session.notifyMessagesDidChange(scrolling: true)
+    session.removeMessageWithoutCancellingTask(message.id)
+    return true
 }
 
 @MainActor
@@ -904,7 +904,15 @@ private func executeQueryTurn(
             pendingToolCalls: pendingToolCalls,
             collapseReasoningWhenComplete: collapseAfterReasoningComplete
         )
+    } catch is CancellationError {
+        message.finishReason = .cancelled
+        session.recordMessageInTranscript(message)
+        session.stopThinking(for: message.id)
+        discardTransientAssistantMessageIfNeeded(message, from: session)
+        throw CancellationError()
     } catch {
+        message.finishReason = .error
+        session.recordMessageInTranscript(message)
         session.stopThinking(for: message.id)
         discardTransientAssistantMessageIfNeeded(message, from: session)
         throw error

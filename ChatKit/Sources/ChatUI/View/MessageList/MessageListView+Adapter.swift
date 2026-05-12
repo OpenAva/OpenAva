@@ -415,6 +415,7 @@ extension MessageListView: ListViewAdapter {
                 reasoningContentView.theme = theme
                 reasoningContentView.isRevealed = message.isRevealed
                 reasoningContentView.isThinking = message.isThinking
+                reasoningContentView.isInterrupted = message.isInterrupted
                 reasoningContentView.thinkingDuration = message.thinkingDuration
                 reasoningContentView.text = message.content
                 reasoningContentView.thinkingTileTapHandler = { [weak self] _ in
