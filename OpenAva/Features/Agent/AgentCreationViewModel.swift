@@ -16,26 +16,10 @@ final class AgentCreationViewModel {
         "Isla", "Julian", "Keira", "Leona", "Maeve", "Micah", "Naomi", "Rowan",
     ]
 
-    enum CreationMode: String, CaseIterable, Identifiable {
-        case singleAgent
-
-        var id: String {
-            rawValue
-        }
-
-        var title: String {
-            switch self {
-            case .singleAgent:
-                L10n.tr("agent.creation.mode.single.title")
-            }
-        }
-    }
-
     // MARK: - State
 
     var data = AgentCreationData()
     var isUserInfoExpanded: Bool
-    var creationMode: CreationMode
     var isCreating = false
     var errorText: String?
     var emojiNoticeText: String?
@@ -69,11 +53,9 @@ final class AgentCreationViewModel {
     ]
 
     init(
-        initialMode: CreationMode = .singleAgent,
         presets: [AgentPreset]? = nil,
         userDirectoryURL: URL? = nil
     ) {
-        creationMode = initialMode
         self.presets = presets ?? AgentPresetCatalog.load()
         self.userDirectoryURL = userDirectoryURL
         isUserInfoExpanded = true
@@ -107,10 +89,6 @@ final class AgentCreationViewModel {
         )
     }
 
-    var defaultAgentAvatarURL: URL {
-        agentAvatarDescriptor.diceBearURL
-    }
-
     // MARK: - Initial Setup
 
     func applyAgentDefaultsIfNeeded(avoiding usedEmojis: Set<String>, usedAgentNames: Set<String>) {
@@ -123,45 +101,40 @@ final class AgentCreationViewModel {
 
     func setAgentEmoji(_ emoji: String) {
         data.agentEmoji = emoji
-        data.agentAvatarKind = .emoji
-        data.agentAvatarData = nil
+        selectAvatar(kind: .emoji)
         emojiNoticeText = nil
     }
 
     func selectDiceBearAvatar() {
-        data.agentAvatarKind = .diceBear
-        data.agentAvatarData = nil
-        errorText = nil
+        selectAvatar(kind: .diceBear)
     }
 
     func randomizeDiceBearAvatar() {
-        data.agentAvatarKind = .diceBear
-        data.agentAvatarData = nil
+        selectAvatar(kind: .diceBear)
         data.agentAvatarSeed = UUID().uuidString
-        errorText = nil
     }
 
     func randomizeAgentEmojiAvatar(avoiding usedEmojis: Set<String>) {
-        data.agentAvatarKind = .emoji
-        data.agentAvatarData = nil
+        selectAvatar(kind: .emoji)
         randomizeAgentEmoji(avoiding: usedEmojis)
     }
 
     @discardableResult
     func setAgentAvatarData(_ imageData: Data) -> Bool {
-        guard !imageData.isEmpty, UIImage(data: imageData) != nil else {
+        guard !imageData.isEmpty,
+              let image = UIImage(data: imageData),
+              let pngData = image.pngData()
+        else {
             return false
         }
         data.agentAvatarKind = .uploaded
-        data.agentAvatarData = imageData
+        data.agentAvatarData = pngData
         errorText = nil
         return true
     }
 
     func clearAgentAvatar() {
-        data.agentAvatarKind = .diceBear
-        data.agentAvatarData = nil
-        errorText = nil
+        selectAvatar(kind: .diceBear)
     }
 
     func applyVibeOption(_ option: String) {
@@ -169,7 +142,6 @@ final class AgentCreationViewModel {
     }
 
     func applyPreset(_ preset: AgentPreset, avoiding usedEmojis: Set<String>) {
-        creationMode = .singleAgent
         selectedPresetID = preset.id
         data.agentName = preset.agentName
         data.agentVibe = preset.agentVibe
@@ -268,6 +240,7 @@ final class AgentCreationViewModel {
             at: profile.contextURL,
             name: data.agentName,
             emoji: data.agentEmoji,
+            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
             vibe: data.agentVibe
         )
 
@@ -316,10 +289,6 @@ final class AgentCreationViewModel {
         }
     }
 
-    private func defaultAgentName() -> String {
-        return L10n.tr("agent.creation.defaultName")
-    }
-
     private func isLegacyDefaultAgentName(_ name: String) -> Bool {
         let normalizedName = Self.normalizedName(name)
         if normalizedName == Self.normalizedName(L10n.tr("agent.creation.defaultName")) {
@@ -335,7 +304,7 @@ final class AgentCreationViewModel {
     }
 
     private func uniqueFallbackAgentName(avoiding normalizedUsed: Set<String>) -> String {
-        let baseName = defaultAgentName()
+        let baseName = L10n.tr("agent.creation.defaultName")
         if !normalizedUsed.contains(Self.normalizedName(baseName)) {
             return baseName
         }
@@ -348,5 +317,11 @@ final class AgentCreationViewModel {
             }
             index += 1
         }
+    }
+
+    private func selectAvatar(kind: AgentAvatarKind) {
+        data.agentAvatarKind = kind
+        data.agentAvatarData = nil
+        errorText = nil
     }
 }

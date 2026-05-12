@@ -49,7 +49,7 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         viewModel.data.agentName = "Nova Explorer"
 
         XCTAssertEqual(
-            viewModel.defaultAgentAvatarURL.absoluteString,
+            viewModel.agentAvatarDescriptor.diceBearURL.absoluteString,
             "https://api.dicebear.com/9.x/notionists/png?seed=Nova%20Explorer"
         )
     }
@@ -181,7 +181,53 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
 
         let createdProfile = try XCTUnwrap(containerStore.activeAgent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: createdProfile.avatarURL.path))
+        XCTAssertEqual(createdProfile.avatarURL.lastPathComponent, "avatar.png")
         XCTAssertEqual(createdProfile.avatarKind, .uploaded)
+
+        let identityText = try String(
+            contentsOf: createdProfile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("- **Avatar:**"))
+        XCTAssertTrue(identityText.contains("  avatar.png"))
+    }
+
+    func testCreateAgentPersistsDiceBearAvatarURLToIdentity() async throws {
+        let workspaceRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentCreationDiceBearAvatarTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let suiteName = "AgentCreationDiceBearAvatarTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let containerStore = AppContainerStore(
+            container: .makeDefault(),
+            defaults: defaults,
+            fileManager: .default,
+            agentWorkspaceRootURL: workspaceRootURL
+        )
+
+        let viewModel = AgentCreationViewModel(presets: [], userDirectoryURL: testDirectoryURL)
+        viewModel.data.userCallName = "Yuan"
+        viewModel.data.agentName = "Nova"
+        viewModel.data.agentEmoji = "🦊"
+        viewModel.data.agentAvatarKind = .diceBear
+        viewModel.data.agentAvatarSeed = "nova-seed"
+
+        try await viewModel.createAgent(containerStore: containerStore)
+
+        let createdProfile = try XCTUnwrap(containerStore.activeAgent)
+        XCTAssertEqual(createdProfile.avatarKind, .diceBear)
+        XCTAssertEqual(createdProfile.avatarSeed, "nova-seed")
+
+        let identityText = try String(
+            contentsOf: createdProfile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            encoding: .utf8
+        )
+        XCTAssertTrue(identityText.contains("- **Avatar:**"))
+        XCTAssertTrue(identityText.contains("  https://api.dicebear.com/9.x/notionists/png?seed=nova-seed"))
     }
 
     func testCreateAgentDoesNotCreateWorkspaceAgentsFile() async throws {
@@ -210,11 +256,5 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
 
         let agentsURL = workspaceRootURL.appendingPathComponent("AGENTS.md", isDirectory: false)
         XCTAssertFalse(FileManager.default.fileExists(atPath: agentsURL.path))
-    }
-
-    func testInitialModeRemainsSingleAgent() {
-        let viewModel = AgentCreationViewModel(initialMode: .singleAgent, presets: [], userDirectoryURL: testDirectoryURL)
-
-        XCTAssertEqual(viewModel.creationMode, .singleAgent)
     }
 }

@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
 struct AgentOnboardingView: View {
     @Environment(\.appContainerStore) private var containerStore
     @Environment(\.openURL) private var openURL
-    @State private var navigationPath: [AgentCreationViewModel.CreationMode] = []
+    @State private var showsAgentCreation = false
     @State private var showsWorkspaceImporter = false
     @State private var showsWorkspaceOptions = false
     @State private var workspaceErrorMessage: String?
@@ -36,7 +36,7 @@ struct AgentOnboardingView: View {
     let onComplete: () -> Void
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 32) {
@@ -52,8 +52,8 @@ struct AgentOnboardingView: View {
             }
             .background(Color(uiColor: ChatUIDesign.Color.warmCream).ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: AgentCreationViewModel.CreationMode.self) { mode in
-                AgentCreationView(initialMode: mode, onComplete: onComplete)
+            .navigationDestination(isPresented: $showsAgentCreation) {
+                AgentCreationView(onComplete: onComplete)
             }
             .fileImporter(
                 isPresented: $showsWorkspaceImporter,
@@ -163,7 +163,7 @@ struct AgentOnboardingView: View {
                                     Text("在访达中打开")
                                         .font(.system(size: 16, weight: .medium))
                                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                                    Text(workspace.displayPath ?? workspace.resolvedName)
+                                    Text(workspace.displayPath)
                                         .font(.system(size: 13))
                                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
                                         .lineLimit(1)
@@ -317,12 +317,9 @@ struct AgentOnboardingView: View {
     private var actionSection: some View {
         onboardingCard(
             title: L10n.tr("agent.onboarding.createSingle.title"),
-            subtitle: L10n.tr("agent.onboarding.createSingle.subtitle"),
-            systemImage: "sparkles",
-            tint: Color(uiColor: ChatUIDesign.Color.offBlack),
-            chevronTint: Color(uiColor: ChatUIDesign.Color.black50)
+            subtitle: L10n.tr("agent.onboarding.createSingle.subtitle")
         ) {
-            navigationPath.append(.singleAgent)
+            showsAgentCreation = true
         }
     }
 
@@ -331,20 +328,17 @@ struct AgentOnboardingView: View {
     private func onboardingCard(
         title: String,
         subtitle: String,
-        systemImage: String,
-        tint: Color,
-        chevronTint: Color,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 16) {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(tint.opacity(0.04))
+                    .fill(Color(uiColor: ChatUIDesign.Color.offBlack).opacity(0.04))
                     .frame(width: 48, height: 48)
                     .overlay {
-                        Image(systemName: systemImage)
+                        Image(systemName: "sparkles")
                             .font(.system(size: 20, weight: .regular))
-                            .foregroundStyle(tint)
+                            .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -362,7 +356,7 @@ struct AgentOnboardingView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(chevronTint)
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)

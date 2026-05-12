@@ -66,7 +66,7 @@ struct AgentAvatarDescriptor: Equatable {
 
 enum AgentAvatarDefaults {
     static let diceBearBaseURLString = "https://api.dicebear.com/9.x/notionists/png"
-    static let uploadedAvatarIdentityValue = ".avatar"
+    static let uploadedAvatarIdentityValue = "avatar.png"
 
     static func diceBearURL(seed rawSeed: String) -> URL {
         var components = URLComponents(string: diceBearBaseURLString)!

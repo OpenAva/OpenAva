@@ -70,12 +70,9 @@ struct AgentCreationView: View {
     @State private var isAdvancedExpanded = false
     let onComplete: () -> Void
 
-    init(
-        initialMode: AgentCreationViewModel.CreationMode = .singleAgent,
-        onComplete: @escaping () -> Void
-    ) {
+    init(onComplete: @escaping () -> Void) {
         self.onComplete = onComplete
-        _viewModel = State(initialValue: AgentCreationViewModel(initialMode: initialMode))
+        _viewModel = State(initialValue: AgentCreationViewModel())
     }
 
     private var usedEmojis: Set<String> {
@@ -327,7 +324,11 @@ struct AgentCreationView: View {
     // MARK: - Create Button
 
     private var createButtonSection: some View {
-        Button(action: performPrimaryAction) {
+        Button {
+            Task {
+                await createAgent()
+            }
+        } label: {
             Group {
                 if viewModel.isCreating {
                     HStack(spacing: 8) {
@@ -336,18 +337,18 @@ struct AgentCreationView: View {
                         Text(L10n.tr("agent.creation.creating"))
                     }
                 } else {
-                    Text(primaryActionTitle)
+                    Text(L10n.tr("agent.creation.create"))
                 }
             }
             .font(.system(size: 16, weight: .medium))
             .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background((canPerformPrimaryAction && !viewModel.isCreating) ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: ChatUIDesign.Color.black50).opacity(0.3))
+            .background((viewModel.canComplete && !viewModel.isCreating) ? Color(uiColor: ChatUIDesign.Color.offBlack) : Color(uiColor: ChatUIDesign.Color.black50).opacity(0.3))
             .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(!canPerformPrimaryAction || viewModel.isCreating)
+        .disabled(!viewModel.canComplete || viewModel.isCreating)
         .padding(.horizontal, 20)
     }
 
@@ -377,11 +378,16 @@ struct AgentCreationView: View {
 
                     HStack {
                         Spacer(minLength: 0)
-                        actionButton(
-                            title: L10n.tr("common.done"),
-                            role: .primary,
-                            action: onDone
-                        )
+                        Button(action: onDone) {
+                            Text(L10n.tr("common.done"))
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(uiColor: ChatUIDesign.Color.offBlack))
+                                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -394,45 +400,6 @@ struct AgentCreationView: View {
             }
         }
     #endif
-
-    private enum InlineActionRole {
-        case primary
-        case secondary
-    }
-
-    private func actionButton(
-        title: String,
-        role: InlineActionRole,
-        action: @escaping () -> Void
-    ) -> some View {
-        let foregroundColor: UIColor = switch role {
-        case .primary:
-            ChatUIDesign.Color.pureWhite
-        case .secondary:
-            ChatUIDesign.Color.offBlack
-        }
-        let backgroundColor: Color = switch role {
-        case .primary:
-            Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .secondary:
-            .clear
-        }
-
-        return Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(uiColor: foregroundColor))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChatUIDesign.Radius.button, style: .continuous)
-                        .strokeBorder(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: role == .secondary ? 1 : 0)
-                )
-        }
-        .buttonStyle(.plain)
-    }
 
     private var identityRow: some View {
         HStack(spacing: 16) {
@@ -517,26 +484,10 @@ struct AgentCreationView: View {
     }
 
     private var avatarPreview: some View {
-        ZStack {
-            Circle()
-                .fill(Color(uiColor: ChatUIDesign.Color.warmCream))
-
-            if let avatarImage = avatarPreviewImage {
-                Image(uiImage: avatarImage)
-                    .resizable()
-                    .scaledToFill()
-            } else if viewModel.data.agentAvatarKind == .emoji {
-                Text(viewModel.agentAvatarDescriptor.displayEmoji)
-                    .font(.system(size: 24))
-            } else {
-                DiceBearAvatarImage(url: viewModel.defaultAgentAvatarURL)
-            }
-        }
-        .frame(width: 54, height: 54)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
+        AgentAvatarView(
+            descriptor: viewModel.agentAvatarDescriptor,
+            size: 54,
+            overrideImage: avatarPreviewImage
         )
     }
 
@@ -576,20 +527,12 @@ struct AgentCreationView: View {
 
     // MARK: - Reusable Components
 
-    private struct CustomSection<Content: View, Footer: View>: View {
+    private struct CustomSection<Content: View>: View {
         let title: String?
-        let footer: Footer?
         @ViewBuilder let content: () -> Content
 
-        init(title: String? = nil, @ViewBuilder footer: () -> Footer, @ViewBuilder content: @escaping () -> Content) {
+        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) {
             self.title = title
-            self.footer = footer()
-            self.content = content
-        }
-
-        init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) where Footer == EmptyView {
-            self.title = title
-            self.footer = nil
             self.content = content
         }
 
@@ -603,14 +546,6 @@ struct AgentCreationView: View {
                 }
 
                 content()
-
-                if let footer {
-                    footer
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
-                }
             }
         }
     }
@@ -658,9 +593,15 @@ struct AgentCreationView: View {
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                DiceBearAvatarImage(url: AgentAvatarDefaults.diceBearURL(seed: preset.id))
-                    .frame(width: 24, height: 24)
-                    .clipShape(Circle())
+                AgentAvatarView(
+                    descriptor: AgentAvatarDefaults.descriptor(
+                        kind: .diceBear,
+                        name: preset.agentName,
+                        emoji: preset.agentEmoji,
+                        diceBearSeed: preset.id
+                    ),
+                    size: 24
+                )
                 Text(preset.title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
@@ -725,56 +666,12 @@ struct AgentCreationView: View {
 
     // MARK: - Actions
 
-    private var primaryActionTitle: String {
-        L10n.tr("agent.creation.create")
-    }
-
-    private var canPerformPrimaryAction: Bool {
-        viewModel.canComplete
-    }
-
-    private func performPrimaryAction() {
-        Task {
-            await createAgent()
-        }
-    }
-
     private func createAgent() async {
         do {
             try await viewModel.createAgent(containerStore: containerStore)
             onComplete()
         } catch {
             viewModel.errorText = error.localizedDescription
-        }
-    }
-}
-
-private struct DiceBearAvatarImage: View {
-    let url: URL
-
-    var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case let .success(image):
-                image
-                    .resizable()
-                    .scaledToFill()
-            case .empty:
-                fallback
-            case .failure:
-                fallback
-            @unknown default:
-                fallback
-            }
-        }
-    }
-
-    private var fallback: some View {
-        ZStack {
-            Color(uiColor: ChatUIDesign.Color.warmCream)
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
         }
     }
 }
