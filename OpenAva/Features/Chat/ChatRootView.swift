@@ -217,6 +217,7 @@ struct ChatRootView: View {
             activeAgentID: containerStore.activeAgent?.id,
             activeAgentName: currentActiveAgentName,
             activeAgentEmoji: currentActiveAgentEmoji,
+            activeAgentAvatarDescriptor: currentActiveAgentAvatarDescriptor,
             pendingAutoSendID: pendingAutoSendID,
             pendingAutoSendMessage: pendingAutoSendMessage,
             onConsumePendingAutoSend: consumePendingAutoSend,
@@ -309,7 +310,7 @@ struct ChatRootView: View {
         guard containerStore.setActiveSessionContext(context) else { return }
     }
 
-    private func handleModelSwitch(_ modelID: UUID) {
+    private func handleModelSwitch(_ modelID: String) {
         containerStore.selectLLMModel(id: modelID)
     }
 
@@ -444,7 +445,7 @@ struct ChatRootView: View {
 
             return .init(
                 agent: agent,
-                agentID: agent.id.uuidString,
+                agentID: agent.id,
                 mainSessionID: scopedSessionID(for: resolvedDefaultSessionKey, context: .agent(agent.id)),
                 agentName: agent.name,
                 agentEmoji: agent.emoji,
@@ -518,7 +519,7 @@ struct ChatRootView: View {
     private func triggerHeartbeatNow() {
         updateHeartbeatService()
         Task { @MainActor in
-            guard let agentID = containerStore.activeAgent?.id.uuidString else { return }
+            guard let agentID = containerStore.activeAgent?.id else { return }
             _ = await HeartbeatRuntimeRegistry.shared.requestRunNow(for: agentID)
         }
     }
@@ -567,7 +568,12 @@ struct ChatRootView: View {
         }
     }
 
-    private func activeTeamProfile(for teamID: UUID) -> TeamProfile? {
+    private var currentActiveAgentAvatarDescriptor: AgentAvatarDescriptor? {
+        guard case .agent = visibleActiveSessionContext else { return nil }
+        return containerStore.activeAgent?.avatarDescriptor
+    }
+
+    private func activeTeamProfile(for teamID: String) -> TeamProfile? {
         containerStore.teams.first { $0.id == teamID }
     }
 
@@ -588,15 +594,16 @@ private struct ChatScreen: View {
     let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeContext: ActiveSessionContext
-    let activeAgentID: UUID?
+    let activeAgentID: String?
     let activeAgentName: String
     let activeAgentEmoji: String
+    let activeAgentAvatarDescriptor: AgentAvatarDescriptor?
     let pendingAutoSendID: String?
     let pendingAutoSendMessage: String?
     let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((ChatViewControllerWrapper.MenuAction) -> Void)?
     let onSessionSwitch: ((ActiveSessionContext) -> Void)?
-    let onModelSwitch: ((UUID) -> Void)?
+    let onModelSwitch: ((String) -> Void)?
     let onThinkingStrengthChange: ((ChatThinkingStrength) -> Void)?
     let onWorkspaceSwitch: ((UUID) -> Void)?
     let onOpenWorkspaceDirectory: (() -> Void)?
@@ -649,10 +656,7 @@ private struct ChatScreen: View {
                 Button {
                     NotificationCenter.default.post(name: .openAvaDidTapPrincipalTitle, object: nil)
                 } label: {
-                    Text(topBarTitle.principalDisplayText)
-                        .font(Font(ChatUIDesign.Typography.agentTitle))
-                        .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
-                        .lineLimit(1)
+                    topBarPrincipalLabel
                 }
                 .buttonStyle(.plain)
             }
@@ -670,21 +674,69 @@ private struct ChatScreen: View {
             ChatTopBar.title(
                 displayName: activeAgentName,
                 displayEmoji: activeAgentEmoji,
+                avatarDescriptor: activeAgentAvatarDescriptor,
                 activeContext: activeContext
             )
         }
 
-        private var topBarWorkspaceMenuEntries: [ChatTopBar.WorkspaceMenuEntry] {
-            ChatTopBar.workspaceMenuEntries(workspaces: projectWorkspaces, activeWorkspaceID: activeProjectWorkspaceID)
+        private var topBarPrincipalLabel: some View {
+            let title = topBarTitle
+            return HStack(spacing: 6) {
+                if title.showsAvatar, let avatarDescriptor = title.avatarDescriptor {
+                    AgentAvatarView(descriptor: avatarDescriptor, size: 22)
+                }
+                Text(title.principalDisplayText)
+                    .font(Font(ChatUIDesign.Typography.agentTitle))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black60))
+            }
         }
 
-        private var topBarSessionMenuEntries: [ChatTopBar.SessionMenuEntry] {
-            ChatTopBar.sessionMenuEntries(
+        private var topBarLeadingMenuSections: [ChatTopBar.LeadingMenuSection] {
+            ChatTopBar.leadingMenuSections(
+                workspaces: projectWorkspaces,
+                activeWorkspaceID: activeProjectWorkspaceID,
                 allAgentsTeam: allAgentsTeam,
                 teams: teams,
                 agents: agents,
-                activeContext: activeContext
+                activeContext: activeContext,
+                isSessionRunning: isSessionContextRunning
             )
+        }
+
+        private func isSessionContextRunning(_ context: ActiveSessionContext) -> Bool {
+            switch context {
+            case .allAgentsTeam:
+                return isTeamSessionRunning(teamID: TeamStore.allAgentsTeamID)
+            case let .team(teamID):
+                return isTeamSessionRunning(teamID: teamID)
+            case let .agent(agentID):
+                return ConversationSessionManager.shared.hasActiveQuery(withPrefix: "agent:\(agentID)::")
+            }
+        }
+
+        private func isTeamSessionRunning(teamID: String) -> Bool {
+            let memberPrefix = "agent:"
+            let teamMarker = ":team:\(teamID)::"
+            if agents.contains(where: { agent in
+                ConversationSessionManager.shared.hasActiveQuery(withPrefix: "\(memberPrefix)\(agent.id)\(teamMarker)")
+            }) {
+                return true
+            }
+
+            guard let teamSupportRootURL = TeamStore.contextDirectoryURL(
+                for: teamID == TeamStore.allAgentsTeamID ? .allAgentsTeam : .team(teamID),
+                fileManager: .default,
+                workspaceRootURL: container.config.agent.workspaceRootURL,
+                createDirectoryIfNeeded: false
+            ) else {
+                return false
+            }
+            let storage = TranscriptStorageProvider.provider(supportRootURL: teamSupportRootURL)
+            return ConversationSessionManager.shared.isQueryActive(TeamSwarmCoordinator.mainSessionID, storage: storage)
         }
 
         private var topBarConfigurationSections: [ChatTopBar.ConfigurationSection] {
@@ -698,8 +750,8 @@ private struct ChatScreen: View {
         }
 
         private var isAgentContext: Bool {
-            if case .agent = activeContext { return true }
-            return false
+            guard case .agent = activeContext else { return false }
+            return true
         }
 
         private var isTeamRoomContext: Bool {
@@ -711,120 +763,124 @@ private struct ChatScreen: View {
             }
         }
 
-        private func shouldInsertDividerBeforeSessionEntry(at index: Int) -> Bool {
-            guard index > 0, topBarSessionMenuEntries.indices.contains(index) else { return false }
-            let entry = topBarSessionMenuEntries[index]
-            switch entry.kind {
-            case .agent:
-                return !topBarSessionMenuEntries[..<index].contains { item in
-                    if case .agent = item.kind { return true }
-                    return false
-                }
-            case .createLocalAgent:
-                return true
-            case .allAgentsTeam, .team, .empty:
-                return false
-            }
-        }
-
-        @ViewBuilder
         private var agentMenuContent: some View {
-            Section(L10n.tr("chat.workspace.sectionTitle")) {
-                ForEach(topBarWorkspaceMenuEntries.filter { if case .workspace = $0.kind { return true } else { return false } }) { entry in
-                    workspaceMenuEntryView(entry)
-                }
-            }
-            Section {
-                ForEach(topBarWorkspaceMenuEntries.filter { if case .workspace = $0.kind { return false } else { return true } }) { entry in
-                    workspaceMenuEntryView(entry)
-                }
-            }
-            Section(L10n.tr("chat.session.sectionTitle")) {
-                sessionMenuContent
-            }
-        }
-
-        private var sessionMenuContent: some View {
-            ForEach(topBarSessionMenuEntries.indices, id: \.self) { index in
-                let entry = topBarSessionMenuEntries[index]
-                if shouldInsertDividerBeforeSessionEntry(at: index) {
-                    Divider()
-                }
-                sessionMenuEntryView(entry)
+            ForEach(topBarLeadingMenuSections) { section in
+                leadingMenuSectionView(section)
             }
         }
 
         @ViewBuilder
-        private func sessionMenuEntryView(_ entry: ChatTopBar.SessionMenuEntry) -> some View {
-            switch entry.kind {
-            case .allAgentsTeam, .team, .agent:
-                if let context = sessionContext(for: entry) {
-                    Button {
-                        onSessionSwitch?(context)
-                    } label: {
-                        selectableMenuLabel(entry.displayTitle, isSelected: entry.isSelected)
+        private func leadingMenuSectionView(_ section: ChatTopBar.LeadingMenuSection) -> some View {
+            if section.title.isEmpty {
+                Section {
+                    ForEach(section.items) { item in
+                        leadingMenuItemView(item)
                     }
                 }
-            case .createLocalAgent:
-                Button {
-                    onCreateLocalAgent?()
-                } label: {
-                    Label(entry.title, systemImage: "plus")
-                }
-            case .empty:
-                Text(entry.title)
-            }
-        }
-
-        private func sessionContext(for entry: ChatTopBar.SessionMenuEntry) -> ActiveSessionContext? {
-            switch entry.kind {
-            case .allAgentsTeam:
-                .allAgentsTeam
-            case let .team(teamID):
-                .team(teamID)
-            case let .agent(agentID):
-                .agent(agentID)
-            case .createLocalAgent, .empty:
-                nil
-            }
-        }
-
-        @ViewBuilder
-        private func selectableMenuLabel(_ title: String, isSelected: Bool) -> some View {
-            if isSelected {
-                Label(title, systemImage: "checkmark")
             } else {
-                Text(title)
+                Section(section.title) {
+                    ForEach(section.items) { item in
+                        leadingMenuItemView(item)
+                    }
+                }
             }
         }
 
         @ViewBuilder
-        private func workspaceMenuEntryView(_ entry: ChatTopBar.WorkspaceMenuEntry) -> some View {
-            switch entry.kind {
-            case let .workspace(workspaceID):
+        private func leadingMenuItemView(_ item: ChatTopBar.LeadingMenuItem) -> some View {
+            if let action = item.action {
                 Button {
-                    onWorkspaceSwitch?(workspaceID)
+                    handleLeadingMenuAction(action)
                 } label: {
-                    selectableMenuLabel(entry.title, isSelected: entry.isSelected)
+                    leadingMenuItemLabel(item)
+                }
+            } else {
+                Text(item.title)
+            }
+        }
+
+        private func leadingMenuItemLabel(_ item: ChatTopBar.LeadingMenuItem) -> some View {
+            HStack(spacing: 8) {
+                if item.isSelected {
+                    Image(systemName: "checkmark")
+                }
+                leadingMenuItemIcon(item)
+                Text(item.title)
+            }
+        }
+
+        @ViewBuilder
+        private func leadingMenuItemIcon(_ item: ChatTopBar.LeadingMenuItem) -> some View {
+            switch item.kind {
+            case .allAgentsTeam:
+                runningIndicatorIcon(isRunning: item.isRunning) {
+                    Image(systemName: "person.2")
+                        .frame(width: 17, height: 17)
+                }
+            case .team:
+                runningIndicatorIcon(isRunning: item.isRunning) {
+                    Image(systemName: "person.3")
+                        .frame(width: 17, height: 17)
+                }
+            case .agent:
+                runningIndicatorIcon(isRunning: item.isRunning) {
+                    if let avatarDescriptor = item.avatarDescriptor {
+                        AgentAvatarView(descriptor: avatarDescriptor, size: 17)
+                    } else if !item.emoji.isEmpty {
+                        Text(item.emoji)
+                            .font(.system(size: 14))
+                            .frame(width: 17, height: 17)
+                    } else {
+                        Image(systemName: "person.crop.circle")
+                            .frame(width: 17, height: 17)
+                    }
                 }
             case .openActiveWorkspaceDirectory:
-                Button {
-                    onOpenWorkspaceDirectory?()
-                } label: {
-                    Label(entry.title, systemImage: "folder")
-                }
+                Image(systemName: "folder")
             case .importWorkspace:
-                Button {
-                    onImportWorkspace?(nil)
-                } label: {
-                    Label(entry.title, systemImage: "folder.badge.plus")
-                }
+                Image(systemName: "folder.badge.plus")
             case .createWorkspace:
-                Button {
-                    onCreateWorkspace?()
-                } label: {
-                    Label(entry.title, systemImage: "plus.square.on.square")
+                Image(systemName: "plus.square.on.square")
+            case .createLocalAgent:
+                Image(systemName: "plus")
+            case .workspace, .empty:
+                EmptyView()
+            }
+        }
+
+        private func runningIndicatorIcon<Content: View>(
+            isRunning: Bool,
+            @ViewBuilder content: () -> Content
+        ) -> some View {
+            ZStack(alignment: .bottomTrailing) {
+                content()
+                if isRunning {
+                    Circle()
+                        .fill(Color(uiColor: .systemGreen))
+                        .frame(width: 5.5, height: 5.5)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(uiColor: ChatUIDesign.Color.warmCream), lineWidth: 1)
+                        )
+                        .offset(x: 1, y: 1)
                 }
+            }
+        }
+
+        private func handleLeadingMenuAction(_ action: ChatTopBar.LeadingMenuAction) {
+            switch action {
+            case let .switchWorkspace(workspaceID):
+                onWorkspaceSwitch?(workspaceID)
+            case .openActiveWorkspaceDirectory:
+                onOpenWorkspaceDirectory?()
+            case .importWorkspace:
+                onImportWorkspace?(nil)
+            case .createWorkspace:
+                onCreateWorkspace?()
+            case let .switchSession(context):
+                onSessionSwitch?(context)
+            case .createLocalAgent:
+                onCreateLocalAgent?()
             }
         }
 
@@ -899,11 +955,11 @@ private struct ChatScreen: View {
     #endif
 
     private var selectedModelName: String {
-        container.config.selectedLLMModel?.name ?? L10n.tr("chat.selectedModel.notSelected")
+        container.config.selectedModel?.name ?? L10n.tr("chat.selectedModel.notSelected")
     }
 
     private var selectedProviderName: String {
-        guard let selected = container.config.selectedLLMModel else { return "" }
+        guard let selected = container.config.selectedModel else { return "" }
         return LLMProvider(rawValue: selected.provider)?.displayName ?? selected.provider
     }
 
@@ -914,11 +970,11 @@ private struct ChatScreen: View {
     private var runtimeContextIdentity: String {
         switch activeContext {
         case .allAgentsTeam:
-            "team:\(TeamStore.allAgentsTeamID.uuidString):\(scopedSessionID)"
+            "team:\(TeamStore.allAgentsTeamID):\(scopedSessionID)"
         case let .team(teamID):
-            "team:\(teamID.uuidString):\(scopedSessionID)"
+            "team:\(teamID):\(scopedSessionID)"
         case .agent:
-            "agent:\(activeAgentID?.uuidString ?? "global"):\(scopedSessionID)"
+            "agent:\(activeAgentID ?? "global"):\(scopedSessionID)"
         }
     }
 
@@ -933,7 +989,7 @@ private struct ChatScreen: View {
                 toolRuntime: container.services.toolRuntime,
                 invocationSessionID: runtimeContextIdentity
             ),
-            systemPrompt: container.config.selectedLLMModel?.systemPrompt,
+            systemPrompt: container.config.selectedModel?.systemPrompt,
             allAgentsTeam: allAgentsTeam,
             teams: teams,
             agents: agents,
@@ -960,7 +1016,7 @@ private struct ChatScreen: View {
             onCreateLocalAgent: onCreateLocalAgent,
             onDeleteCurrentAgent: onDeleteCurrentAgent,
             onRenameCurrentAgent: onRenameCurrentAgent,
-            modelConfig: container.config.selectedLLMModel,
+            modelConfig: container.config.selectedModel,
             autoCompactEnabled: autoCompactEnabled,
             showsSystemTopBar: showsSystemTopBar,
             onToggleAutoCompact: onToggleAutoCompact

@@ -1,6 +1,11 @@
 import ChatClient
 import ChatUI
+import Foundation
 import SwiftUI
+
+private func formatContextUsageNumber(_ value: Int) -> String {
+    value.formatted(.number)
+}
 
 struct ChatContextUsagePanelView: View {
     let snapshot: ContextUsageSnapshot
@@ -318,9 +323,7 @@ struct ChatContextUsagePanelView: View {
     }
 
     private func format(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        formatContextUsageNumber(value)
     }
 
     private func compactionTriggerText(_ trigger: String) -> String {
@@ -440,9 +443,7 @@ private struct BreakdownRow: View {
     }
 
     private static func format(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        formatContextUsageNumber(value)
     }
 
     private static func percent(value: Int, total: Int) -> String {

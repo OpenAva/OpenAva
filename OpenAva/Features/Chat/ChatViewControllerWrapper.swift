@@ -136,6 +136,42 @@ private final class ContextUsagePanelOverlayController: UIViewController {
     }
 }
 
+private final class SwiftUIOverlayController<Content: View>: UIViewController {
+    private let makeRootView: (UIViewController) -> Content
+    private lazy var hostingController = UIHostingController(rootView: makeRootView(self))
+
+    init(@ViewBuilder rootView: @escaping (UIViewController) -> Content) {
+        self.makeRootView = rootView
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overCurrentContext
+        modalTransitionStyle = .crossDissolve
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        addChild(hostingController)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        hostingController.didMove(toParent: self)
+    }
+}
+
 #if targetEnvironment(macCatalyst)
     private final class CatalystChatViewController: ChatViewController {
         var onOpenModelSettings: (() -> Void)?
@@ -225,7 +261,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let teams: [TeamProfile]
     let agents: [AgentProfile]
     let activeContext: ActiveSessionContext
-    let activeAgentID: UUID?
+    let activeAgentID: String?
     let activeAgentName: String
     let activeAgentEmoji: String
     let selectedModelName: String
@@ -238,7 +274,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
     let onConsumePendingAutoSend: ((String) -> Void)?
     let onMenuAction: ((MenuAction) -> Void)?
     let onSessionSwitch: ((ActiveSessionContext) -> Void)?
-    let onModelSwitch: ((UUID) -> Void)?
+    let onModelSwitch: ((String) -> Void)?
     let onThinkingStrengthChange: ((ChatThinkingStrength) -> Void)?
     let projectWorkspaces: [ProjectWorkspaceProfile]
     let activeProjectWorkspaceID: UUID?
@@ -279,6 +315,54 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case .agent:
             return activeAgentEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+
+    private var resolvedSessionAvatarDescriptor: (agentID: String, descriptor: AgentAvatarDescriptor)? {
+        guard case .agent = activeContext,
+              let activeAgentID,
+              let agent = agents.first(where: { $0.id == activeAgentID }),
+              agent.avatarKind != .emoji
+        else {
+            return nil
+        }
+        return (agent.id, agent.avatarDescriptor)
+    }
+
+    private var resolvedSessionAvatarImage: UIImage? {
+        guard let resolvedSessionAvatarDescriptor else { return nil }
+        return AgentAvatarDefaults.localImage(for: resolvedSessionAvatarDescriptor.descriptor, canvasSize: 22)
+    }
+
+    private var resolvedSessionAvatarRemoteURL: URL? {
+        // Only DiceBear avatars need remote download; uploaded avatars already
+        // live at `avatarFileURL`.
+        guard let resolved = resolvedSessionAvatarDescriptor,
+              resolved.descriptor.kind == .diceBear,
+              resolvedSessionAvatarImage == nil
+        else {
+            return nil
+        }
+        return resolved.descriptor.diceBearURL
+    }
+
+    private var resolvedSessionAvatarPersistURL: URL? {
+        guard let resolved = resolvedSessionAvatarDescriptor,
+              resolved.descriptor.kind == .diceBear
+        else {
+            return nil
+        }
+        return resolved.descriptor.avatarFileURL
+    }
+
+    private var resolvedSessionAvatarImageID: String? {
+        guard let resolvedSessionAvatarDescriptor else { return nil }
+        let descriptor = resolvedSessionAvatarDescriptor.descriptor
+        return [
+            resolvedSessionAvatarDescriptor.agentID,
+            descriptor.kind.rawValue,
+            descriptor.diceBearSeed ?? "",
+            descriptor.avatarFileURL?.path ?? "",
+        ].joined(separator: "::")
     }
 
     private var emptyStateContent: ChatViewController.EmptyStateContent {
@@ -372,9 +456,9 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case .allAgentsTeam:
             return "all-agents"
         case let .team(teamID):
-            return "team-\(teamID.uuidString)"
+            return "team-\(teamID)"
         case .agent:
-            return activeAgentID?.uuidString
+            return activeAgentID
         }
     }
 
@@ -393,6 +477,10 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         .init(
             agentName: resolvedSessionTitle,
             agentEmoji: resolvedSessionEmoji,
+            agentAvatarImage: resolvedSessionAvatarImage,
+            agentAvatarImageID: resolvedSessionAvatarImageID,
+            agentAvatarRemoteURL: resolvedSessionAvatarRemoteURL,
+            agentAvatarPersistURL: resolvedSessionAvatarPersistURL,
             modelName: selectedModelName,
             providerName: selectedProviderName,
             teamMemberCount: headerTeamMemberCount
@@ -426,6 +514,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             selectedProviderName: selectedProviderName,
             selectedThinkingStrength: selectedThinkingStrength,
             autoCompactEnabled: autoCompactEnabled,
+            workspaceRootURL: workspaceRootURL,
             onSessionSwitch: onSessionSwitch,
             onModelSwitch: onModelSwitch,
             onThinkingStrengthChange: onThinkingStrengthChange,
@@ -480,7 +569,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case .agent:
             if let supportRootURL, let activeAgentID {
                 if let agent = agents.first(where: { $0.id == activeAgentID }), let modelConfig {
-                    let invocationSessionID = "\(activeAgentID.uuidString)::\(sessionID)"
+                    let invocationSessionID = "\(activeAgentID)::\(sessionID)"
                     let resources = AgentMainSessionRegistry.shared.sessionResources(
                         for: agent,
                         modelConfig: modelConfig,
@@ -713,6 +802,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         context.coordinator.selectedModelName = selectedModelName
         context.coordinator.selectedProviderName = selectedProviderName
         context.coordinator.selectedThinkingStrength = selectedThinkingStrength
+        context.coordinator.workspaceRootURL = workspaceRootURL
         context.coordinator.projectWorkspaces = projectWorkspaces
         context.coordinator.activeProjectWorkspaceID = activeProjectWorkspaceID
         context.coordinator.onWorkspaceSwitch = onWorkspaceSwitch
@@ -784,11 +874,12 @@ extension ChatViewControllerWrapper {
         var teams: [TeamProfile]
         var agents: [AgentProfile]
         var activeContext: ActiveSessionContext
-        var activeAgentID: UUID?
+        var activeAgentID: String?
         var activeAgentName: String
         var selectedModelName: String
         var selectedProviderName: String
         var selectedThinkingStrength: ChatThinkingStrength
+        var workspaceRootURL: URL?
         var projectWorkspaces: [ProjectWorkspaceProfile]
         var activeProjectWorkspaceID: UUID?
         var onWorkspaceSwitch: ((UUID) -> Void)?
@@ -796,7 +887,7 @@ extension ChatViewControllerWrapper {
         var onImportWorkspace: ((UIViewController?) -> Void)?
         var onCreateWorkspace: (() -> Void)?
         var onSessionSwitch: ((ActiveSessionContext) -> Void)?
-        var onModelSwitch: ((UUID) -> Void)?
+        var onModelSwitch: ((String) -> Void)?
         var onThinkingStrengthChange: ((ChatThinkingStrength) -> Void)?
         var onCreateLocalAgent: (() -> Void)?
         var onDeleteCurrentAgent: (() -> Void)?
@@ -814,14 +905,15 @@ extension ChatViewControllerWrapper {
             teams: [TeamProfile],
             agents: [AgentProfile],
             activeContext: ActiveSessionContext,
-            activeAgentID: UUID?,
+            activeAgentID: String?,
             activeAgentName: String,
             selectedModelName: String,
             selectedProviderName: String,
             selectedThinkingStrength: ChatThinkingStrength,
             autoCompactEnabled: Bool,
+            workspaceRootURL: URL?,
             onSessionSwitch: ((ActiveSessionContext) -> Void)?,
-            onModelSwitch: ((UUID) -> Void)?,
+            onModelSwitch: ((String) -> Void)?,
             onThinkingStrengthChange: ((ChatThinkingStrength) -> Void)?,
             projectWorkspaces: [ProjectWorkspaceProfile],
             activeProjectWorkspaceID: UUID?,
@@ -845,6 +937,7 @@ extension ChatViewControllerWrapper {
             self.selectedProviderName = selectedProviderName
             self.selectedThinkingStrength = selectedThinkingStrength
             self.autoCompactEnabled = autoCompactEnabled
+            self.workspaceRootURL = workspaceRootURL
             self.projectWorkspaces = projectWorkspaces
             self.activeProjectWorkspaceID = activeProjectWorkspaceID
             self.onWorkspaceSwitch = onWorkspaceSwitch
@@ -877,8 +970,8 @@ extension ChatViewControllerWrapper {
         }
 
         private var includesAgentManagementActions: Bool {
-            if case .agent = activeContext { return activeAgentID != nil }
-            return false
+            guard case .agent = activeContext else { return false }
+            return activeAgentID != nil
         }
 
         private var includesTeamRenameAction: Bool {
@@ -1086,9 +1179,17 @@ extension ChatViewControllerWrapper {
             case .allAgentsTeam, .team:
                 presentTeamAgentsPopover(from: controller)
             case .agent:
-                let modalController = AgentContextModalOverlayController()
-                modalController.onSelect = { [weak self] kind in
-                    self?.onMenuAction?(.openContext(kind))
+                let modalController = SwiftUIOverlayController { [weak self] controller in
+                    AgentContextModalView(
+                        onSelect: { [weak self, weak controller] kind in
+                            controller?.dismiss(animated: true) {
+                                self?.onMenuAction?(.openContext(kind))
+                            }
+                        },
+                        onClose: { [weak controller] in
+                            controller?.dismiss(animated: true)
+                        }
+                    )
                 }
                 controller.present(modalController, animated: true)
             }
@@ -1105,7 +1206,14 @@ extension ChatViewControllerWrapper {
                 return
             }
 
-            let modalController = TeamAgentsModalOverlayController(agents: participants)
+            let modalController = SwiftUIOverlayController { controller in
+                TeamAgentsModalView(
+                    agents: participants,
+                    onClose: { [weak controller] in
+                        controller?.dismiss(animated: true)
+                    }
+                )
+            }
             controller.present(modalController, animated: true)
         }
 
@@ -1190,143 +1298,160 @@ extension ChatViewControllerWrapper {
         }
 
         private func buildAgentMenu() -> UIMenu {
-            let workspaceEntries = ChatTopBar.workspaceMenuEntries(workspaces: projectWorkspaces, activeWorkspaceID: activeProjectWorkspaceID)
-            let entries = ChatTopBar.sessionMenuEntries(allAgentsTeam: allAgentsTeam, teams: teams, agents: agents, activeContext: activeContext)
-            var workspaceListChildren: [UIMenuElement] = []
-            var workspaceActionChildren: [UIMenuElement] = []
-            var roomChildren: [UIMenuElement] = []
-            var agentChildren: [UIMenuElement] = []
-            var secondaryChildren: [UIMenuElement] = []
-
-            for entry in workspaceEntries {
-                guard let element = makeWorkspaceMenuElement(for: entry) else { continue }
-                if case .workspace = entry.kind {
-                    workspaceListChildren.append(element)
-                } else {
-                    workspaceActionChildren.append(element)
-                }
-            }
-
-            for entry in entries {
-                guard let element = makeSessionMenuElement(for: entry) else { continue }
-                switch entry.kind {
-                case .createLocalAgent:
-                    secondaryChildren.append(element)
-                case .allAgentsTeam, .team:
-                    roomChildren.append(element)
-                case .agent, .empty:
-                    agentChildren.append(element)
-                }
-            }
-
-            var sections: [UIMenu] = []
-            if !workspaceListChildren.isEmpty {
-                sections.append(UIMenu(title: L10n.tr("chat.workspace.sectionTitle"), options: .displayInline, children: workspaceListChildren))
-            }
-            if !workspaceActionChildren.isEmpty {
-                sections.append(UIMenu(title: "", options: .displayInline, children: workspaceActionChildren))
-            }
-            if !roomChildren.isEmpty {
-                sections.append(UIMenu(title: "", options: .displayInline, children: roomChildren))
-            }
-            if !agentChildren.isEmpty {
-                sections.append(UIMenu(title: "", options: .displayInline, children: agentChildren))
-            }
-            if !secondaryChildren.isEmpty {
-                sections.append(UIMenu(title: "", options: .displayInline, children: secondaryChildren))
+            let sections = ChatTopBar.leadingMenuSections(
+                workspaces: projectWorkspaces,
+                activeWorkspaceID: activeProjectWorkspaceID,
+                allAgentsTeam: allAgentsTeam,
+                teams: teams,
+                agents: agents,
+                activeContext: activeContext,
+                isSessionRunning: isSessionContextRunning
+            ).map { section in
+                UIMenu(
+                    title: section.title,
+                    options: .displayInline,
+                    children: section.items.map(makeLeadingMenuElement)
+                )
             }
             return UIMenu(title: "", children: sections)
         }
 
-        private func makeWorkspaceMenuElement(for entry: ChatTopBar.WorkspaceMenuEntry) -> UIMenuElement? {
-            switch entry.kind {
-            case let .workspace(workspaceID):
-                let state: UIMenuElement.State = entry.isSelected ? .on : .off
+        private func makeLeadingMenuElement(_ item: ChatTopBar.LeadingMenuItem) -> UIMenuElement {
+            switch item.kind {
+            case .workspace:
                 return UIAction(
-                    title: entry.title,
-                    subtitle: entry.subtitle.isEmpty ? nil : entry.subtitle,
+                    title: item.title,
+                    subtitle: item.subtitle.isEmpty ? nil : item.subtitle,
                     image: nil,
                     identifier: nil,
                     discoverabilityTitle: nil,
                     attributes: [],
-                    state: state
+                    state: item.isSelected ? .on : .off
                 ) { [weak self] _ in
-                    self?.onWorkspaceSwitch?(workspaceID)
+                    self?.performLeadingMenuAction(item.action)
                 }
             case .openActiveWorkspaceDirectory:
                 return UIAction(
-                    title: entry.title,
+                    title: item.title,
                     image: standardizedMenuIcon(UIImage(systemName: "folder"))
                 ) { [weak self] _ in
-                    self?.onOpenWorkspaceDirectory?()
+                    self?.performLeadingMenuAction(item.action)
                 }
             case .importWorkspace:
                 return UIAction(
-                    title: entry.title,
+                    title: item.title,
                     image: standardizedMenuIcon(UIImage(systemName: "folder.badge.plus"))
                 ) { [weak self] _ in
-                    self?.onImportWorkspace?(self?.chatViewController)
+                    self?.performLeadingMenuAction(item.action)
                 }
             case .createWorkspace:
                 return UIAction(
-                    title: entry.title,
+                    title: item.title,
                     image: standardizedMenuIcon(UIImage(systemName: "plus.square.on.square"))
                 ) { [weak self] _ in
-                    self?.onCreateWorkspace?()
+                    self?.performLeadingMenuAction(item.action)
                 }
-            }
-        }
-
-        private func makeSessionMenuElement(for entry: ChatTopBar.SessionMenuEntry) -> UIMenuElement? {
-            switch entry.kind {
             case .allAgentsTeam:
-                return makeSessionSwitchAction(
-                    title: entry.title,
-                    image: makeEmojiMenuImage(from: entry.emoji, showsRunningIndicator: false) ?? standardizedMenuIcon(UIImage(systemName: "person.2")),
-                    isSelected: entry.isSelected,
-                    context: .allAgentsTeam
+                return makeLeadingSessionSwitchAction(
+                    for: item,
+                    image: makeSessionMenuImage(
+                        emoji: item.emoji,
+                        fallbackSystemName: "person.2",
+                        showsRunningIndicator: item.isRunning
+                    )
                 )
-            case let .team(teamID):
-                return makeSessionSwitchAction(
-                    title: entry.title,
-                    image: makeEmojiMenuImage(from: entry.emoji, showsRunningIndicator: false) ?? standardizedMenuIcon(UIImage(systemName: "person.3")),
-                    isSelected: entry.isSelected,
-                    context: .team(teamID)
+            case .team:
+                return makeLeadingSessionSwitchAction(
+                    for: item,
+                    image: makeSessionMenuImage(
+                        emoji: item.emoji,
+                        fallbackSystemName: "person.3",
+                        showsRunningIndicator: item.isRunning
+                    )
                 )
             case let .agent(agentID):
-                return makeSessionSwitchAction(
-                    title: entry.title,
-                    image: makeAgentMenuImage(for: agentID, fallbackEmoji: entry.emoji),
-                    isSelected: entry.isSelected,
-                    context: .agent(agentID)
+                return makeLeadingSessionSwitchAction(
+                    for: item,
+                    image: makeAgentMenuImage(
+                        for: agentID,
+                        fallbackEmoji: item.emoji,
+                        showsRunningIndicator: item.isRunning
+                    )
                 )
             case .createLocalAgent:
                 return UIAction(
-                    title: entry.title,
+                    title: item.title,
                     image: standardizedMenuIcon(UIImage.chatInputIcon(named: "user.plus"))
                 ) { [weak self] _ in
-                    self?.onCreateLocalAgent?()
+                    self?.performLeadingMenuAction(item.action)
                 }
             case .empty:
-                return UIAction(title: entry.title, attributes: [.disabled]) { _ in }
+                return UIAction(title: item.title, attributes: [.disabled]) { _ in }
             }
         }
 
-        private func makeSessionSwitchAction(
-            title: String,
-            image: UIImage?,
-            isSelected: Bool,
-            context: ActiveSessionContext
+        private func isSessionContextRunning(_ context: ActiveSessionContext) -> Bool {
+            switch context {
+            case .allAgentsTeam:
+                return isTeamSessionRunning(teamID: TeamStore.allAgentsTeamID)
+            case let .team(teamID):
+                return isTeamSessionRunning(teamID: teamID)
+            case let .agent(agentID):
+                return ConversationSessionManager.shared.hasActiveQuery(withPrefix: "agent:\(agentID)::")
+            }
+        }
+
+        private func isTeamSessionRunning(teamID: String) -> Bool {
+            let teamMarker = ":team:\(teamID)::"
+            if agents.contains(where: { agent in
+                ConversationSessionManager.shared.hasActiveQuery(withPrefix: "agent:\(agent.id)\(teamMarker)")
+            }) {
+                return true
+            }
+
+            guard let teamSupportRootURL = TeamStore.contextDirectoryURL(
+                for: teamID == TeamStore.allAgentsTeamID ? .allAgentsTeam : .team(teamID),
+                fileManager: .default,
+                workspaceRootURL: workspaceRootURL,
+                createDirectoryIfNeeded: false
+            ) else {
+                return false
+            }
+            let storage = TranscriptStorageProvider.provider(supportRootURL: teamSupportRootURL)
+            return ConversationSessionManager.shared.isQueryActive(TeamSwarmCoordinator.mainSessionID, storage: storage)
+        }
+
+        private func makeLeadingSessionSwitchAction(
+            for item: ChatTopBar.LeadingMenuItem,
+            image: UIImage?
         ) -> UIAction {
-            UIAction(
-                title: title,
+            return UIAction(
+                title: item.title,
                 image: image,
                 identifier: nil,
                 discoverabilityTitle: nil,
                 attributes: [],
-                state: isSelected ? .on : .off
+                state: item.isSelected ? .on : .off
             ) { [weak self] _ in
-                self?.onSessionSwitch?(context)
+                self?.performLeadingMenuAction(item.action)
+            }
+        }
+
+        private func performLeadingMenuAction(_ action: ChatTopBar.LeadingMenuAction?) {
+            guard let action else { return }
+            switch action {
+            case let .switchWorkspace(workspaceID):
+                onWorkspaceSwitch?(workspaceID)
+            case .openActiveWorkspaceDirectory:
+                onOpenWorkspaceDirectory?()
+            case .importWorkspace:
+                onImportWorkspace?(chatViewController)
+            case .createWorkspace:
+                onCreateWorkspace?()
+            case let .switchSession(context):
+                onSessionSwitch?(context)
+            case .createLocalAgent:
+                onCreateLocalAgent?()
             }
         }
 
@@ -1488,18 +1613,40 @@ extension ChatViewControllerWrapper {
             return nil
         }
 
-        private func makeAgentMenuImage(for agentID: UUID, fallbackEmoji: String) -> UIImage? {
-            let prefix = "agent:\(agentID.uuidString)::"
-            let isRunning = ConversationSessionManager.shared.hasActiveQuery(withPrefix: prefix)
+        private func makeAgentMenuImage(
+            for agentID: String,
+            fallbackEmoji: String,
+            showsRunningIndicator: Bool
+        ) -> UIImage? {
             if let profile = agents.first(where: { $0.id == agentID }) {
-                if let avatarImage = makeAvatarMenuImage(for: profile, showsRunningIndicator: isRunning) {
+                if let avatarImage = makeAvatarMenuImage(
+                    for: profile,
+                    showsRunningIndicator: showsRunningIndicator
+                ) {
                     return avatarImage
                 }
-                if profile.avatarKind == .diceBear, !isRunning {
+                if profile.avatarKind == .diceBear, !showsRunningIndicator {
                     return UIImage(systemName: "person.crop.circle")?.withRenderingMode(.alwaysTemplate)
                 }
             }
-            return makeEmojiMenuImage(from: fallbackEmoji, showsRunningIndicator: isRunning)
+            return makeEmojiMenuImage(from: fallbackEmoji, showsRunningIndicator: showsRunningIndicator)
+        }
+
+        private func makeSessionMenuImage(
+            emoji: String,
+            fallbackSystemName: String,
+            showsRunningIndicator: Bool
+        ) -> UIImage? {
+            let trimmedEmoji = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedEmoji.isEmpty,
+               let image = makeEmojiMenuImage(from: trimmedEmoji, showsRunningIndicator: showsRunningIndicator)
+            {
+                return image
+            }
+            return makeMenuImage(
+                baseImage: standardizedMenuIcon(UIImage(systemName: fallbackSystemName)),
+                showsRunningIndicator: showsRunningIndicator
+            )
         }
 
         private func makeEmojiMenuImage(from emoji: String, showsRunningIndicator: Bool) -> UIImage? {
@@ -1550,53 +1697,31 @@ extension ChatViewControllerWrapper {
             }
             return image.withRenderingMode(.alwaysOriginal)
         }
-    }
-}
 
-private final class AgentContextModalOverlayController: UIViewController {
-    var onSelect: ((AgentContextDocumentKind) -> Void)?
+        private func makeMenuImage(baseImage: UIImage?, showsRunningIndicator: Bool) -> UIImage? {
+            guard let baseImage else { return nil }
+            guard showsRunningIndicator else { return baseImage }
 
-    private lazy var hostingController = UIHostingController(
-        rootView: AgentContextModalView(
-            onSelect: { [weak self] kind in
-                self?.dismiss(animated: true) {
-                    self?.onSelect?(kind)
-                }
-            },
-            onClose: { [weak self] in
-                self?.dismiss(animated: true)
+            let size = CGSize(width: 20, height: 20)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let image = renderer.image { context in
+                baseImage.draw(in: CGRect(origin: .zero, size: size))
+
+                let dotDiameter: CGFloat = 5.5
+                let dotRect = CGRect(
+                    x: size.width - dotDiameter - 1,
+                    y: size.height - dotDiameter - 1,
+                    width: dotDiameter,
+                    height: dotDiameter
+                )
+                context.cgContext.setFillColor(UIColor.systemGreen.cgColor)
+                context.cgContext.fillEllipse(in: dotRect)
+                context.cgContext.setStrokeColor(ChatUIDesign.Color.warmCream.cgColor)
+                context.cgContext.setLineWidth(1)
+                context.cgContext.strokeEllipse(in: dotRect.insetBy(dx: 0.5, dy: 0.5))
             }
-        )
-    )
-
-    init() {
-        super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overCurrentContext
-        modalTransitionStyle = .crossDissolve
-    }
-
-    @available(*, unavailable)
-    required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-
-        addChild(hostingController)
-        hostingController.view.backgroundColor = .clear
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(hostingController.view)
-
-        NSLayoutConstraint.activate([
-            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        hostingController.didMove(toParent: self)
+            return image.withRenderingMode(.alwaysOriginal)
+        }
     }
 }
 
@@ -1710,49 +1835,6 @@ extension ChatViewControllerWrapper.Coordinator: UIPopoverPresentationController
     }
 }
 
-private final class TeamAgentsModalOverlayController: UIViewController {
-    private let agents: [AgentProfile]
-    private lazy var hostingController = UIHostingController(
-        rootView: TeamAgentsModalView(
-            agents: agents,
-            onClose: { [weak self] in
-                self?.dismiss(animated: true)
-            }
-        )
-    )
-
-    init(agents: [AgentProfile]) {
-        self.agents = agents
-        super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overCurrentContext
-        modalTransitionStyle = .crossDissolve
-    }
-
-    @available(*, unavailable)
-    required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-
-        addChild(hostingController)
-        hostingController.view.backgroundColor = .clear
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(hostingController.view)
-
-        NSLayoutConstraint.activate([
-            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        hostingController.didMove(toParent: self)
-    }
-}
-
 private struct TeamAgentsModalView: View {
     let agents: [AgentProfile]
     let onClose: () -> Void
@@ -1776,18 +1858,7 @@ private struct TeamAgentsModalView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(agents) { agent in
                             HStack(spacing: 12) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color(uiColor: ChatUIDesign.Color.pureWhite))
-                                        .frame(width: 36, height: 36)
-                                        .overlay(
-                                            Circle().stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
-                                        )
-
-                                    let emoji = agent.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    Text(emoji.isEmpty ? "🤖" : emoji)
-                                        .font(.system(size: 20))
-                                }
+                                AgentAvatarView(descriptor: agent.avatarDescriptor, size: 36)
 
                                 Text(agent.name.trimmingCharacters(in: .whitespacesAndNewlines))
                                     .font(.system(size: 16, weight: .medium))

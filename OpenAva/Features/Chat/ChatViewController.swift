@@ -32,14 +32,24 @@ open class ChatViewController: UIViewController {
                 static let trailing = NSToolbarItem.Identifier("openava.chat.trailing")
             }
 
+            private struct MenuItemState {
+                var image: UIImage?
+                var title: String
+                var menu: UIMenu?
+
+                func apply(to item: NSMenuToolbarItem?) {
+                    item?.image = image
+                    item?.title = title
+                    if let menu {
+                        item?.itemMenu = menu
+                    }
+                }
+            }
+
             private let toolbar = NSToolbar(identifier: "openava.chat.titlebar")
             let titleBarButtonItem: UIBarButtonItem
-            private var leadingImage: UIImage?
-            private var leadingTitle = ""
-            private var leadingMenu: UIMenu?
-            private var trailingImage: UIImage?
-            private var trailingTitle = ""
-            private var trailingMenu: UIMenu?
+            private var leadingState = MenuItemState(image: nil, title: "", menu: nil)
+            private var trailingState = MenuItemState(image: nil, title: "", menu: nil)
 
             private var leadingToolbarItem: NSMenuToolbarItem?
             private var trailingToolbarItem: NSMenuToolbarItem?
@@ -79,24 +89,11 @@ open class ChatViewController: UIViewController {
                 trailingTitle: String = "",
                 trailingMenu: UIMenu?
             ) {
-                self.leadingImage = leadingImage
-                self.leadingTitle = leadingTitle
-                self.leadingMenu = leadingMenu
-                self.trailingImage = trailingImage
-                self.trailingTitle = trailingTitle
-                self.trailingMenu = trailingMenu
+                leadingState = MenuItemState(image: leadingImage, title: leadingTitle, menu: leadingMenu)
+                trailingState = MenuItemState(image: trailingImage, title: trailingTitle, menu: trailingMenu)
 
-                leadingToolbarItem?.image = leadingImage
-                leadingToolbarItem?.title = leadingTitle
-                if let leadingMenu {
-                    leadingToolbarItem?.itemMenu = leadingMenu
-                }
-
-                trailingToolbarItem?.image = trailingImage
-                trailingToolbarItem?.title = trailingTitle
-                if let trailingMenu {
-                    trailingToolbarItem?.itemMenu = trailingMenu
-                }
+                leadingState.apply(to: leadingToolbarItem)
+                trailingState.apply(to: trailingToolbarItem)
             }
 
             func toolbarAllowedItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -125,30 +122,28 @@ open class ChatViewController: UIViewController {
             ) -> NSToolbarItem? {
                 switch itemIdentifier {
                 case Item.leading:
-                    let item = NSMenuToolbarItem(itemIdentifier: Item.leading)
-                    item.image = leadingImage
-                    item.title = leadingTitle
-                    if let leadingMenu {
-                        item.itemMenu = leadingMenu
-                    }
-                    item.showsIndicator = false
+                    let item = makeMenuToolbarItem(identifier: Item.leading, state: leadingState)
                     leadingToolbarItem = item
                     return item
                 case Item.title:
                     return NSToolbarItem(itemIdentifier: Item.title, barButtonItem: titleBarButtonItem)
                 case Item.trailing:
-                    let item = NSMenuToolbarItem(itemIdentifier: Item.trailing)
-                    item.image = trailingImage
-                    item.title = trailingTitle
-                    if let trailingMenu {
-                        item.itemMenu = trailingMenu
-                    }
-                    item.showsIndicator = false
+                    let item = makeMenuToolbarItem(identifier: Item.trailing, state: trailingState)
                     trailingToolbarItem = item
                     return item
                 default:
                     return nil
                 }
+            }
+
+            private func makeMenuToolbarItem(
+                identifier: NSToolbarItem.Identifier,
+                state: MenuItemState
+            ) -> NSMenuToolbarItem {
+                let item = NSMenuToolbarItem(itemIdentifier: identifier)
+                state.apply(to: item)
+                item.showsIndicator = false
+                return item
             }
         }
     #endif
@@ -160,16 +155,45 @@ open class ChatViewController: UIViewController {
     public struct HeaderState: Equatable {
         public var agentName: String
         public var agentEmoji: String?
+        public var agentAvatarImage: UIImage?
+        public var agentAvatarImageID: String?
+        public var agentAvatarRemoteURL: URL?
+        public var agentAvatarPersistURL: URL?
         public var modelName: String
         public var providerName: String?
         public var teamMemberCount: Int?
 
-        public init(agentName: String, agentEmoji: String? = nil, modelName: String, providerName: String? = nil, teamMemberCount: Int? = nil) {
+        public init(
+            agentName: String,
+            agentEmoji: String? = nil,
+            agentAvatarImage: UIImage? = nil,
+            agentAvatarImageID: String? = nil,
+            agentAvatarRemoteURL: URL? = nil,
+            agentAvatarPersistURL: URL? = nil,
+            modelName: String,
+            providerName: String? = nil,
+            teamMemberCount: Int? = nil
+        ) {
             self.agentName = agentName
             self.agentEmoji = agentEmoji
+            self.agentAvatarImage = agentAvatarImage
+            self.agentAvatarImageID = agentAvatarImageID
+            self.agentAvatarRemoteURL = agentAvatarRemoteURL
+            self.agentAvatarPersistURL = agentAvatarPersistURL
             self.modelName = modelName
             self.providerName = providerName
             self.teamMemberCount = teamMemberCount
+        }
+
+        public static func == (lhs: HeaderState, rhs: HeaderState) -> Bool {
+            lhs.agentName == rhs.agentName &&
+                lhs.agentEmoji == rhs.agentEmoji &&
+                lhs.agentAvatarImageID == rhs.agentAvatarImageID &&
+                lhs.agentAvatarRemoteURL == rhs.agentAvatarRemoteURL &&
+                lhs.agentAvatarPersistURL == rhs.agentAvatarPersistURL &&
+                lhs.modelName == rhs.modelName &&
+                lhs.providerName == rhs.providerName &&
+                lhs.teamMemberCount == rhs.teamMemberCount
         }
     }
 
@@ -272,23 +296,55 @@ open class ChatViewController: UIViewController {
 
     private lazy var titleBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: self, action: #selector(handleTitleTap))
 
+    private let titleAvatarImageView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        view.layer.cornerRadius = 11
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: 22),
+            view.heightAnchor.constraint(equalToConstant: 22),
+        ])
+        return view
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 16, weight: .semibold)
+        return label
+    }()
+
+    private let titleSubtitleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabel
+        return label
+    }()
+
     private lazy var customTitleView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 2
 
-        let titleLabel = UILabel()
-        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.tag = 101
+        let titleHStack = UIStackView()
+        titleHStack.axis = .horizontal
+        titleHStack.alignment = .center
+        titleHStack.spacing = 6
 
-        let subtitleLabel = UILabel()
-        subtitleLabel.font = .systemFont(ofSize: 12)
-        subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.tag = 102
+        let chevronImageView = UIImageView()
+        chevronImageView.image = UIImage(systemName: "chevron.down")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        chevronImageView.tintColor = ChatUIDesign.Color.black60
+        chevronImageView.contentMode = .scaleAspectFit
 
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
+        titleHStack.addArrangedSubview(titleAvatarImageView)
+        titleHStack.addArrangedSubview(titleLabel)
+        titleHStack.addArrangedSubview(chevronImageView)
+
+        stack.addArrangedSubview(titleHStack)
+        stack.addArrangedSubview(titleSubtitleLabel)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTitleTap))
         stack.addGestureRecognizer(tap)
@@ -1030,32 +1086,157 @@ open class ChatViewController: UIViewController {
         configureNavigationItems()
     }
 
+    /// Remote URL currently being fetched so we do not spawn duplicate downloads.
+    private var inFlightAvatarRemoteURL: URL?
+
     private func applyHeaderStateToNavigationTitle() {
-        let title = ChatTopBar.Title(
-            displayName: headerState.agentName,
-            displayEmoji: headerState.agentEmoji,
-            identityKind: .agent
-        ).principalDisplayText
+        let rawTitle = resolvedHeaderTitleText()
 
-        if let titleLabel = customTitleView.viewWithTag(101) as? UILabel {
-            titleLabel.text = title
-        }
-
-        if let subtitleLabel = customTitleView.viewWithTag(102) as? UILabel {
-            if let count = headerState.teamMemberCount, count > 0 {
-                subtitleLabel.text = "\(count) Members Online"
-                subtitleLabel.isHidden = false
-            } else {
-                subtitleLabel.isHidden = true
-            }
-        }
-
+        applyHeaderTitleView(title: rawTitle)
         navigationItem.titleView = customTitleView
-        titleBarButtonItem.title = title
+        applyTitleBarButtonItem(title: rawTitle)
+
         if isViewLoaded {
             view.setNeedsLayout()
         }
+
+        downloadRemoteAvatarIfNeeded()
     }
+
+    private func resolvedHeaderTitleText() -> String {
+        // Treat a non-emoji avatar configuration as "prefers avatar" even if the
+        // local bitmap has not arrived yet, so we never fall back to an emoji glyph.
+        let prefersAvatar = headerState.agentAvatarImageID != nil
+        let hasAvatar = headerState.agentAvatarImage != nil
+        let title = ChatTopBar.Title(
+            displayName: headerState.agentName,
+            displayEmoji: (hasAvatar || prefersAvatar) ? nil : headerState.agentEmoji,
+            identityKind: .agent
+        )
+        return (hasAvatar || prefersAvatar) ? title.resolvedDisplayName : title.principalDisplayText
+    }
+
+    private func applyHeaderTitleView(title: String) {
+        titleLabel.text = title
+        titleAvatarImageView.image = headerState.agentAvatarImage
+        titleAvatarImageView.isHidden = headerState.agentAvatarImage == nil
+
+        if let count = headerState.teamMemberCount, count > 0 {
+            titleSubtitleLabel.text = "\(count) Members Online"
+            titleSubtitleLabel.isHidden = false
+        } else {
+            titleSubtitleLabel.isHidden = true
+        }
+    }
+
+    private func applyTitleBarButtonItem(title: String) {
+        #if targetEnvironment(macCatalyst)
+            // Render the whole title area (avatar + name + chevron) into a single
+            // image so the SF Symbol chevron renders with the correct font and we
+            // avoid the PUA glyph tofu that NSToolbarItem shows for unicode arrows.
+            let composed = composeCatalystTitleImage(
+                avatar: headerState.agentAvatarImage,
+                title: title
+            )
+            titleBarButtonItem.image = composed?.withRenderingMode(.alwaysOriginal)
+            titleBarButtonItem.title = ""
+        #else
+            titleBarButtonItem.title = title
+            titleBarButtonItem.image = headerState.agentAvatarImage?.withRenderingMode(.alwaysOriginal)
+        #endif
+    }
+
+    /// Downloads a remote avatar (typically DiceBear) into `agentAvatarPersistURL`
+    /// and re-applies the header once the bitmap is on disk.
+    private func downloadRemoteAvatarIfNeeded() {
+        guard headerState.agentAvatarImage == nil,
+              let remoteURL = headerState.agentAvatarRemoteURL,
+              let persistURL = headerState.agentAvatarPersistURL,
+              inFlightAvatarRemoteURL != remoteURL
+        else {
+            return
+        }
+        inFlightAvatarRemoteURL = remoteURL
+
+        URLSession.shared.dataTask(with: remoteURL) { [weak self] data, _, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.inFlightAvatarRemoteURL = nil
+                guard let data, let image = UIImage(data: data) else { return }
+                let folder = persistURL.deletingLastPathComponent()
+                try? FileManager.default.createDirectory(
+                    at: folder,
+                    withIntermediateDirectories: true
+                )
+                try? data.write(to: persistURL, options: [.atomic])
+
+                // Re-render the header with the now-available bitmap.
+                self.headerState.agentAvatarImage = image
+                self.applyHeaderStateToNavigationTitle()
+                self.updateCatalystTitlebarToolbarIfNeeded()
+            }
+        }.resume()
+    }
+
+    #if targetEnvironment(macCatalyst)
+        private func composeCatalystTitleImage(avatar: UIImage?, title: String) -> UIImage? {
+            let avatarSize: CGFloat = 20
+            let spacing: CGFloat = 6
+            let font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+            let titleAttributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: UIColor.label,
+            ]
+            let titleSize = (title as NSString).size(withAttributes: titleAttributes)
+
+            let chevronConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+            let chevron = UIImage(systemName: "chevron.down", withConfiguration: chevronConfig)?
+                .withTintColor(ChatUIDesign.Color.black60, renderingMode: .alwaysOriginal)
+
+            let avatarWidth: CGFloat = avatar != nil ? avatarSize + spacing : 0
+            let chevronSize = chevron?.size ?? .zero
+            let chevronWidth: CGFloat = chevron != nil ? chevronSize.width + spacing : 0
+            let totalWidth = avatarWidth + titleSize.width + chevronWidth
+            let totalHeight = max(avatarSize, max(titleSize.height, chevronSize.height))
+
+            guard totalWidth > 0, totalHeight > 0 else { return nil }
+
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: totalWidth, height: totalHeight))
+            return renderer.image { context in
+                var x: CGFloat = 0
+                if let avatar {
+                    let rect = CGRect(
+                        x: x,
+                        y: (totalHeight - avatarSize) / 2,
+                        width: avatarSize,
+                        height: avatarSize
+                    )
+                    context.cgContext.saveGState()
+                    UIBezierPath(ovalIn: rect).addClip()
+                    avatar.draw(in: rect)
+                    context.cgContext.restoreGState()
+                    x += avatarSize + spacing
+                }
+                let titleRect = CGRect(
+                    x: x,
+                    y: (totalHeight - titleSize.height) / 2,
+                    width: titleSize.width,
+                    height: titleSize.height
+                )
+                (title as NSString).draw(in: titleRect, withAttributes: titleAttributes)
+                x += titleSize.width + spacing
+                if let chevron {
+                    let rect = CGRect(
+                        x: x,
+                        y: (totalHeight - chevronSize.height) / 2,
+                        width: chevronSize.width,
+                        height: chevronSize.height
+                    )
+                    chevron.draw(in: rect)
+                }
+            }
+        }
+    #endif
 
     @objc private func handleTitleTap() {
         menuDelegate?.chatViewControllerDidTapModelTitle(self)

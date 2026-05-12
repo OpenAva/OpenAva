@@ -124,8 +124,7 @@ open class ConversationContainerView: UIView {
 }
 
 extension ConversationContainerView: ChatInputDelegate {
-    public func chatInputDidSubmit(_ input: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
-        _ = input
+    public func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
         handlePromptSubmit(
             session: currentSession,
             object: object,
@@ -138,8 +137,7 @@ extension ConversationContainerView: ChatInputDelegate {
         )
     }
 
-    public func chatInputDidRequestStop(_ input: ChatInputView) {
-        _ = input
+    public func chatInputDidRequestStop(_: ChatInputView) {
         handlePromptStop(session: currentSession)
     }
 

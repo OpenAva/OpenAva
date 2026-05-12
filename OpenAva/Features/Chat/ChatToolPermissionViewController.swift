@@ -48,6 +48,14 @@ final class ChatToolPermissionViewController: UIViewController {
             case .alwaysExact: return 2
             }
         }
+
+        var allowAction: Action {
+            switch self {
+            case .once: return .allowOnce
+            case .alwaysTool: return .alwaysAllowTool
+            case .alwaysExact: return .alwaysAllowExact
+            }
+        }
     }
 
     private var isWebViewOpenRequest: Bool {
@@ -501,13 +509,7 @@ final class ChatToolPermissionViewController: UIViewController {
 
         let allowButton = makePrimaryDarkButton(title: String.localized("Allow")) { [weak self] in
             guard let self else { return }
-            let action: Action
-            switch self.rememberChoice {
-            case .once: action = .allowOnce
-            case .alwaysTool: action = .alwaysAllowTool
-            case .alwaysExact: action = .alwaysAllowExact
-            }
-            self.delegate?.toolPermissionViewController(self, didSelectAction: action)
+            self.delegate?.toolPermissionViewController(self, didSelectAction: self.rememberChoice.allowAction)
         }
 
         row.addArrangedSubview(denyButton)

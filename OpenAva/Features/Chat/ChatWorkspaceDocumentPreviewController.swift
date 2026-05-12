@@ -154,10 +154,10 @@ final class ChatWorkspaceDocumentPreviewController: UIViewController {
     }
 
     private func handleCloseTapped() {
-        if let onCloseRequested {
-            onCloseRequested()
-        } else {
+        guard let onCloseRequested else {
             dismiss(animated: true)
+            return
         }
+        onCloseRequested()
     }
 }

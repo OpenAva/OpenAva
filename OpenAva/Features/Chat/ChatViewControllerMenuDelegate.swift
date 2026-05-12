@@ -26,27 +26,19 @@ public protocol ChatViewControllerMenuDelegate: AnyObject {
 }
 
 public extension ChatViewControllerMenuDelegate {
-    func chatViewControllerMenu(_ controller: ChatViewController) -> UIMenu? {
-        _ = controller
-        return nil
+    func chatViewControllerMenu(_: ChatViewController) -> UIMenu? {
+        nil
     }
 
-    func chatViewControllerLeadingButton(_ controller: ChatViewController, button: UIButton) {
-        _ = controller
-        _ = button
+    func chatViewControllerLeadingButton(_: ChatViewController, button _: UIButton) {}
+
+    func chatViewControllerDidTapModelTitle(_: ChatViewController) {}
+
+    func chatViewControllerHandleCommand(_: ChatViewController, command _: String) -> Bool {
+        false
     }
 
-    func chatViewControllerDidTapModelTitle(_ controller: ChatViewController) {
-        _ = controller
-    }
-
-    func chatViewControllerHandleCommand(_ controller: ChatViewController, command _: String) -> Bool {
-        _ = controller
-        return false
-    }
-
-    func chatViewControllerModelMenu(_ controller: ChatViewController) -> UIMenu? {
-        _ = controller
-        return nil
+    func chatViewControllerModelMenu(_: ChatViewController) -> UIMenu? {
+        nil
     }
 }
