@@ -200,33 +200,6 @@ enum AgentTemplateWriter {
 
     // MARK: - Advanced Files
 
-    static func writeAgentsFile(
-        at workspaceURL: URL,
-        rules: String,
-        fileManager: FileManager = .default
-    ) throws {
-        let content = Self.renderAgents(rules: rules)
-        try Self.writeDocument(at: workspaceURL, kind: .agents, content: content, fileManager: fileManager)
-    }
-
-    static func renderAgents(rules: String) -> String {
-        let contentBlock = rules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "_(Are there any hard constraints for files, systems, or collaboration?)_"
-            : rules
-
-        return """
-        # AGENTS.md - Workspace Rules
-
-        _Define your operating conventions and hard limits here._
-
-        ## Rules & Constraints
-
-        \(contentBlock)
-
-        ---
-        """
-    }
-
     static func writeToolsFile(
         at workspaceURL: URL,
         config: String,

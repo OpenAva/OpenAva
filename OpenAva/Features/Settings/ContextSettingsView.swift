@@ -21,35 +21,9 @@ struct ContextSettingsView: View {
             .task {
                 viewModel.load(workspaceRootURL: containerStore.activeAgentContextURL)
             }
-            .onChange(of: containerStore.activeAgent?.id.uuidString ?? "") { _, _ in
+            .onChange(of: containerStore.activeAgent?.id ?? "") { _, _ in
                 viewModel.load(workspaceRootURL: containerStore.activeAgentContextURL)
             }
-    }
-}
-
-private extension AgentContextDocumentKind {
-    var iconName: String {
-        switch self {
-        case .agents: return "slider.horizontal.3"
-        case .heartbeat: return "waveform.path.ecg"
-        case .soul: return "sparkles"
-        case .tools: return "hammer.fill"
-        case .identity: return "person.text.rectangle.fill"
-        case .user: return "person.fill"
-        }
-    }
-
-    var iconColor: Color {
-        // Based on DESIGN.md: prefer warm neutrals, brand orange for AI/brand emphasis.
-        // We use the design system's offBlack and pureWhite for high contrast, and brandOrange for "soul" (core AI personality)
-        switch self {
-        case .agents: return Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .heartbeat: return Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .soul: return Color(uiColor: ChatUIDesign.Color.brandOrange)
-        case .tools: return Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .identity: return Color(uiColor: ChatUIDesign.Color.offBlack)
-        case .user: return Color(uiColor: ChatUIDesign.Color.offBlack)
-        }
     }
 }
 

@@ -13,27 +13,13 @@ final class ContextSettingsViewModel {
             kind.id
         }
 
-        var fileName: String {
-            kind.fileName
-        }
-
-        var purpose: String {
-            kind.localizedPurpose
-        }
-
-        var supportsTemplate: Bool {
-            kind.supportsTemplate
-        }
-
         var hasTemplateContent: Bool {
             guard let templateContent else { return false }
             return !templateContent.isEmpty
         }
     }
 
-    var documents: [DocumentState] = AgentContextDocumentKind.agentSettingsCases.map { kind in
-        DocumentState(kind: kind, content: "", templateContent: AgentContextLoader.templateContent(for: kind))
-    }
+    var documents: [DocumentState] = ContextSettingsViewModel.emptyDocuments()
 
     var rootPath = ""
     var errorText: String?
@@ -47,9 +33,7 @@ final class ContextSettingsViewModel {
             rootPath = ""
             errorText = L10n.tr("settings.context.error.noActiveAgent")
             hasLoaded = true
-            documents = AgentContextDocumentKind.agentSettingsCases.map { kind in
-                DocumentState(kind: kind, content: "", templateContent: AgentContextLoader.templateContent(for: kind))
-            }
+            documents = Self.emptyDocuments()
             return
         }
 
@@ -118,30 +102,6 @@ final class ContextSettingsViewModel {
         autoSave(content: "", for: kind)
     }
 
-    /// Reset all documents' content to empty.
-    func resetAllContent() {
-        guard workspaceRootURL != nil else {
-            errorText = L10n.tr("settings.context.error.noActiveAgent")
-            return
-        }
-        for index in documents.indices {
-            documents[index].content = ""
-        }
-        // Persist all resets immediately.
-        errorText = nil
-        do {
-            for document in documents {
-                try AgentContextLoader.saveEditableContent(
-                    "",
-                    for: document.kind,
-                    workspaceRootURL: workspaceRootURL
-                )
-            }
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
     private func autoSave(content: String, for kind: AgentContextDocumentKind) {
         guard workspaceRootURL != nil else {
             errorText = L10n.tr("settings.context.error.noActiveAgent")
@@ -160,26 +120,9 @@ final class ContextSettingsViewModel {
         }
     }
 
-    func save() -> Bool {
-        guard workspaceRootURL != nil else {
-            errorText = L10n.tr("settings.context.error.noActiveAgent")
-            return false
-        }
-        errorText = nil
-
-        do {
-            // Save all documents to disk.
-            for document in documents {
-                try AgentContextLoader.saveEditableContent(
-                    document.content,
-                    for: document.kind,
-                    workspaceRootURL: workspaceRootURL
-                )
-            }
-            return true
-        } catch {
-            errorText = error.localizedDescription
-            return false
+    private static func emptyDocuments() -> [DocumentState] {
+        AgentContextDocumentKind.agentSettingsCases.map { kind in
+            DocumentState(kind: kind, content: "", templateContent: AgentContextLoader.templateContent(for: kind))
         }
     }
 }

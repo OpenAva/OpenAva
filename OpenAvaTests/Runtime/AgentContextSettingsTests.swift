@@ -33,6 +33,7 @@ final class AgentContextSettingsTests: XCTestCase {
 
     func testAgentSettingsDocumentKindsExcludeWorkspaceAgentsFile() {
         XCTAssertFalse(AgentContextDocumentKind.agentSettingsCases.contains(.agents))
+        XCTAssertFalse(AgentContextDocumentKind.agents.supportsTemplate)
         XCTAssertEqual(
             AgentContextDocumentKind.agentSettingsCases.map(\.fileName),
             ["HEARTBEAT.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md"]
@@ -48,12 +49,10 @@ final class AgentContextSettingsTests: XCTestCase {
     }
 
     func testTemplateContentLoadsBuiltInAgentGuidance() {
-        // Verify built-in templates are loaded correctly.
-        let agentsTemplate = AgentContextLoader.templateContent(for: .agents)
+        // Verify built-in templates are loaded correctly for editable agent context documents.
         let toolsTemplate = AgentContextLoader.templateContent(for: .tools)
         let identityTemplate = AgentContextLoader.templateContent(for: .identity)
 
-        XCTAssertEqual(agentsTemplate?.contains("# AGENTS.md - Your Workspace"), true)
         XCTAssertEqual(toolsTemplate?.contains("# TOOLS.md - Local Notes"), true)
         XCTAssertEqual(identityTemplate?.contains("# IDENTITY.md - Who Am I?"), true)
     }

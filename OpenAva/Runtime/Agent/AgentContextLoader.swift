@@ -74,7 +74,12 @@ enum AgentContextDocumentKind: CaseIterable, Identifiable {
     }
 
     var supportsTemplate: Bool {
-        true
+        switch self {
+        case .agents:
+            return false
+        case .heartbeat, .soul, .tools, .identity, .user:
+            return true
+        }
     }
 }
 
