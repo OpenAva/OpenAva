@@ -43,7 +43,7 @@ final class ToolRuntime: @unchecked Sendable {
     private let textImageRenderService: TextImageRenderService
     private let fileSystemService: FileSystemService
     private let bashService: BashService
-    private let workspaceRootURL: URL?
+    let workspaceRootURL: URL?
     private let supportRootURL: URL?
     private let additionalReadableRootURLs: [URL]
     private let modelConfig: AppConfig.LLMModel?

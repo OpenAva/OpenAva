@@ -601,7 +601,7 @@ private struct SkillSection<Content: View>: View {
     }
 }
 
-private struct SkillRowsCard<Content: View>: View {
+struct SkillRowsCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -620,7 +620,7 @@ private struct SkillRowsCard<Content: View>: View {
     }
 }
 
-private struct SkillRowDivider: View {
+struct SkillRowDivider: View {
     var body: some View {
         Rectangle()
             .fill(Color(uiColor: ChatUIDesign.Color.oatBorder))

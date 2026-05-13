@@ -152,6 +152,7 @@
 "settings.context.navigationTitle" = "Agent Settings";
 "settings.cron.navigationTitle" = "Cron";
 "settings.skills.navigationTitle" = "Skills";
+"settings.tools.navigationTitle" = "Tools";
 "settings.remoteControl.navigationTitle" = "Remote Control";
 "settings.remoteControl.discovery.title" = "Nearby Macs";
 "settings.remoteControl.discovery.device" = "Device";

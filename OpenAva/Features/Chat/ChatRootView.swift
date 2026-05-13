@@ -56,6 +56,7 @@ struct ChatRootView: View {
         case llm
         case cron
         case skills
+        case tools
         case remoteControl
     }
 
@@ -485,6 +486,8 @@ struct ChatRootView: View {
                 .cron
             case .openSkills:
                 .skills
+            case .openTools:
+                .tools
             case .openRemoteControl:
                 nil
             case .runHeartbeatNow:
@@ -508,6 +511,8 @@ struct ChatRootView: View {
                 destinationPath.append(MenuDestination.cron)
             case .openSkills:
                 destinationPath.append(MenuDestination.skills)
+            case .openTools:
+                destinationPath.append(MenuDestination.tools)
             case .openRemoteControl:
                 destinationPath.append(MenuDestination.remoteControl)
             case .runHeartbeatNow:
@@ -536,6 +541,9 @@ struct ChatRootView: View {
             case .skills:
                 SkillListView()
                     .navigationTitle(L10n.tr("settings.skills.navigationTitle"))
+            case .tools:
+                ToolListView()
+                    .navigationTitle(L10n.tr("settings.tools.navigationTitle"))
             case .remoteControl:
                 RemoteControlSettingsView()
                     .navigationTitle(L10n.tr("settings.remoteControl.navigationTitle"))
@@ -945,6 +953,8 @@ private struct ChatScreen: View {
                 .openLLM
             case .skills:
                 .openSkills
+            case .tools:
+                .openTools
             case .cron:
                 .openCron
             case .remoteControl:

@@ -174,6 +174,7 @@ enum ChatTopBar {
     enum Destination: String, Equatable {
         case llm
         case skills
+        case tools
         case cron
         case remoteControl
     }
@@ -469,6 +470,12 @@ enum ChatTopBar {
                 kind: .destination(.skills),
                 title: L10n.tr("settings.skills.navigationTitle"),
                 systemImage: "square.stack.3d.up"
+            ),
+            ConfigurationItem(
+                id: "open-tools",
+                kind: .destination(.tools),
+                title: L10n.tr("settings.tools.navigationTitle"),
+                systemImage: "hammer"
             ),
         ]
 

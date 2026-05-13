@@ -246,6 +246,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case openContext(AgentContextDocumentKind)
         case openCron
         case openSkills
+        case openTools
         case openRemoteControl
         case runHeartbeatNow
     }
@@ -1522,6 +1523,7 @@ extension ChatViewControllerWrapper {
             switch destination {
             case .llm: return .openLLM
             case .skills: return .openSkills
+            case .tools: return .openTools
             case .cron: return .openCron
             case .remoteControl: return .openRemoteControl
             }

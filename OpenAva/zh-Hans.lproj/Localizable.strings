@@ -152,6 +152,7 @@
 "settings.context.navigationTitle" = "Agent 设定";
 "settings.cron.navigationTitle" = "定时任务";
 "settings.skills.navigationTitle" = "技能";
+"settings.tools.navigationTitle" = "工具";
 "settings.remoteControl.navigationTitle" = "遥控";
 "settings.remoteControl.discovery.title" = "附近的 Mac";
 "settings.remoteControl.discovery.device" = "设备";

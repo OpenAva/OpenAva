@@ -32,7 +32,9 @@ final class ToolRegistryProvider: ToolProvider, ToolPermissionScopeProviding {
 
     func enabledTools() async -> [ChatRequestBody.Tool] {
         await toolRuntime.ensureRegistryReady()
-        return await ToolRegistry.shared.allDefinitions().map(\.chatRequestTool)
+        return await ToolRegistry.shared.allDefinitions()
+            .filter { AgentToolToggleStore.isEnabled($0, workspaceRootURL: toolRuntime.workspaceRootURL) }
+            .map(\.chatRequestTool)
     }
 
     func findTool(for request: ToolRequest) async -> ToolExecutor? {
