@@ -143,6 +143,46 @@ final class CanUseToolTests: XCTestCase {
         XCTAssertEqual(decision.message, "Tool execution requires approval because this tool can modify or delete data.")
     }
 
+    func testDefaultToolPermissionPolicyAllowsWorkspaceRelativeFileEdits() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-write-relative", name: "fs_write", arguments: #"{"path":"Sources/App.swift","content":"x"}"#),
+            makeTool(functionName: "fs_write", permissionProfile: .localMutation, isDestructive: true),
+            makeContext()
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "workspace_edit_path")
+    }
+
+    func testDefaultToolPermissionPolicyAllowsAbsoluteFileEditsInsideWorkspace() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-write-workspace", name: "fs_write", arguments: #"{"path":"/workspace/Sources/App.swift","content":"x"}"#),
+            makeTool(functionName: "fs_write", permissionProfile: .localMutation, isDestructive: true),
+            makeContext(toolProvider: PermissionScopeToolProvider(
+                workspaceRootURL: URL(fileURLWithPath: "/workspace"),
+                readableRootURLs: [URL(fileURLWithPath: "/workspace")]
+            ))
+        )
+
+        XCTAssertEqual(decision.behavior, .allow)
+        XCTAssertEqual(decision.reason, "workspace_edit_path")
+    }
+
+    func testDefaultToolPermissionPolicyAsksForAbsoluteFileEditsOutsideWorkspace() async {
+        let decision = await defaultToolPermissionPolicy(
+            ToolRequest(id: "tool-write-outside", name: "fs_write", arguments: #"{"path":"/tmp/outside.txt","content":"x"}"#),
+            makeTool(functionName: "fs_write", permissionProfile: .localMutation, isDestructive: true),
+            makeContext(toolProvider: PermissionScopeToolProvider(
+                workspaceRootURL: URL(fileURLWithPath: "/workspace"),
+                readableRootURLs: [URL(fileURLWithPath: "/workspace")]
+            ))
+        )
+
+        XCTAssertEqual(decision.behavior, .ask)
+        XCTAssertEqual(decision.reason, "absolute_write_path_requires_approval")
+        XCTAssertEqual(decision.approvedWritableRootURL?.path, "/tmp/outside.txt")
+    }
+
     func testDefaultToolPermissionPolicyAllowsBypassPermissionMode() async {
         let session = ConversationSession(
             id: UUID().uuidString,
@@ -174,7 +214,7 @@ final class CanUseToolTests: XCTestCase {
         )
 
         XCTAssertEqual(decision.behavior, .allow)
-        XCTAssertEqual(decision.reason, "permission_mode_auto_review")
+        XCTAssertEqual(decision.reason, "workspace_edit_path")
     }
 
     func testDefaultToolPermissionPolicyAllowsWriteLocalBashInAutoReviewMode() async {

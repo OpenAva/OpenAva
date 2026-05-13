@@ -633,10 +633,11 @@ private func localMutationPermissionDecision(for request: ToolRequest, tool: any
 
     let path = permissionArgumentString(for: ["path", "file_path", "filePath"], in: request.arguments) ?? "."
     let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmedPath.hasPrefix("/") else {
-        return .ask(
-            message: String.localized("toolPermission.unclassifiedMutation"),
-            reason: "workspace_relative_write_requires_approval"
+    if !trimmedPath.hasPrefix("/") {
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "workspace_edit_path"
         )
     }
 
@@ -650,11 +651,21 @@ private func localMutationPermissionDecision(for request: ToolRequest, tool: any
     let resolvedPath = normalizedPermissionPath(trimmedPath)
     if let workspaceRoot = scopeProvider.toolPermissionWorkspaceRootURL?.standardizedFileURL.path {
         if isPermissionPath(resolvedPath, withinRoot: workspaceRoot) {
-            return .ask(
-                message: String.localized("toolPermission.unclassifiedMutation"),
-                reason: "workspace_write_requires_approval"
+            return ToolPermissionDecision(
+                behavior: .allow,
+                message: nil,
+                reason: "workspace_edit_path"
             )
         }
+    }
+
+    let approvedWritableRoots = context.session.sessionApprovedWritableRootURLs.map { $0.standardizedFileURL.path }
+    if approvedWritableRoots.contains(where: { isPermissionPath(resolvedPath, withinRoot: $0) }) {
+        return ToolPermissionDecision(
+            behavior: .allow,
+            message: nil,
+            reason: "approved_writable_path"
+        )
     }
 
     return .ask(
