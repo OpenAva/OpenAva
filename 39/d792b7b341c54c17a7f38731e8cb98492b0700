@@ -1,0 +1,25 @@
+OpenAva/Features/Settings/LLMListView.swift
+  86c8cdbdebef8ec7 726-733,740-745
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "39d792b7b341c54c17a7f38731e8cb98492b0700",
+  "prompts": {
+    "86c8cdbdebef8ec7": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a042cf2b60abff3fd1d678f",
+        "model": "gemini-3.1-pro__dev"
+      },
+      "human_author": "Y2 <yuanyan.cao@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
