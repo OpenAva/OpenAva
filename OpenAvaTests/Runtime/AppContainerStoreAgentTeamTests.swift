@@ -113,10 +113,10 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(containerStore.teams.map(\.name), ["Core Team"])
         XCTAssertEqual(containerStore.teams.map(\.emoji), ["🧭"])
         XCTAssertEqual(containerStore.teams.first?.description, "Main coordination team")
-        XCTAssertTrue(team.agentPoolIDs.isEmpty)
+        XCTAssertTrue(team.members.isEmpty)
 
         let metadata = try XCTUnwrap(TeamStore.loadMetadata(for: .team(team.id), workspaceRootURL: workspaceRootURL))
-        XCTAssertEqual(metadata.agentPoolIDs, [])
+        XCTAssertEqual(metadata.members, [])
         XCTAssertEqual(metadata.defaultTopology, .automatic)
         let teamDirectoryURL = try XCTUnwrap(
             TeamStore.contextDirectoryURL(for: .team(team.id), workspaceRootURL: workspaceRootURL)
@@ -129,7 +129,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
 
         let agent = try containerStore.createAgent(name: "Operator", emoji: "🛠️")
         let updatedTeam = try XCTUnwrap(containerStore.addAgents([agent.id], toTeam: team.id))
-        XCTAssertEqual(updatedTeam.agentPoolIDs, [agent.id])
+        XCTAssertEqual(updatedTeam.members, [agent.id])
     }
 
     func testCreateAgentDefaultsToFirstConfiguredModel() throws {
@@ -288,7 +288,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         ))
 
         let metadata = try XCTUnwrap(TeamStore.loadMetadata(for: .team(team.id), workspaceRootURL: workspaceRootURL))
-        XCTAssertEqual(metadata.agentPoolIDs, [])
+        XCTAssertEqual(metadata.members, [])
         XCTAssertEqual(metadata.defaultTopology, .tree)
         XCTAssertEqual(containerStore.teams.first?.description, "Find evidence before recommending.")
         XCTAssertEqual(containerStore.teams.first?.defaultTopology, .tree)
@@ -302,7 +302,7 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         XCTAssertEqual(storedTeam["id"] as? String, team.id)
         XCTAssertNil(storedTeam["name"])
         XCTAssertNil(storedTeam["emoji"])
-        XCTAssertNil(storedTeam["agentPoolIDs"])
+        XCTAssertNil(storedTeam["members"])
         XCTAssertNil(storedTeam["description"])
         XCTAssertNil(storedTeam["defaultTopology"])
         XCTAssertNil(storedTeam["createdAt"])
@@ -310,12 +310,12 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
     }
 
     func testChatSessionMenuIncludesCustomTeamAndSelection() {
-        let teamID = UUID()
+        let teamID = UUID().uuidString
         let team = TeamProfile(
             id: teamID,
             name: "Core Team",
             emoji: "🧭",
-            agentPoolIDs: []
+            members: []
         )
 
         let entries = ChatTopBar.sessionMenuEntries(

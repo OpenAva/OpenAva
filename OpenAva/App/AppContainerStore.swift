@@ -378,7 +378,7 @@ final class AppContainerStore {
             name: name,
             emoji: emoji,
             description: description,
-            agentPoolIDs: agentIDs,
+            members: agentIDs,
             defaultTopology: defaultTopology,
             fileManager: fileManager,
             workspaceRootURL: agentWorkspaceRootURL

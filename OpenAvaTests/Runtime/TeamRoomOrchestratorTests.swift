@@ -11,7 +11,7 @@ final class TeamRoomOrchestratorTests: XCTestCase {
         let third = makeAgent(name: "Third", emoji: "3️⃣")
         let team = TeamProfile(
             name: "Focused Team",
-            agentPoolIDs: [third.id, first.id]
+            members: [third.id, first.id]
         )
 
         let participants = TeamRoomOrchestrator.resolveParticipants(
@@ -31,7 +31,7 @@ final class TeamRoomOrchestratorTests: XCTestCase {
             configuration: .init(storage: storage)
         )
         let agent = makeAgent(name: "Reviewer", emoji: "🧪")
-        let team = TeamProfile(name: "Review Team", agentPoolIDs: [agent.id])
+        let team = TeamProfile(name: "Review Team", members: [agent.id])
         let context = TeamRoomOrchestrator.SubmissionContext(
             activeContext: .team(team.id),
             teams: [team],

@@ -60,12 +60,12 @@ struct TeamExecutionPlan: Codable, Equatable, Identifiable {
 
 enum TeamTopologyPlanner {
     static func defaultPlan(for profile: TeamProfile) -> TeamExecutionPlan {
-        let nodes = profile.agentPoolIDs.map { TeamExecutionPlan.Node(agentID: $0) }
-        let rootAgentID = profile.agentPoolIDs.first
+        let nodes = profile.members.map { TeamExecutionPlan.Node(agentID: $0) }
+        let rootAgentID = profile.members.first
         let edges: [TeamExecutionPlan.Edge]
 
         if profile.defaultTopology == .tree, let rootAgentID {
-            edges = profile.agentPoolIDs
+            edges = profile.members
                 .filter { $0 != rootAgentID }
                 .map {
                     TeamExecutionPlan.Edge(

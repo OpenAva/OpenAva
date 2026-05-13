@@ -30,7 +30,7 @@ enum TeamStore {
     static func allAgentsTeam(fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> TeamProfile? {
         ensureAllAgentsTeamIdentity(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         return applyMetadata(
-            to: TeamProfile(id: allAgentsTeamID, name: "", agentPoolIDs: []),
+            to: TeamProfile(id: allAgentsTeamID, name: "", members: []),
             context: .allAgentsTeam,
             fileManager: fileManager,
             workspaceRootURL: workspaceRootURL
@@ -42,15 +42,14 @@ enum TeamStore {
         name: String,
         emoji: String = "👥",
         description: String? = nil,
-        agentPoolIDs: [String] = [],
+        members: [String] = [],
         defaultTopology: TeamTopologyKind = .automatic,
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) -> TeamProfile? {
         var state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        let assignedIDs = Set(state.teams.flatMap(\.agentPoolIDs))
-        let normalizedAgentPoolIDs = agentPoolIDs.reduce(into: [String]()) { partialResult, id in
-            if !partialResult.contains(id), !assignedIDs.contains(id) {
+        let normalizedMembers = members.reduce(into: [String]()) { partialResult, id in
+            if !partialResult.contains(id) {
                 partialResult.append(id)
             }
         }
@@ -64,7 +63,7 @@ enum TeamStore {
             name: uniqueName,
             emoji: normalizedEmoji,
             description: description,
-            agentPoolIDs: normalizedAgentPoolIDs,
+            members: normalizedMembers,
             defaultTopology: defaultTopology
         )
         if let directoryURL = contextDirectoryURL(
@@ -87,9 +86,9 @@ enum TeamStore {
             fileManager: fileManager,
             workspaceRootURL: workspaceRootURL
         )
-        state.teams.append(TeamProfile(id: team.id, name: "", agentPoolIDs: []))
+        state.teams.append(TeamProfile(id: team.id, name: "", members: []))
         persist(state: state, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        return applyMetadata(to: TeamProfile(id: team.id, name: "", agentPoolIDs: []), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        return applyMetadata(to: TeamProfile(id: team.id, name: "", members: []), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
     static func deleteTeam(_ teamID: String, fileManager: FileManager = .default, workspaceRootURL: URL? = nil) {
@@ -102,7 +101,7 @@ enum TeamStore {
     }
 
     static func teams(containing agentID: String, fileManager: FileManager = .default, workspaceRootURL: URL? = nil) -> [TeamProfile] {
-        load(fileManager: fileManager, workspaceRootURL: workspaceRootURL).teams.filter { $0.agentPoolIDs.contains(agentID) }
+        load(fileManager: fileManager, workspaceRootURL: workspaceRootURL).teams.filter { $0.members.contains(agentID) }
     }
 
     @discardableResult
@@ -114,7 +113,7 @@ enum TeamStore {
         let updated = mutateTeam(profile.id, fileManager: fileManager, workspaceRootURL: workspaceRootURL) { team in
             team.name = profile.name
             team.emoji = profile.emoji
-            team.agentPoolIDs = profile.agentPoolIDs
+            team.members = profile.members
             team.description = profile.description
             team.defaultTopology = profile.defaultTopology
         }
@@ -199,16 +198,9 @@ enum TeamStore {
         fileManager: FileManager = .default,
         workspaceRootURL: URL? = nil
     ) -> TeamProfile? {
-        let state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        let assignedIDs = Set(
-            state.teams
-                .filter { $0.id != teamID }
-                .flatMap(\.agentPoolIDs)
-        )
-        let eligible = agentIDs.filter { !assignedIDs.contains($0) }
         return mutateTeam(teamID, fileManager: fileManager, workspaceRootURL: workspaceRootURL) { team in
-            for agentID in eligible where !team.agentPoolIDs.contains(agentID) {
-                team.agentPoolIDs.append(agentID)
+            for agentID in agentIDs where !team.members.contains(agentID) {
+                team.members.append(agentID)
             }
         }
     }
@@ -221,15 +213,15 @@ enum TeamStore {
         workspaceRootURL: URL? = nil
     ) -> TeamProfile? {
         mutateTeam(teamID, fileManager: fileManager, workspaceRootURL: workspaceRootURL) { team in
-            team.agentPoolIDs.removeAll { $0 == agentID }
+            team.members.removeAll { $0 == agentID }
         }
     }
 
     static func removeAgentReferences(_ agentID: String, fileManager: FileManager = .default, workspaceRootURL: URL? = nil) {
         let state = load(fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        for team in state.teams where team.agentPoolIDs.contains(agentID) {
+        for team in state.teams where team.members.contains(agentID) {
             _ = mutateTeam(team.id, fileManager: fileManager, workspaceRootURL: workspaceRootURL) { team in
-                team.agentPoolIDs.removeAll { $0 == agentID }
+                team.members.removeAll { $0 == agentID }
             }
         }
     }
@@ -246,7 +238,7 @@ enum TeamStore {
             return nil
         }
         guard var team = applyMetadata(
-            to: TeamProfile(id: teamID, name: "", agentPoolIDs: []),
+            to: TeamProfile(id: teamID, name: "", members: []),
             context: .team(teamID),
             fileManager: fileManager,
             workspaceRootURL: workspaceRootURL
@@ -258,10 +250,10 @@ enum TeamStore {
         persistMetadata(metadata(from: team), for: .team(teamID), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         persistIdentity(from: team, context: .team(teamID), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
         projectState.teams = projectState.teams.map { existing in
-            existing.id == teamID ? TeamProfile(id: teamID, name: "", agentPoolIDs: []) : existing
+            existing.id == teamID ? TeamProfile(id: teamID, name: "", members: []) : existing
         }
         OpenAvaProjectFile.persist(projectState, fileManager: fileManager, workspaceRootURL: workspaceRootURL)
-        return applyMetadata(to: TeamProfile(id: teamID, name: "", agentPoolIDs: []), context: .team(teamID), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
+        return applyMetadata(to: TeamProfile(id: teamID, name: "", members: []), context: .team(teamID), fileManager: fileManager, workspaceRootURL: workspaceRootURL)
     }
 
     private static func persist(state: TeamStateSnapshot, fileManager: FileManager, workspaceRootURL: URL?) {
@@ -464,7 +456,7 @@ enum TeamStore {
             return nil
         }
         var team = team
-        team.agentPoolIDs = metadata.agentPoolIDs
+        team.members = metadata.members
         team.createdAt = metadata.createdAt
         team.updatedAt = metadata.updatedAt
         team.selectedModelID = metadata.selectedModelID
@@ -488,7 +480,7 @@ enum TeamStore {
         ChatContextMetadata(
             selectedModelID: profile.selectedModelID,
             thinkingStrength: profile.thinkingStrength,
-            agentPoolIDs: profile.agentPoolIDs,
+            members: profile.members,
             createdAt: profile.createdAt,
             updatedAt: profile.updatedAt,
             autoCompactEnabled: profile.autoCompactEnabled,

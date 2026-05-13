@@ -16,7 +16,7 @@ struct TeamProfile: Codable, Equatable, Identifiable {
     var name: String
     var emoji: String
     var description: String?
-    var agentPoolIDs: [String]
+    var members: [String]
     var defaultTopology: TeamTopologyKind
     var createdAt: Date
     var updatedAt: Date
@@ -30,7 +30,7 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         name: String,
         emoji: String = "👥",
         description: String? = nil,
-        agentPoolIDs: [String],
+        members: [String],
         defaultTopology: TeamTopologyKind = .automatic,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -44,7 +44,7 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         let trimmedEmoji = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
         self.emoji = trimmedEmoji.isEmpty ? "👥" : trimmedEmoji
         self.description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.agentPoolIDs = agentPoolIDs
+        self.members = members
         self.defaultTopology = defaultTopology
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -60,7 +60,7 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         name = ""
         emoji = "👥"
         description = nil
-        agentPoolIDs = []
+        members = []
         defaultTopology = .automatic
         createdAt = Date()
         updatedAt = createdAt

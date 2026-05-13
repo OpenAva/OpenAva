@@ -88,8 +88,8 @@ final class TeamRuntimePersistenceTests: XCTestCase {
     }
 
     func testTeamStoreSupportsEmptyTeamsAndDynamicMembership() throws {
-        let firstAgentID = UUID()
-        let secondAgentID = UUID()
+        let firstAgentID = UUID().uuidString
+        let secondAgentID = UUID().uuidString
 
         let created = TeamStore.createTeam(
             name: "Default Team",
@@ -98,19 +98,33 @@ final class TeamRuntimePersistenceTests: XCTestCase {
 
         XCTAssertNotNil(created)
         XCTAssertEqual(created?.emoji, "🛰️")
-        XCTAssertEqual(TeamStore.load().teams.first?.agentPoolIDs, [])
+        XCTAssertEqual(TeamStore.load().teams.first?.members, [])
         XCTAssertTrue(FileManager.default.fileExists(atPath: projectFileURL().path))
 
         let rawContent = try String(contentsOf: projectFileURL(), encoding: .utf8)
         XCTAssertTrue(rawContent.contains("Default Team"))
 
         _ = try TeamStore.addAgents([firstAgentID, secondAgentID, firstAgentID], to: XCTUnwrap(created?.id))
-        XCTAssertEqual(TeamStore.load().teams.first?.agentPoolIDs, [firstAgentID, secondAgentID])
+        XCTAssertEqual(TeamStore.load().teams.first?.members, [firstAgentID, secondAgentID])
 
         _ = try TeamStore.removeAgent(firstAgentID, from: XCTUnwrap(created?.id))
 
         let remaining = TeamStore.load().teams.first
-        XCTAssertEqual(remaining?.agentPoolIDs, [secondAgentID])
+        XCTAssertEqual(remaining?.members, [secondAgentID])
+    }
+
+    func testTeamStoreAllowsAgentToJoinMultipleTeams() throws {
+        let sharedAgentID = UUID().uuidString
+        let firstTeam = try XCTUnwrap(TeamStore.createTeam(name: "Planning Team"))
+        let secondTeam = try XCTUnwrap(TeamStore.createTeam(name: "Review Team"))
+
+        _ = TeamStore.addAgents([sharedAgentID], to: firstTeam.id)
+        _ = TeamStore.addAgents([sharedAgentID], to: secondTeam.id)
+
+        let teams = TeamStore.load().teams
+        XCTAssertEqual(teams.first { $0.id == firstTeam.id }?.members, [sharedAgentID])
+        XCTAssertEqual(teams.first { $0.id == secondTeam.id }?.members, [sharedAgentID])
+        XCTAssertEqual(Set(TeamStore.teams(containing: sharedAgentID).map(\.id)), Set([firstTeam.id, secondTeam.id]))
     }
 
     func testTeamStoreUsesTeamsWorkspaceDirectory() throws {

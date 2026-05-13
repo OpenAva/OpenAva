@@ -5,7 +5,7 @@ struct ChatContextMetadata: Codable, Equatable {
 
     var selectedModelID: String?
     var thinkingStrength: ChatThinkingStrength
-    var agentPoolIDs: [String]
+    var members: [String]
     var createdAt: Date
     var updatedAt: Date
     var autoCompactEnabled: Bool
@@ -16,7 +16,7 @@ struct ChatContextMetadata: Codable, Equatable {
     init(
         selectedModelID: String?,
         thinkingStrength: ChatThinkingStrength = .medium,
-        agentPoolIDs: [String] = [],
+        members: [String] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         autoCompactEnabled: Bool = true,
@@ -26,7 +26,7 @@ struct ChatContextMetadata: Codable, Equatable {
     ) {
         self.selectedModelID = selectedModelID
         self.thinkingStrength = thinkingStrength
-        self.agentPoolIDs = agentPoolIDs
+        self.members = members
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.autoCompactEnabled = autoCompactEnabled
@@ -39,7 +39,7 @@ struct ChatContextMetadata: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID)
         thinkingStrength = try container.decode(ChatThinkingStrength.self, forKey: .thinkingStrength)
-        agentPoolIDs = try container.decode([String].self, forKey: .agentPoolIDs)
+        members = try container.decode([String].self, forKey: .members)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         autoCompactEnabled = try container.decode(Bool.self, forKey: .autoCompactEnabled)

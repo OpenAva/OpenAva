@@ -467,7 +467,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         case .allAgentsTeam:
             return agents.count
         case let .team(teamID):
-            return teams.first { $0.id == teamID }?.agentPoolIDs.count
+            return teams.first { $0.id == teamID }?.members.count
         case .agent:
             return nil
         }

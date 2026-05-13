@@ -146,7 +146,7 @@ final class TeamRoomOrchestrator {
             guard let team = teams.first(where: { $0.id == teamID }) else {
                 return []
             }
-            return team.agentPoolIDs.compactMap { agentID in
+            return team.members.compactMap { agentID in
                 agents.first(where: { $0.id == agentID })
             }
         case let .agent(agentID):
