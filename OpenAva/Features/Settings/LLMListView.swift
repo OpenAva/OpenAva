@@ -723,17 +723,26 @@ private struct TokenUsageHeatmapView: View {
             // Legend
             HStack {
                 Spacer()
-                Text("Less").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
-                HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2).fill(colorFor(tokens: 0)).frame(width: 12, height: 12)
-                    RoundedRectangle(cornerRadius: 2).fill(colorLevel1).frame(width: 12, height: 12)
-                    RoundedRectangle(cornerRadius: 2).fill(colorLevel2).frame(width: 12, height: 12)
-                    RoundedRectangle(cornerRadius: 2).fill(colorLevel3).frame(width: 12, height: 12)
-                    RoundedRectangle(cornerRadius: 2).fill(colorLevel4).frame(width: 12, height: 12)
+                HStack(spacing: 10) {
+                    legendItem(color: colorEmpty, label: "0")
+                    legendItem(color: colorLevel1, label: "<10⁵")
+                    legendItem(color: colorLevel2, label: "<10⁶")
+                    legendItem(color: colorLevel3, label: "<10⁷")
+                    legendItem(color: colorLevel4, label: "<10⁸")
+                    legendItem(color: colorLevel5, label: "<10⁹")
+                    legendItem(color: colorLevel6, label: "10⁹+")
                 }
-                Text("More").font(.system(size: 10)).foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
             }
             .padding(.top, 4)
+        }
+    }
+
+    private func legendItem(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 12, height: 12)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(Color(uiColor: ChatUIDesign.Color.black50))
         }
     }
 
@@ -769,45 +778,52 @@ private struct TokenUsageHeatmapView: View {
         return f.string(from: sun)
     }
 
-    private var maxTokens: Int {
-        dailyUsage.values.max() ?? 1
-    }
-
     private var colorEmpty: Color {
-        Color(uiColor: ChatUIDesign.Color.black50).opacity(0.1)
+        Color(uiColor: ChatUIDesign.Color.oatBorder).opacity(0.45)
     }
 
     private var colorLevel1: Color {
-        Color(red: 0.05, green: 0.27, blue: 0.16)
-    } // GitHub dark mode level 1 #0e4429
-    private var colorLevel2: Color {
-        Color(red: 0.00, green: 0.43, blue: 0.20)
-    } // #006d32
-    private var colorLevel3: Color {
-        Color(red: 0.15, green: 0.65, blue: 0.26)
-    } // #26a641
-    private var colorLevel4: Color {
-        Color(red: 0.22, green: 0.83, blue: 0.33)
-    } // #39d353
+        Color(uiColor: ChatUIDesign.Color.warmSand).opacity(0.45)
+    }
 
-    // Or we should use a generic green that adapts to dark/light mode. GitHub's light mode:
-    // Level 1: #9be9a8, Level 2: #40c463, Level 3: #30a14e, Level 4: #216e39
+    private var colorLevel2: Color {
+        Color(uiColor: ChatUIDesign.Color.reportOrange).opacity(0.18)
+    }
+
+    private var colorLevel3: Color {
+        Color(uiColor: ChatUIDesign.Color.reportOrange).opacity(0.36)
+    }
+
+    private var colorLevel4: Color {
+        Color(uiColor: ChatUIDesign.Color.reportOrange).opacity(0.62)
+    }
+
+    private var colorLevel5: Color {
+        Color(uiColor: ChatUIDesign.Color.reportOrange).opacity(0.82)
+    }
+
+    private var colorLevel6: Color {
+        Color(uiColor: ChatUIDesign.Color.reportOrange)
+    }
 
     private func colorFor(tokens: Int) -> Color {
         if tokens == 0 {
             return colorEmpty
         }
-        let maxT = max(maxTokens, 1)
-        let ratio = Double(tokens) / Double(maxT)
 
-        if ratio < 0.25 {
-            return Color(red: 0.61, green: 0.91, blue: 0.66) // #9be9a8
-        } else if ratio < 0.5 {
-            return Color(red: 0.25, green: 0.77, blue: 0.39) // #40c463
-        } else if ratio < 0.75 {
-            return Color(red: 0.19, green: 0.63, blue: 0.31) // #30a14e
-        } else {
-            return Color(red: 0.13, green: 0.43, blue: 0.22) // #216e39
+        switch tokens {
+        case ..<100_000:
+            return colorLevel1
+        case ..<1_000_000:
+            return colorLevel2
+        case ..<10_000_000:
+            return colorLevel3
+        case ..<100_000_000:
+            return colorLevel4
+        case ..<1_000_000_000:
+            return colorLevel5
+        default:
+            return colorLevel6
         }
     }
 }
