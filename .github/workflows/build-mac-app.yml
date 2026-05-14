@@ -1,0 +1,88 @@
+name: Build Mac App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mac-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Mac Catalyst app
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build Release app
+        env:
+          DERIVED_DATA_DIR: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project OpenAva.xcodeproj \
+            -scheme OpenAva \
+            -configuration Release \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' \
+            -derivedDataPath "$DERIVED_DATA_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package app
+        env:
+          DERIVED_DATA_DIR: ${{ runner.temp }}/DerivedData
+          PACKAGE_DIR: ${{ runner.temp }}/package
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$DERIVED_DATA_DIR/Build/Products/Release-maccatalyst/OpenAva.app"
+          ZIP_PATH="$PACKAGE_DIR/OpenAva-macOS-dev.zip"
+          SHA_PATH="$ZIP_PATH.sha256"
+
+          test -d "$APP_PATH"
+          mkdir -p "$PACKAGE_DIR"
+          codesign --force --deep --sign - "$APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+          shasum -a 256 "$ZIP_PATH" > "$SHA_PATH"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenAva-macOS-dev
+          path: |
+            ${{ runner.temp }}/package/OpenAva-macOS-dev.zip
+            ${{ runner.temp }}/package/OpenAva-macOS-dev.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish latest development build
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: dev-build
+          ZIP_PATH: ${{ runner.temp }}/package/OpenAva-macOS-dev.zip
+          SHA_PATH: ${{ runner.temp }}/package/OpenAva-macOS-dev.zip.sha256
+        run: |
+          set -euo pipefail
+
+          gh release delete "$TAG_NAME" --yes --cleanup-tag || true
+          git tag --force "$TAG_NAME" "$GITHUB_SHA"
+          git push --force origin "$TAG_NAME"
+          gh release create "$TAG_NAME" "$ZIP_PATH" "$SHA_PATH" \
+            --title "Latest development build" \
+            --notes "Automated Mac development build from commit $GITHUB_SHA. This build is ad-hoc signed and not notarized." \
+            --prerelease \
+            --latest=false

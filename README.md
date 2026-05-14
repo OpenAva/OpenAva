@@ -4,6 +4,14 @@
 
 OpenAva is a native Apple-platform app for running personal AI agents with real device context, persistent workspaces, and everyday automation. Its most distinctive idea is **agent teams**: instead of depending on a single general-purpose assistant, you can organize multiple personal agents into a durable working unit that collaborates around your tasks, context, and tools.
 
+[![Build Mac App](https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml/badge.svg?branch=main)](https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml)
+
+## Download Development Build
+
+- Latest Mac development build: [OpenAva-macOS-dev.zip](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip)
+- Checksum: [OpenAva-macOS-dev.zip.sha256](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip.sha256)
+- This build is generated from the latest successful `main` workflow run. It is ad-hoc signed for development use and is not notarized, so macOS may require opening it from Finder with **Right Click → Open** the first time.
+
 ---
 
 ## Overview
@@ -75,7 +83,7 @@ The goal is not to remember everything, but to help the agent keep what is worth
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/OpenAva/OpenAva.git
+   git clone https://github.com/Day1Labs/OpenAva.git
    cd OpenAva
    ```
 
@@ -91,6 +99,26 @@ The goal is not to remember everything, but to help the agent keep what is worth
 
 ## Build from Command Line
 
+Build the iOS app for Simulator:
+
 ```bash
-xcodebuild -project OpenAva.xcodeproj -scheme OpenAva build
+xcodebuild \
+  -project OpenAva.xcodeproj \
+  -scheme OpenAva \
+  -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Build the macOS app via Mac Catalyst:
+
+```bash
+xcodebuild \
+  -project OpenAva.xcodeproj \
+  -scheme OpenAva \
+  -configuration Release \
+  -destination 'generic/platform=macOS,variant=Mac Catalyst' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
 ```
