@@ -1,103 +1,111 @@
-# OpenAva
+<p align="center">
+  <img src="OpenAva/Assets.xcassets/Logo.imageset/Logo.png" alt="OpenAva logo" width="112">
+</p>
 
-> A native app for running personal AI agent teams on Apple devices.
+<h1 align="center">OpenAva</h1>
 
-OpenAva is a native Apple-platform app for running personal AI agents with real device context, persistent workspaces, and everyday automation. Its most distinctive idea is **agent teams**: instead of depending on a single general-purpose assistant, you can organize multiple personal agents into a durable working unit that collaborates around your tasks, context, and tools.
+<p align="center">
+  <strong>A native Apple app for persistent personal AI agent teams.</strong>
+</p>
 
-[![Build Mac App](https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml/badge.svg?branch=main)](https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml)
+<p align="center">
+  Run specialized agents, keep their memory and workspaces, and coordinate them as durable teams across iPhone, iPad, and Mac.
+</p>
 
-## Download Development Build
-
-- Latest Mac development build: [OpenAva-macOS-dev.zip](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip)
-- Checksum: [OpenAva-macOS-dev.zip.sha256](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip.sha256)
-- This build is generated from the latest successful `main` workflow run and is Developer ID signed and notarized.
+<p align="center">
+  <a href="https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml"><img src="https://github.com/Day1Labs/OpenAva/actions/workflows/build-mac-app.yml/badge.svg?branch=main" alt="Build Mac App"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Swift-6.2-ff5600.svg" alt="Swift 6.2">
+  <img src="https://img.shields.io/badge/platform-iOS%2018%2B%20%7C%20macOS%2015%2B-111111.svg" alt="iOS 18+ and macOS 15+">
+</p>
 
 ---
 
-## Overview
+## Why OpenAva
 
-OpenAva brings an agentic chat experience to iPhone and Mac with support for:
+Most AI assistants still feel like isolated chat windows. OpenAva is built around a different idea: agents should live closer to your personal computing environment, keep useful context over time, and collaborate as a real working unit.
 
-- personal agents with their own workspace and settings
-- agent teams as a first-class way to coordinate delegated or collaborative workflows
-- persistent chat sessions and conversation history
-- durable memory and searchable past conversations
-- skills, shortcuts, and scheduled automations
-- device-aware actions such as files, notifications, media, contacts, calendar, and more
-- configurable LLM providers and model endpoints
-- local or remote gateway connectivity
+OpenAva brings that model to Apple platforms with:
 
-The goal is simple: make AI agents feel like part of your personal computing environment, not detached web demos — and make multi-agent collaboration practical for everyday use.
+- native iOS and macOS experiences
+- personal agents with their own identity, tools, memory, and workspace
+- agent teams that can coordinate work instead of forcing every task through one assistant
+- persistent sessions and searchable conversation history
+- local or remote gateway connectivity for device-aware actions
+- configurable model providers and endpoints
+
+The goal is to make multi-agent workflows practical for everyday personal work, not just a prompt-engineering demo.
+
+## Download a Development Build
+
+The latest macOS development build is generated from the latest successful `main` workflow run.
+
+- [Download OpenAva-macOS-dev.zip](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip)
+- [Download checksum](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip.sha256)
+
+The development build is Developer ID signed and notarized.
+
+## What You Can Do
+
+| Area | What OpenAva enables |
+| --- | --- |
+| Personal agents | Create agents with distinct roles, settings, workspaces, tools, and runtime context. |
+| Agent teams | Group specialized agents into a persistent team that can plan, delegate, execute, and review together. |
+| Chat and sessions | Keep ongoing conversations, return to earlier work, and continue long-running tasks over time. |
+| Memory and history | Let agents retain useful long-term context while preserving searchable past conversations. |
+| Skills and automation | Package repeatable workflows as skills and run scheduled or shortcut-driven automations. |
+| Device-aware tools | Connect agents to device surfaces such as files, notifications, media, contacts, calendar, reminders, and more. |
+| Model flexibility | Bring your own model providers, configure endpoints, and switch between provider profiles. |
+| Remote control | Access and steer active agent workflows from another device when needed. |
+| Localization | Use the app in English or Simplified Chinese. |
 
 ## Agent Teams
 
-OpenAva’s key differentiation is that teams are not treated as a temporary prompt trick. They are a core product surface.
+OpenAva treats teams as a first-class product surface, not a temporary prompt trick.
 
-With agent teams, OpenAva lets you:
+Instead of asking one general-purpose assistant to do everything, you can create a durable group of agents around a working context. A team might include:
 
-- group multiple agents around one working context instead of forcing one agent to do everything
-- keep specialized roles inside a persistent team structure
-- use collaboration and delegation as part of normal day-to-day workflows
-- manage a team as an ongoing asset, not a one-off experiment inside a single conversation
+- a planner that turns vague goals into a concrete plan
+- an executor that uses tools and carries out steps
+- a reviewer that checks quality, risks, and missing details
 
-This makes OpenAva especially useful for users who want a more durable setup: for example, one agent can focus on planning, another on execution, another on review, while still operating inside the same personal environment.
+Each agent can keep its own role and workspace while still collaborating inside the same team flow. That makes OpenAva useful for people who want repeatable personal workflows, not just one-off chats.
 
-## Highlights
+## Quick Start
 
-| Area | What it enables |
-|---|---|
-| **Personal agents** | Create and switch between agents with distinct identity, workspace, and runtime context |
-| **Agent teams** | Treat multi-agent collaboration as a first-class product concept, with persistent teams for coordinated work |
-| **Chat and sessions** | Keep ongoing conversations, return to earlier sessions, and continue work over time |
-| **Memory and history** | Let agents retain important long-term context while still being able to look back at past conversations |
-| **Skills and automation** | Turn reusable workflows into skills, invoke them from chat or system integrations, and schedule recurring tasks |
-| **Device integration** | Use your device as an execution surface for actions involving media, files, reminders, notifications, contacts, and other personal context |
-| **Model flexibility** | Bring your own model providers and manage multiple model configurations inside the app |
-| **Remote control** | Access and steer an active agent workflow from another device when needed |
-| **Visibility** | Inspect runtime usage and manage agent behavior from the app’s settings surfaces |
-| **Localization** | Available in English and Simplified Chinese |
+### Try the macOS development build
 
-## Memory
+1. Download [OpenAva-macOS-dev.zip](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip).
+2. Optionally verify the archive with [OpenAva-macOS-dev.zip.sha256](https://github.com/Day1Labs/OpenAva/releases/download/dev-build/OpenAva-macOS-dev.zip.sha256).
+3. Launch OpenAva.
+4. Configure an LLM provider in **Settings > LLM**.
+5. Connect the app to a compatible OpenClaw gateway environment.
+6. Create your first agent or team and start chatting.
 
-OpenAva keeps memory intentionally simple at the product level:
+### Build from source
 
-- agents can retain useful long-term context
-- past conversations remain available for lookup when historical details matter
-- ongoing sessions can preserve continuity across longer tasks
+```bash
+git clone https://github.com/Day1Labs/OpenAva.git
+cd OpenAva
+open OpenAva.xcodeproj
+```
 
-The goal is not to remember everything, but to help the agent keep what is worth carrying forward.
-
-## Platform Notes
-
-- OpenAva targets **iOS** and **macOS via Mac Catalyst**.
-- Some device-integrated capabilities may vary by platform because Apple exposes different system APIs on iPhone/iPad and Mac.
+Then let Swift Package Manager resolve dependencies, select the `OpenAva` scheme, and build for a supported simulator, device, or Mac Catalyst target.
 
 ## Requirements
 
-- **iOS 18.0+** / **macOS 15.0+** (Mac Catalyst)
-- **Xcode 26+** / Swift 6.2+
-- Access to a compatible OpenClaw gateway node
-- At least one configured LLM endpoint
+To run OpenAva:
 
-## Getting Started
+- iOS 18.0+ or macOS 15.0+ via Mac Catalyst
+- at least one configured LLM endpoint
+- access to a compatible OpenClaw gateway node for device-aware actions
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Day1Labs/OpenAva.git
-   cd OpenAva
-   ```
+To develop OpenAva:
 
-2. Open `OpenAva.xcodeproj` in Xcode.
+- Xcode 26+
+- Swift 6.2+
 
-3. Let Swift Package Manager resolve dependencies.
-
-4. Select the **OpenAva** scheme and build for a supported simulator or device.
-
-5. Launch the app and configure your model provider in **Settings → LLM**.
-
-6. Make sure the app can reach your gateway environment, then create your first agent and start chatting.
-
-## Build from Command Line
+## Build from the Command Line
 
 Build the iOS app for Simulator:
 
@@ -122,3 +130,31 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+## Repository Map
+
+| Path | Purpose |
+| --- | --- |
+| `OpenAva/` | Main Apple-platform app source. |
+| `ChatKit/` | Chat UI and model-provider client package. |
+| `OpenClawKit/` | Gateway, device command, and local control support. |
+| `ActivityWidget/` | Widget and live activity surfaces. |
+| `OpenAvaTests/` | App-level runtime and feature tests. |
+| `DESIGN.md` | Visual design guidelines for the product. |
+
+## Good First Contributions
+
+OpenAva is early and benefits most from contributions that make the project easier to try, understand, and trust:
+
+- clearer setup docs for gateway and model-provider configuration
+- issue reports with exact device, OS, model provider, and gateway details
+- agent/team templates that demonstrate real workflows
+- screenshots, demo videos, and onboarding improvements
+- focused tests around runtime, memory, tools, and team coordination
+- fixes that make the development build smoother for first-time users
+
+## Project Links
+
+- Website: [day1-labs.com/openava](https://day1-labs.com/openava/)
+- Releases: [github.com/Day1Labs/OpenAva/releases](https://github.com/Day1Labs/OpenAva/releases)
+- License: [MIT](LICENSE)
