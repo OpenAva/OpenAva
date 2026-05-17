@@ -1,0 +1,69 @@
+OpenAva/OpenAvaApp.swift
+  3029b8d8a18e5dfa 77,82,91 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a09d788b7593628f33d8ab4","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":77},{"Single":82},{"Single":91}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a04999ef3d42ace07831ed977d3f123879ceb9be",
+  "prompts": {
+    "3029b8d8a18e5dfa": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a09cd59b7593628f33d88ec",
+        "model": "gemini-3.1-pro__dev"
+      },
+      "human_author": "Y2 <yuanyan.cao@gmail.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "OpenAva/OpenAvaApp.swift": [
+      {
+        "hash": "3029b8d8a18e5dfa",
+        "line_ranges": [
+          {
+            "Single": 77
+          },
+          {
+            "Single": 82
+          },
+          {
+            "Single": 91
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a09d788b7593628f33d8ab4",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 77
+              },
+              {
+                "Single": 82
+              },
+              {
+                "Single": 91
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "3029b8d8a18e5dfa": {
+      "tool": "trae",
+      "conversation_id": "6a09cd59b7593628f33d88ec",
+      "session_id": "6a09cd59b7593628f33d88ec",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
