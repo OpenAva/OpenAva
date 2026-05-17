@@ -449,26 +449,7 @@ enum AgentTemplateWriter {
     }
 
     static func identityFieldValue(named fieldName: String, in content: String) -> String? {
-        let marker = "- **\(fieldName):**"
-        let lines = content.components(separatedBy: "\n")
-        guard let markerIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == marker }) else {
-            return nil
-        }
-
-        var valueLines: [String] = []
-        var index = markerIndex + 1
-        while index < lines.count {
-            let line = lines[index]
-            guard line.hasPrefix("  ") else { break }
-            valueLines.append(String(line.dropFirst(2)))
-            index += 1
-        }
-
-        let value = valueLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !value.hasPrefix("_(") else {
-            return nil
-        }
-        return value
+        IdentityFieldParser.value(named: fieldName, in: content)
     }
 
     private static func indentedBlock(_ value: String) -> String {
@@ -477,5 +458,174 @@ enum AgentTemplateWriter {
             .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map { "  \($0)" }
             .joined(separator: "\n")
+    }
+
+    private enum IdentityFieldParser {
+        private static let knownFieldNames = Set([
+            "name",
+            "creature",
+            "emoji",
+            "vibe",
+            "avatar",
+            "description",
+        ])
+
+        static func value(named fieldName: String, in content: String) -> String? {
+            let target = normalizedFieldName(fieldName)
+            let lines = content
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .components(separatedBy: "\n")
+
+            for index in lines.indices {
+                guard let field = parseFieldLine(lines[index]),
+                      field.name == target
+                else {
+                    continue
+                }
+
+                if let value = sanitizedValue(field.inlineValue) {
+                    return value
+                }
+
+                if let value = valueAfterFieldLine(startingAt: index + 1, in: lines) {
+                    return value
+                }
+            }
+
+            return nil
+        }
+
+        private static func valueAfterFieldLine(startingAt startIndex: Int, in lines: [String]) -> String? {
+            var valueLines: [String] = []
+            var index = startIndex
+
+            while index < lines.count {
+                let rawLine = lines[index]
+                let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if valueLines.isEmpty, trimmed.isEmpty {
+                    index += 1
+                    continue
+                }
+
+                if isBoundaryLine(rawLine) {
+                    break
+                }
+
+                if trimmed.isEmpty {
+                    break
+                }
+
+                valueLines.append(normalizedValueLine(rawLine))
+                index += 1
+            }
+
+            return sanitizedValue(valueLines.joined(separator: "\n"))
+        }
+
+        private static func parseFieldLine(_ line: String) -> (name: String, inlineValue: String?)? {
+            let content = lineContentForFieldParsing(line)
+            guard !content.isEmpty else { return nil }
+
+            if let colonIndex = content.firstIndex(of: ":") {
+                let rawName = String(content[..<colonIndex])
+                let rawValue = inlineValueAfterColon(String(content[content.index(after: colonIndex)...]))
+                let name = normalizedFieldName(rawName)
+                guard !name.isEmpty else { return nil }
+                return (name, rawValue)
+            }
+
+            let name = normalizedFieldName(content)
+            guard knownFieldNames.contains(name) else { return nil }
+            return (name, nil)
+        }
+
+        private static func isBoundaryLine(_ line: String) -> Bool {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            if trimmed.allSatisfy({ $0 == "-" || $0 == "_" || $0 == "*" }) {
+                return true
+            }
+            if parseFieldLine(line) != nil {
+                return true
+            }
+            if trimmed.hasPrefix("#") {
+                return true
+            }
+            return false
+        }
+
+        private static func lineContentForFieldParsing(_ line: String) -> String {
+            var text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            while text.hasPrefix(">") {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+
+            while let first = text.first, first == "#" {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+
+            if let first = text.first,
+               first == "-" || first == "*" || first == "+"
+            {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+
+            return text
+        }
+
+        private static func inlineValueAfterColon(_ value: String) -> String {
+            var text = value.trimmingCharacters(in: .whitespaces)
+            while text.hasPrefix("*") || text.hasPrefix("_") || text.hasPrefix("`") {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            return text
+        }
+
+        private static func normalizedFieldName(_ value: String) -> String {
+            let charactersToRemove = CharacterSet(charactersIn: "*_`[]()")
+            let scalars = value.unicodeScalars.filter { !charactersToRemove.contains($0) }
+            return String(String.UnicodeScalarView(scalars))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+
+        private static func normalizedValueLine(_ line: String) -> String {
+            var text = line
+            while text.hasPrefix(" ") || text.hasPrefix("\t") {
+                text = String(text.dropFirst())
+            }
+            while text.hasPrefix(">") {
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private static func sanitizedValue(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let lines = value
+                .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let normalized = lines.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return nil }
+
+            let placeholderProbe = normalized
+                .trimmingCharacters(in: CharacterSet(charactersIn: "_*` "))
+                .lowercased()
+            if placeholderProbe.hasPrefix("("),
+               placeholderProbe.hasSuffix(")")
+            {
+                return nil
+            }
+            if ["todo", "tbd", "n/a", "none", "unknown"].contains(placeholderProbe) {
+                return nil
+            }
+
+            return normalized
+        }
     }
 }

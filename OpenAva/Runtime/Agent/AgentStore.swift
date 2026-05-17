@@ -726,11 +726,11 @@ enum AgentStore {
             let identityURL = directoryURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
             guard let agentMetadata = loadAgentMetadata(agentID: agentID, workspaceRootURL: workspaceRootURL),
                   let identity = identityMetadata(at: identityURL),
-                  let name = identity.name,
-                  let emoji = identity.emoji
+                  let name = identity.name
             else {
                 return nil
             }
+            let emoji = identity.emoji ?? "🤖"
 
             let identityAvatar = AgentAvatarDefaults.identityComponents(from: identity.avatar)
 

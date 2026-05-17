@@ -102,4 +102,73 @@ final class AgentTemplateWriterTests: XCTestCase {
         let content = try String(contentsOf: identityURL, encoding: .utf8)
         XCTAssertTrue(content.contains("- **Name:**\n  Luna"))
     }
+
+    func testIdentityFieldValueParsesCommonMarkdownVariants() {
+        let cases: [(String, String, String)] = [
+            (
+                """
+                - **Name:** Nova
+                - **Emoji:** 🦊
+                """,
+                "Name",
+                "Nova"
+            ),
+            (
+                """
+                **name**: Atlas
+                Emoji: 🤖
+                """,
+                "Name",
+                "Atlas"
+            ),
+            (
+                """
+                ## Name
+                Luna
+
+                ## Emoji
+                🌙
+                """,
+                "Name",
+                "Luna"
+            ),
+            (
+                """
+                > Name: Echo
+                > Emoji: 🔊
+                """,
+                "Emoji",
+                "🔊"
+            ),
+            (
+                """
+                Name:
+                    Multi Word Agent
+                Emoji:
+                \t🧭
+                """,
+                "Name",
+                "Multi Word Agent"
+            ),
+        ]
+
+        for (content, fieldName, expectedValue) in cases {
+            XCTAssertEqual(
+                AgentTemplateWriter.identityFieldValue(named: fieldName, in: content),
+                expectedValue
+            )
+        }
+    }
+
+    func testIdentityFieldValueIgnoresPlaceholderValues() {
+        let content = """
+        - **Name:**
+          _(what should people call you?)_
+        - **Emoji:**
+          _(pick one)_
+        """
+
+        XCTAssertNil(AgentTemplateWriter.identityFieldValue(named: "Name", in: content))
+        XCTAssertNil(AgentTemplateWriter.identityFieldValue(named: "Emoji", in: content))
+    }
 }

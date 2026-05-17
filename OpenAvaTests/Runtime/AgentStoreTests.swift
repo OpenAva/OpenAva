@@ -349,6 +349,61 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertFalse(projectText.contains("\"agents\""))
     }
 
+    func testLoadDiscoversAgentWhenIdentityEmojiIsMissing() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Atlas",
+            emoji: "🤖",
+            workspaceRootURL: workspaceRootURL
+        )
+        let identityText = """
+        # IDENTITY.md - Who Am I?
+
+        Name: Atlas
+        Vibe: Useful
+        """
+        try identityText.write(
+            to: profile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+
+        XCTAssertEqual(snapshot.agents.count, 1)
+        XCTAssertEqual(snapshot.activeAgent?.name, "Atlas")
+        XCTAssertEqual(snapshot.activeAgent?.emoji, "🤖")
+    }
+
+    func testLoadSkipsAgentWhenIdentityNameIsMissing() throws {
+        let workspaceRootURL = makeTemporaryWorkspaceRoot()
+        defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+        let profile = try AgentStore.createAgent(
+            name: "Atlas",
+            emoji: "🤖",
+            workspaceRootURL: workspaceRootURL
+        )
+        let identityText = """
+        # IDENTITY.md - Who Am I?
+
+        Emoji: 🦊
+        Vibe: Useful
+        """
+        try identityText.write(
+            to: profile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
+
+        XCTAssertTrue(snapshot.agents.isEmpty)
+        XCTAssertNil(snapshot.activeAgentID)
+    }
+
     private func makeTemporaryWorkspaceRoot() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
