@@ -21,6 +21,10 @@
 
 ---
 
+## Preview
+
+https://github.com/user-attachments/assets/dfb1826b-bb7b-4b48-b066-24c28f9d5682
+
 ## Why OpenAva
 
 Most AI assistants still feel like isolated chat windows. OpenAva is built around a different idea: agents should live closer to your personal computing environment, keep useful context over time, and collaborate as a real working unit.
