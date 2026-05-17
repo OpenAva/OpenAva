@@ -217,8 +217,8 @@ final class AgentCreationViewModel {
         let profile = try containerStore.createAgent(
             name: data.agentName,
             emoji: data.agentEmoji,
-            avatarKind: data.agentAvatarKind,
-            avatarSeed: data.agentAvatarSeed
+            avatarIdentityValue: AgentAvatarDefaults.identityValue(for: agentAvatarDescriptor),
+            vibe: data.agentVibe
         )
 
         if let avatarData = data.agentAvatarData {
@@ -234,14 +234,6 @@ final class AgentCreationViewModel {
         try AgentTemplateWriter.writeSoulFile(
             at: profile.contextURL,
             coreTruths: data.soulCoreTruths
-        )
-
-        try AgentTemplateWriter.writeAgentFile(
-            at: profile.contextURL,
-            name: data.agentName,
-            emoji: data.agentEmoji,
-            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
-            vibe: data.agentVibe
         )
 
         let trimmedTools = data.toolsConfig.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -10,8 +10,6 @@ struct ChatContextMetadata: Codable, Equatable {
     var updatedAt: Date
     var autoCompactEnabled: Bool
     var defaultTopology: TeamTopologyKind
-    var avatarKind: AgentAvatarKind?
-    var avatarSeed: String?
 
     init(
         selectedModelID: String?,
@@ -20,9 +18,7 @@ struct ChatContextMetadata: Codable, Equatable {
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         autoCompactEnabled: Bool = true,
-        defaultTopology: TeamTopologyKind = .automatic,
-        avatarKind: AgentAvatarKind? = nil,
-        avatarSeed: String? = nil
+        defaultTopology: TeamTopologyKind = .automatic
     ) {
         self.selectedModelID = selectedModelID
         self.thinkingStrength = thinkingStrength
@@ -31,8 +27,6 @@ struct ChatContextMetadata: Codable, Equatable {
         self.updatedAt = updatedAt
         self.autoCompactEnabled = autoCompactEnabled
         self.defaultTopology = defaultTopology
-        self.avatarKind = avatarKind
-        self.avatarSeed = avatarSeed
     }
 
     init(from decoder: any Decoder) throws {
@@ -44,8 +38,6 @@ struct ChatContextMetadata: Codable, Equatable {
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         autoCompactEnabled = try container.decode(Bool.self, forKey: .autoCompactEnabled)
         defaultTopology = try container.decode(TeamTopologyKind.self, forKey: .defaultTopology)
-        avatarKind = try container.decodeIfPresent(AgentAvatarKind.self, forKey: .avatarKind)
-        avatarSeed = try container.decodeIfPresent(String.self, forKey: .avatarSeed)
     }
 
     static func load(from directoryURL: URL) -> ChatContextMetadata? {

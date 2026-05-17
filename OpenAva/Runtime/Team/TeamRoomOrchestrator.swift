@@ -186,13 +186,10 @@ final class TeamRoomOrchestrator {
         message.metadata["agentID"] = agent.id
         message.metadata["agentName"] = agent.name
         message.metadata["agentEmoji"] = agent.emoji
-        message.metadata["agentAvatarKind"] = agent.avatarKind.rawValue
-        if let avatarSeed = agent.avatarSeed {
-            message.metadata["agentAvatarSeed"] = avatarSeed
-        }
-        if agent.avatarKind == .diceBear {
-            message.metadata["agentAvatarURL"] = agent.avatarDescriptor.diceBearURL.absoluteString
-        } else if agent.avatarKind == .uploaded {
+        let avatarDescriptor = agent.avatarDescriptor
+        if avatarDescriptor.kind == .diceBear {
+            message.metadata["agentAvatarURL"] = avatarDescriptor.diceBearURL.absoluteString
+        } else if avatarDescriptor.kind == .uploaded {
             message.metadata["agentAvatarURL"] = agent.avatarURL.absoluteString
         }
         message.metadata["teamRoomContext"] = metadataContextValue(context.activeContext)

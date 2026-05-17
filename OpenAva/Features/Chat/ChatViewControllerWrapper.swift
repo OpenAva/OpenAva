@@ -318,15 +318,34 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
         }
     }
 
+    private func teamContextURL(for teamID: String) -> URL? {
+        let context: ActiveSessionContext = teamID == TeamStore.allAgentsTeamID ? .allAgentsTeam : .team(teamID)
+        return TeamStore.contextDirectoryURL(
+            for: context,
+            fileManager: .default,
+            workspaceRootURL: workspaceRootURL,
+            createDirectoryIfNeeded: false
+        )
+    }
+
     private var resolvedSessionAvatarDescriptor: (agentID: String, descriptor: AgentAvatarDescriptor)? {
-        guard case .agent = activeContext,
-              let activeAgentID,
-              let agent = agents.first(where: { $0.id == activeAgentID }),
-              agent.avatarKind != .emoji
-        else {
-            return nil
+        switch activeContext {
+        case .allAgentsTeam:
+            guard let team = allAgentsTeam else { return nil }
+            return (team.id, team.avatarDescriptor(with: teamContextURL(for: team.id)))
+        case let .team(teamID):
+            guard let team = teams.first(where: { $0.id == teamID }) else { return nil }
+            return (team.id, team.avatarDescriptor(with: teamContextURL(for: team.id)))
+        case .agent:
+            guard let activeAgentID,
+                  let agent = agents.first(where: { $0.id == activeAgentID })
+            else {
+                return nil
+            }
+            let descriptor = agent.avatarDescriptor
+            guard descriptor.kind != .emoji else { return nil }
+            return (agent.id, descriptor)
         }
-        return (agent.id, agent.avatarDescriptor)
     }
 
     private var resolvedSessionAvatarImage: UIImage? {
@@ -362,6 +381,7 @@ struct ChatViewControllerWrapper: UIViewControllerRepresentable {
             resolvedSessionAvatarDescriptor.agentID,
             descriptor.kind.rawValue,
             descriptor.diceBearSeed ?? "",
+            descriptor.remoteURL?.absoluteString ?? "",
             descriptor.avatarFileURL?.path ?? "",
         ].joined(separator: "::")
     }
@@ -897,7 +917,6 @@ extension ChatViewControllerWrapper {
         var onToggleAutoCompact: (() -> Void)?
         weak var chatViewController: ChatViewController?
         private var titleTapObserver: Any?
-        private static let remoteAvatarImageCache = NSCache<NSURL, UIImage>()
         private static var loadingRemoteAvatarURLs = Set<URL>()
 
         init(
@@ -1317,6 +1336,7 @@ extension ChatViewControllerWrapper {
                 teams: teams,
                 agents: agents,
                 activeContext: activeContext,
+                workspaceRootURL: workspaceRootURL,
                 isSessionRunning: isSessionContextRunning
             ).map { section in
                 UIMenu(
@@ -1367,6 +1387,7 @@ extension ChatViewControllerWrapper {
                 return makeLeadingSessionSwitchAction(
                     for: item,
                     image: makeSessionMenuImage(
+                        avatarDescriptor: item.avatarDescriptor,
                         emoji: item.emoji,
                         fallbackSystemName: "person.2",
                         showsRunningIndicator: item.isRunning
@@ -1376,6 +1397,7 @@ extension ChatViewControllerWrapper {
                 return makeLeadingSessionSwitchAction(
                     for: item,
                     image: makeSessionMenuImage(
+                        avatarDescriptor: item.avatarDescriptor,
                         emoji: item.emoji,
                         fallbackSystemName: "person.3",
                         showsRunningIndicator: item.isRunning
@@ -1567,8 +1589,9 @@ extension ChatViewControllerWrapper {
                 return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
             }
 
-            if profile.avatarKind == .diceBear,
-               let avatarImage = remoteDiceBearAvatarImage(for: profile.avatarDescriptor.diceBearURL)
+            let descriptor = profile.avatarDescriptor
+            if descriptor.kind == .diceBear,
+               let avatarImage = remoteDiceBearAvatarImage(for: descriptor.diceBearURL)
             {
                 return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
             }
@@ -1605,7 +1628,7 @@ extension ChatViewControllerWrapper {
         }
 
         private func remoteDiceBearAvatarImage(for url: URL) -> UIImage? {
-            if let cached = Self.remoteAvatarImageCache.object(forKey: url as NSURL) {
+            if let cached = ChatAvatarImageLoader.image(for: url) {
                 return cached
             }
 
@@ -1613,16 +1636,12 @@ extension ChatViewControllerWrapper {
                 return nil
             }
             Self.loadingRemoteAvatarURLs.insert(url)
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                let image = data.flatMap(UIImage.init(data:))
-                DispatchQueue.main.async {
-                    Self.loadingRemoteAvatarURLs.remove(url)
-                    if let image {
-                        Self.remoteAvatarImageCache.setObject(image, forKey: url as NSURL)
-                        self?.chatViewController?.refreshNavigationMenus()
-                    }
+            ChatAvatarImageLoader.loadImage(from: url) { [weak self] image in
+                Self.loadingRemoteAvatarURLs.remove(url)
+                if image != nil {
+                    self?.chatViewController?.refreshNavigationMenus()
                 }
-            }.resume()
+            }
             return nil
         }
 
@@ -1638,7 +1657,7 @@ extension ChatViewControllerWrapper {
                 ) {
                     return avatarImage
                 }
-                if profile.avatarKind == .diceBear, !showsRunningIndicator {
+                if profile.avatarDescriptor.kind == .diceBear, !showsRunningIndicator {
                     return UIImage(systemName: "person.crop.circle")?.withRenderingMode(.alwaysTemplate)
                 }
             }
@@ -1646,10 +1665,26 @@ extension ChatViewControllerWrapper {
         }
 
         private func makeSessionMenuImage(
+            avatarDescriptor: AgentAvatarDescriptor?,
             emoji: String,
             fallbackSystemName: String,
             showsRunningIndicator: Bool
         ) -> UIImage? {
+            if let avatarDescriptor, avatarDescriptor.kind != .emoji {
+                if let avatarImage = AgentAvatarDefaults.localImage(
+                    for: avatarDescriptor,
+                    canvasSize: 34
+                ) {
+                    return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
+                }
+
+                if avatarDescriptor.kind == .diceBear,
+                   let avatarImage = remoteDiceBearAvatarImage(for: avatarDescriptor.diceBearURL)
+                {
+                    return makeAvatarMenuImage(from: avatarImage, showsRunningIndicator: showsRunningIndicator)
+                }
+            }
+
             let trimmedEmoji = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedEmoji.isEmpty,
                let image = makeEmojiMenuImage(from: trimmedEmoji, showsRunningIndicator: showsRunningIndicator)
@@ -1753,8 +1788,8 @@ private struct AgentContextModalView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .tracking(-0.2)
-                    .padding(.top, 24)
-                    .padding(.bottom, 16)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -1800,7 +1835,7 @@ private struct AgentContextModalView: View {
                 .frame(maxHeight: 320)
 
                 Button(action: onClose) {
-                    Text(L10n.tr("common.cancel"))
+                    Text(L10n.tr("common.ok"))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color(uiColor: ChatUIDesign.Color.pureWhite))
                         .frame(maxWidth: .infinity)
@@ -1811,7 +1846,7 @@ private struct AgentContextModalView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 20)
             }
             .background(
                 Color(uiColor: ChatUIDesign.Color.warmCream),
@@ -1821,7 +1856,7 @@ private struct AgentContextModalView: View {
                 RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)
                     .stroke(Color(uiColor: ChatUIDesign.Color.oatBorder), lineWidth: 1)
             )
-            .frame(width: 340)
+            .frame(width: 320)
             .shadow(color: Color.black.opacity(0.05), radius: 20, x: 0, y: 10)
         }
     }
@@ -1860,12 +1895,13 @@ private struct TeamAgentsModalView: View {
                     onClose()
                 }
 
-            VStack(spacing: 24) {
+            VStack(spacing: 0) {
                 Text(L10n.tr("chat.teamAgents.message"))
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(uiColor: ChatUIDesign.Color.offBlack))
                     .tracking(-0.2)
-                    .padding(.top, 8)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -1898,8 +1934,9 @@ private struct TeamAgentsModalView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 20)
             }
-            .padding(.vertical, 24)
             .background(
                 Color(uiColor: ChatUIDesign.Color.warmCream),
                 in: RoundedRectangle(cornerRadius: ChatUIDesign.Radius.card, style: .continuous)

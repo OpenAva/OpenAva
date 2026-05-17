@@ -321,7 +321,8 @@ final class AppContainerStoreAgentTeamTests: XCTestCase {
         let entries = ChatTopBar.sessionMenuEntries(
             teams: [team],
             agents: [],
-            activeContext: .team(teamID)
+            activeContext: .team(teamID),
+            workspaceRootURL: nil
         )
 
         XCTAssertGreaterThanOrEqual(entries.count, 2)

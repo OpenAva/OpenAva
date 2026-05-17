@@ -102,6 +102,16 @@ final class AppContainerStore {
         activeAgent?.contextURL
     }
 
+    func teamContextURL(for teamID: String) -> URL? {
+        let context: ActiveSessionContext = teamID == TeamStore.allAgentsTeamID ? .allAgentsTeam : .team(teamID)
+        return TeamStore.contextDirectoryURL(
+            for: context,
+            fileManager: fileManager,
+            workspaceRootURL: agentWorkspaceRootURL,
+            createDirectoryIfNeeded: false
+        )
+    }
+
     init(
         container: AppContainer,
         defaults: UserDefaults = .standard,
@@ -266,14 +276,14 @@ final class AppContainerStore {
     func createAgent(
         name: String,
         emoji: String,
-        avatarKind: AgentAvatarKind = .emoji,
-        avatarSeed: String? = nil
+        avatarIdentityValue: String? = nil,
+        vibe: String = ""
     ) throws -> AgentProfile {
         let profile = try AgentStore.createAgent(
             name: name,
             emoji: emoji,
-            avatarKind: avatarKind,
-            avatarSeed: avatarSeed,
+            avatarIdentityValue: avatarIdentityValue,
+            vibe: vibe,
             fileManager: fileManager,
             workspaceRootURL: agentWorkspaceRootURL
         )
@@ -292,12 +302,6 @@ final class AppContainerStore {
         )
         _ = AgentStore.setActiveAgent(profile.id, fileManager: fileManager, workspaceRootURL: agentWorkspaceRootURL)
         activeSessionContext = .agent(profile.id)
-        try AgentTemplateWriter.writeAgentFile(
-            at: profile.contextURL,
-            name: profile.name,
-            emoji: profile.emoji,
-            avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor)
-        )
         rebuildContainer(with: container.config)
         return profile
     }
@@ -310,8 +314,13 @@ final class AppContainerStore {
                 let profile = try AgentStore.createAgent(
                     name: preset.agentName,
                     emoji: preset.agentEmoji,
-                    avatarKind: .diceBear,
-                    avatarSeed: preset.id,
+                    avatarIdentityValue: AgentAvatarDefaults.identityValue(
+                        kind: .diceBear,
+                        seed: preset.id,
+                        name: preset.agentName,
+                        emoji: preset.agentEmoji
+                    ),
+                    vibe: preset.agentVibe,
                     fileManager: fileManager,
                     workspaceRootURL: agentWorkspaceRootURL
                 )
@@ -323,13 +332,6 @@ final class AppContainerStore {
                 try AgentTemplateWriter.writeSoulFile(
                     at: profile.contextURL,
                     coreTruths: preset.soulCoreTruths
-                )
-                try AgentTemplateWriter.writeAgentFile(
-                    at: profile.contextURL,
-                    name: preset.agentName,
-                    emoji: preset.agentEmoji,
-                    avatar: AgentAvatarDefaults.identityValue(for: profile.avatarDescriptor),
-                    vibe: preset.agentVibe
                 )
                 _ = AgentStore.setSelectedModel(
                     container.config.selectedModelID,

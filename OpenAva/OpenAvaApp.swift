@@ -46,7 +46,6 @@ enum CatalystGlobalCommandCenter {
 @main
 struct OpenAvaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var containerStore = AppContainerStore(container: .makeDefault())
 
     var body: some Scene {
         WindowGroup {
@@ -54,18 +53,19 @@ struct OpenAvaApp: App {
         }
 
         #if targetEnvironment(macCatalyst)
-            WindowGroup(L10n.tr("window.settings.title"), id: AppWindowID.settings, for: String.self) { $sectionID in
-                SettingsWindowRootView(sectionID: $sectionID)
-                    .environment(\.appContainerStore, containerStore)
+            WindowGroup(L10n.tr("window.settings.title"), id: AppWindowID.settings, for: String.self) { $payload in
+                SettingsWindowRootView(payload: $payload)
             }
             defaultValue: {
-                SettingsWindowSection.llm.rawValue
+                AppWindowRoute.settingsPayload(defaultSection: .llm)
             }
             .handlesExternalEvents(matching: [AppWindowID.settings])
 
-            WindowGroup(L10n.tr("window.agentCreation.title"), id: AppWindowID.agentCreation) {
-                AgentCreationWindowRootView()
-                    .environment(\.appContainerStore, containerStore)
+            WindowGroup(L10n.tr("window.agentCreation.title"), id: AppWindowID.agentCreation, for: String.self) { $sceneID in
+                AgentCreationWindowRootView(sceneID: $sceneID)
+            }
+            defaultValue: {
+                ""
             }
             .handlesExternalEvents(matching: [AppWindowID.agentCreation])
         #endif
@@ -248,15 +248,27 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 #endif
 
 private struct AppRootView: View {
+    /// Stable identity for this main window instance.
+    ///
+    /// This is intentionally separate from the active workspace ID: the window
+    /// may switch workspaces, while auxiliary windows still need to route back
+    /// to the same observable `AppContainerStore`.
+    @State private var sceneID = UUID().uuidString
     @State private var containerStore = AppContainerStore(container: .makeDefault())
 
     var body: some View {
         ZStack {
             Color(uiColor: ChatUIDesign.Color.warmCream)
                 .ignoresSafeArea()
-            ChatRootView()
+            ChatRootView(sceneID: sceneID)
         }
         .environment(\.appContainerStore, containerStore)
+        .onAppear {
+            AppSceneStoreRegistry.shared.register(containerStore, sceneID: sceneID)
+        }
+        .onDisappear {
+            AppSceneStoreRegistry.shared.unregister(sceneID: sceneID, store: containerStore)
+        }
         .onOpenURL { url in
             let container = containerStore.container
             Task {

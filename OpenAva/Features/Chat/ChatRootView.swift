@@ -28,6 +28,10 @@ import UserNotifications
 #endif
 
 struct ChatRootView: View {
+    /// Identifies the owning main window when opening auxiliary Catalyst windows.
+    /// This is a window-scoped routing key, not an Agent or workspace ID.
+    let sceneID: String
+
     @Environment(\.appContainerStore) private var containerStore
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
@@ -464,7 +468,7 @@ struct ChatRootView: View {
 
     private func openLocalAgentCreation() {
         #if targetEnvironment(macCatalyst)
-            openWindow(id: AppWindowID.agentCreation)
+            openWindow(id: AppWindowID.agentCreation, value: sceneID)
         #else
             showsLocalAgentCreation = true
         #endif
@@ -499,7 +503,7 @@ struct ChatRootView: View {
             } else if case let .openContext(kind) = action {
                 showsContextEditorForKind = kind
             } else if let section {
-                openWindow(id: AppWindowID.settings, value: section.rawValue)
+                openWindow(id: AppWindowID.settings, value: AppWindowRoute.settingsPayload(sceneID: sceneID, section: section))
             }
         #else
             switch action {
@@ -577,8 +581,16 @@ struct ChatRootView: View {
     }
 
     private var currentActiveAgentAvatarDescriptor: AgentAvatarDescriptor? {
-        guard case .agent = visibleActiveSessionContext else { return nil }
-        return containerStore.activeAgent?.avatarDescriptor
+        switch visibleActiveSessionContext {
+        case .allAgentsTeam:
+            guard let team = containerStore.allAgentsTeam else { return nil }
+            return team.avatarDescriptor(with: containerStore.teamContextURL(for: team.id))
+        case let .team(teamID):
+            guard let team = activeTeamProfile(for: teamID) else { return nil }
+            return team.avatarDescriptor(with: containerStore.teamContextURL(for: team.id))
+        case .agent:
+            return containerStore.activeAgent?.avatarDescriptor
+        }
     }
 
     private func activeTeamProfile(for teamID: String) -> TeamProfile? {
@@ -711,6 +723,7 @@ private struct ChatScreen: View {
                 teams: teams,
                 agents: agents,
                 activeContext: activeContext,
+                workspaceRootURL: container.config.agent.workspaceRootURL,
                 isSessionRunning: isSessionContextRunning
             )
         }
@@ -822,13 +835,19 @@ private struct ChatScreen: View {
             switch item.kind {
             case .allAgentsTeam:
                 runningIndicatorIcon(isRunning: item.isRunning) {
-                    Image(systemName: "person.2")
-                        .frame(width: 17, height: 17)
+                    teamMenuIcon(
+                        avatarDescriptor: item.avatarDescriptor,
+                        emoji: item.emoji,
+                        fallbackSystemName: "person.2"
+                    )
                 }
             case .team:
                 runningIndicatorIcon(isRunning: item.isRunning) {
-                    Image(systemName: "person.3")
-                        .frame(width: 17, height: 17)
+                    teamMenuIcon(
+                        avatarDescriptor: item.avatarDescriptor,
+                        emoji: item.emoji,
+                        fallbackSystemName: "person.3"
+                    )
                 }
             case .agent:
                 runningIndicatorIcon(isRunning: item.isRunning) {
@@ -853,6 +872,24 @@ private struct ChatScreen: View {
                 Image(systemName: "plus")
             case .workspace, .empty:
                 EmptyView()
+            }
+        }
+
+        @ViewBuilder
+        private func teamMenuIcon(
+            avatarDescriptor: AgentAvatarDescriptor?,
+            emoji: String,
+            fallbackSystemName: String
+        ) -> some View {
+            if let avatarDescriptor, avatarDescriptor.kind != .emoji {
+                AgentAvatarView(descriptor: avatarDescriptor, size: 17)
+            } else if !emoji.isEmpty {
+                Text(emoji)
+                    .font(.system(size: 14))
+                    .frame(width: 17, height: 17)
+            } else {
+                Image(systemName: fallbackSystemName)
+                    .frame(width: 17, height: 17)
             }
         }
 
@@ -1045,7 +1082,7 @@ private struct ChatScreen: View {
 }
 
 #Preview {
-    ChatRootView()
+    ChatRootView(sceneID: UUID().uuidString)
         .environment(\.appContainerStore, AppContainerStore(container: .makeDefault()))
         .environment(\.appContainer, .makeDefault())
 }

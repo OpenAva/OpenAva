@@ -5,6 +5,34 @@ enum AppWindowID {
     static let agentCreation = "openava.agentCreation"
 }
 
+/// Encodes the source main-window scene into standalone Catalyst window payloads.
+///
+/// The source scene is required because standalone `WindowGroup`s do not inherit
+/// the opener's `AppContainerStore`. It lets the auxiliary window operate on
+/// the same window-scoped store and workspace as the opener without introducing
+/// one app-global workspace store.
+enum AppWindowRoute {
+    private static let separator = "|"
+
+    static func settingsPayload(sceneID: String, section: SettingsWindowSection) -> String {
+        [sceneID, section.rawValue].joined(separator: separator)
+    }
+
+    static func settingsPayload(defaultSection section: SettingsWindowSection) -> String {
+        settingsPayload(sceneID: "", section: section)
+    }
+
+    static func parseSettingsPayload(_ payload: String) -> (sceneID: String?, section: SettingsWindowSection) {
+        let parts = payload.split(separator: separator, maxSplits: 1, omittingEmptySubsequences: false)
+        let sceneID = parts.first.map(String.init).flatMap { $0.isEmpty ? nil : $0 }
+        let rawSection = parts.dropFirst().first.map(String.init) ?? payload
+        return (
+            sceneID,
+            SettingsWindowSection(rawValue: rawSection) ?? .llm
+        )
+    }
+}
+
 enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
     case llm
     case skills
@@ -30,23 +58,30 @@ enum SettingsWindowSection: String, CaseIterable, Hashable, Identifiable {
 }
 
 struct SettingsWindowRootView: View {
-    @Binding private var sectionID: String
+    @Binding private var payload: String
 
-    init(sectionID: Binding<String>) {
-        _sectionID = sectionID
+    init(payload: Binding<String>) {
+        _payload = payload
     }
 
     var body: some View {
-        NavigationStack {
-            detailView(for: section)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color.white)
+        Group {
+            if let containerStore = AppSceneStoreRegistry.shared.store(for: route.sceneID) {
+                NavigationStack {
+                    detailView(for: route.section)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .background(Color.white)
+                }
+                .environment(\.appContainerStore, containerStore)
+            } else {
+                MissingWindowSourceView()
+            }
         }
         .background(Color.white)
     }
 
-    private var section: SettingsWindowSection {
-        SettingsWindowSection(rawValue: sectionID) ?? .llm
+    private var route: (sceneID: String?, section: SettingsWindowSection) {
+        AppWindowRoute.parseSettingsPayload(payload)
     }
 
     @ViewBuilder
@@ -66,13 +101,36 @@ struct SettingsWindowRootView: View {
 
 struct AgentCreationWindowRootView: View {
     @Environment(\.dismiss) private var dismiss
+    @Binding private var sceneID: String
+
+    init(sceneID: Binding<String>) {
+        _sceneID = sceneID
+    }
 
     var body: some View {
-        NavigationStack {
-            AgentCreationView {
-                dismiss()
+        Group {
+            if let containerStore = AppSceneStoreRegistry.shared.store(for: sceneID) {
+                NavigationStack {
+                    AgentCreationView {
+                        dismiss()
+                    }
+                }
+                .environment(\.appContainerStore, containerStore)
+            } else {
+                MissingWindowSourceView()
             }
         }
         .background(Color.white)
+    }
+}
+
+private struct MissingWindowSourceView: View {
+    var body: some View {
+        ContentUnavailableView(
+            L10n.tr("common.error"),
+            systemImage: "exclamationmark.triangle",
+            description: Text("The originating workspace window is no longer available.")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -473,6 +473,7 @@ enum TeamStore {
         team.emoji = emoji
         team.description = identity.description
         team.identityDocument = identity.content
+        team.avatarIdentityValue = identity.avatar
         return team
     }
 
@@ -493,6 +494,7 @@ enum TeamStore {
         var emoji: String?
         var description: String?
         var content: String
+        var avatar: String?
     }
 
     private static func persistIdentity(
@@ -514,6 +516,7 @@ enum TeamStore {
             name: team.name,
             emoji: team.emoji,
             description: team.description,
+            avatar: team.avatarIdentityValue,
             fileManager: fileManager
         )
     }
@@ -540,7 +543,8 @@ enum TeamStore {
             name: AgentTemplateWriter.identityFieldValue(named: "Name", in: content),
             emoji: AgentTemplateWriter.identityFieldValue(named: "Emoji", in: content),
             description: AgentTemplateWriter.identityFieldValue(named: "Description", in: content),
-            content: content
+            content: content,
+            avatar: AgentTemplateWriter.identityFieldValue(named: "Avatar", in: content)
         )
     }
 
@@ -561,6 +565,7 @@ enum TeamStore {
                 name: localizedAllAgentsTeamName,
                 emoji: "👥",
                 description: "A shared room where all agents can respond.",
+                avatar: "https://api.dicebear.com/9.x/bottts/png?seed=AllAgents",
                 fileManager: fileManager
             )
         }

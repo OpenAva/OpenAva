@@ -58,6 +58,7 @@ enum ChatTopBar {
         let kind: Kind
         let title: String
         let emoji: String
+        let avatarDescriptor: AgentAvatarDescriptor?
         let isSelected: Bool
 
         var displayTitle: String {
@@ -260,28 +261,38 @@ enum ChatTopBar {
         allAgentsTeam: TeamProfile? = nil,
         teams: [TeamProfile],
         agents: [AgentProfile],
-        activeContext: ActiveSessionContext
+        activeContext: ActiveSessionContext,
+        workspaceRootURL: URL?
     ) -> [SessionMenuEntry] {
         var items: [SessionMenuEntry] = []
         let allAgentsTitle = allAgentsTeam?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let allAgentsEmoji = allAgentsTeam?.emoji.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let allAgentsAvatarDescriptor = allAgentsTeam?.avatarDescriptor(
+            with: TeamStore.contextDirectoryURL(for: .allAgentsTeam, fileManager: .default, workspaceRootURL: workspaceRootURL)
+        )
 
         items.append(SessionMenuEntry(
             id: "session-globalTeam",
             kind: .allAgentsTeam,
             title: allAgentsTitle.isEmpty ? L10n.tr("chat.menu.allAgentsTeam") : allAgentsTitle,
             emoji: allAgentsEmoji,
+            avatarDescriptor: allAgentsAvatarDescriptor,
             isSelected: activeContext == .allAgentsTeam
         ))
 
         for team in teams {
             let title = team.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let emoji = team.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+            let avatarDescriptor = team.avatarDescriptor(
+                with: TeamStore.contextDirectoryURL(for: .team(team.id), fileManager: .default, workspaceRootURL: workspaceRootURL)
+            )
             items.append(SessionMenuEntry(
                 id: "team-\(team.id)",
                 kind: .team(team.id),
                 title: title.isEmpty ? L10n.tr("chat.activeTeam.fallbackName") : title,
                 emoji: emoji,
+                avatarDescriptor: avatarDescriptor,
                 isSelected: activeContext == .team(team.id)
             ))
         }
@@ -294,6 +305,7 @@ enum ChatTopBar {
                 kind: .agent(agent.id),
                 title: title.isEmpty ? L10n.tr("chat.activeAgent.fallbackName") : title,
                 emoji: emoji,
+                avatarDescriptor: agent.avatarDescriptor,
                 isSelected: activeContext == .agent(agent.id)
             ))
         }
@@ -304,6 +316,7 @@ enum ChatTopBar {
                 kind: .empty,
                 title: L10n.tr("chat.menu.noAgentsAvailable"),
                 emoji: "",
+                avatarDescriptor: nil,
                 isSelected: false
             ))
         }
@@ -313,6 +326,7 @@ enum ChatTopBar {
             kind: .createLocalAgent,
             title: L10n.tr("chat.menu.newLocalAgent"),
             emoji: "",
+            avatarDescriptor: nil,
             isSelected: false
         ))
 
@@ -326,6 +340,7 @@ enum ChatTopBar {
         teams: [TeamProfile],
         agents: [AgentProfile],
         activeContext: ActiveSessionContext,
+        workspaceRootURL: URL?,
         isSessionRunning: (ActiveSessionContext) -> Bool = { _ in false }
     ) -> [LeadingMenuSection] {
         let workspaceEntries = workspaceMenuEntries(
@@ -336,7 +351,8 @@ enum ChatTopBar {
             allAgentsTeam: allAgentsTeam,
             teams: teams,
             agents: agents,
-            activeContext: activeContext
+            activeContext: activeContext,
+            workspaceRootURL: workspaceRootURL
         )
 
         var workspaceListItems: [LeadingMenuItem] = []
@@ -354,13 +370,9 @@ enum ChatTopBar {
             }
         }
 
-        let agentAvatarDescriptors = Dictionary(uniqueKeysWithValues: agents.map { agent in
-            (agent.id, agent.avatarDescriptor)
-        })
         for entry in sessionEntries {
             let item = leadingMenuItem(
                 from: entry,
-                agentAvatarDescriptors: agentAvatarDescriptors,
                 isSessionRunning: isSessionRunning
             )
             switch entry.kind {
@@ -423,20 +435,19 @@ enum ChatTopBar {
 
     private static func leadingMenuItem(
         from entry: SessionMenuEntry,
-        agentAvatarDescriptors: [String: AgentAvatarDescriptor],
         isSessionRunning: (ActiveSessionContext) -> Bool
     ) -> LeadingMenuItem {
-        let (kind, avatarDescriptor, isRunning): (LeadingMenuItem.Kind, AgentAvatarDescriptor?, Bool) = switch entry.kind {
+        let (kind, isRunning): (LeadingMenuItem.Kind, Bool) = switch entry.kind {
         case .allAgentsTeam:
-            (.allAgentsTeam, nil, isSessionRunning(.allAgentsTeam))
+            (.allAgentsTeam, isSessionRunning(.allAgentsTeam))
         case let .team(teamID):
-            (.team(teamID), nil, isSessionRunning(.team(teamID)))
+            (.team(teamID), isSessionRunning(.team(teamID)))
         case let .agent(agentID):
-            (.agent(agentID), agentAvatarDescriptors[agentID], isSessionRunning(.agent(agentID)))
+            (.agent(agentID), isSessionRunning(.agent(agentID)))
         case .createLocalAgent:
-            (.createLocalAgent, nil, false)
+            (.createLocalAgent, false)
         case .empty:
-            (.empty, nil, false)
+            (.empty, false)
         }
 
         return LeadingMenuItem(
@@ -445,7 +456,7 @@ enum ChatTopBar {
             title: entry.title,
             subtitle: "",
             emoji: entry.emoji,
-            avatarDescriptor: avatarDescriptor,
+            avatarDescriptor: entry.avatarDescriptor,
             isRunning: isRunning,
             isSelected: entry.isSelected
         )

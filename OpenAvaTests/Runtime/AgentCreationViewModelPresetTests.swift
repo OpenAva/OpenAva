@@ -182,7 +182,8 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         let createdProfile = try XCTUnwrap(containerStore.activeAgent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: createdProfile.avatarURL.path))
         XCTAssertEqual(createdProfile.avatarURL.lastPathComponent, "avatar.png")
-        XCTAssertEqual(createdProfile.avatarKind, .uploaded)
+        XCTAssertEqual(createdProfile.avatarIdentityValue, "avatar.png")
+        XCTAssertEqual(createdProfile.avatarDescriptor.kind, .uploaded)
 
         let identityText = try String(
             contentsOf: createdProfile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),
@@ -219,8 +220,9 @@ final class AgentCreationViewModelPresetTests: XCTestCase {
         try await viewModel.createAgent(containerStore: containerStore)
 
         let createdProfile = try XCTUnwrap(containerStore.activeAgent)
-        XCTAssertEqual(createdProfile.avatarKind, .diceBear)
-        XCTAssertEqual(createdProfile.avatarSeed, "nova-seed")
+        XCTAssertEqual(createdProfile.avatarIdentityValue, "https://api.dicebear.com/9.x/notionists/png?seed=nova-seed")
+        XCTAssertEqual(createdProfile.avatarDescriptor.kind, .diceBear)
+        XCTAssertEqual(createdProfile.avatarDescriptor.diceBearSeed, "nova-seed")
 
         let identityText = try String(
             contentsOf: createdProfile.contextURL.appendingPathComponent("IDENTITY.md", isDirectory: false),

@@ -15,6 +15,7 @@ enum AgentTemplateWriter {
         let name: String
         let emoji: String
         let description: String?
+        let avatar: String?
     }
 
     private struct UserDocument {
@@ -104,9 +105,10 @@ enum AgentTemplateWriter {
         name: String,
         emoji: String,
         description: String? = nil,
+        avatar: String? = nil,
         fileManager: FileManager = .default
     ) throws {
-        let content = Self.renderTeam(name: name, emoji: emoji, description: description)
+        let content = Self.renderTeam(name: name, emoji: emoji, description: description, avatar: avatar)
         try Self.writeDocument(at: workspaceURL, kind: .identity, content: content, fileManager: fileManager)
     }
 
@@ -115,6 +117,7 @@ enum AgentTemplateWriter {
         name: String,
         emoji: String,
         description: String?,
+        avatar: String? = nil,
         fileManager: FileManager = .default
     ) throws {
         let identityURL = workspaceURL.appendingPathComponent(AgentContextDocumentKind.identity.fileName, isDirectory: false)
@@ -130,20 +133,24 @@ enum AgentTemplateWriter {
                 fieldName: "Description",
                 value: normalizedOptional(description) ?? "_(What is this team trying to accomplish?)_"
             )
+            if let avatar {
+                updated = updateIdentityField(in: updated, fieldName: "Avatar", value: avatar)
+            }
             content = updated
         } else {
-            content = renderTeam(name: name, emoji: emoji, description: description)
+            content = renderTeam(name: name, emoji: emoji, description: description, avatar: avatar)
         }
 
         try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
         try content.write(to: identityURL, atomically: true, encoding: .utf8)
     }
 
-    static func renderTeam(name: String, emoji: String, description: String? = nil) -> String {
+    static func renderTeam(name: String, emoji: String, description: String? = nil, avatar: String? = nil) -> String {
         let document = TeamIdentityDocument(
             name: Self.defaultedTeamName(from: name),
             emoji: Self.defaultedTeamEmoji(from: emoji),
-            description: Self.normalizedOptional(description)
+            description: Self.normalizedOptional(description),
+            avatar: Self.normalizedOptional(avatar)
         )
         return Self.serializeTeamIdentity(document)
     }
@@ -272,6 +279,8 @@ enum AgentTemplateWriter {
     private static func serializeTeamIdentity(_ document: TeamIdentityDocument) -> String {
         let descriptionBlock = document.description.map(Self.indentedBlock)
             ?? "  _(What is this team trying to accomplish?)_"
+        let avatarBlock = document.avatar.map(Self.indentedBlock)
+            ?? "  _(workspace-relative path, http(s) URL, or data URI)_"
 
         return """
         # IDENTITY.md - Team Room
@@ -282,6 +291,8 @@ enum AgentTemplateWriter {
         \(Self.indentedBlock(document.name))
         - **Emoji:**
         \(Self.indentedBlock(document.emoji))
+        - **Avatar:**
+        \(avatarBlock)
         - **Description:**
         \(descriptionBlock)
 

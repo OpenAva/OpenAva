@@ -44,9 +44,11 @@ struct AgentAvatarDescriptor: Equatable {
     var emoji: String
     var avatarFileURL: URL?
     var diceBearSeed: String?
+    var remoteURL: URL?
+    var avatarIdentityValue: String?
 
     var diceBearURL: URL {
-        AgentAvatarDefaults.diceBearURL(seed: resolvedDiceBearSeed)
+        remoteURL ?? AgentAvatarDefaults.diceBearURL(seed: resolvedDiceBearSeed)
     }
 
     var resolvedDiceBearSeed: String {
@@ -82,14 +84,40 @@ enum AgentAvatarDefaults {
         name: String,
         emoji: String,
         avatarFileURL: URL? = nil,
-        diceBearSeed: String? = nil
+        diceBearSeed: String? = nil,
+        remoteURL: URL? = nil,
+        avatarIdentityValue: String? = nil
     ) -> AgentAvatarDescriptor {
         AgentAvatarDescriptor(
             kind: kind,
             name: name,
             emoji: emoji,
             avatarFileURL: avatarFileURL,
-            diceBearSeed: diceBearSeed
+            diceBearSeed: diceBearSeed,
+            remoteURL: remoteURL,
+            avatarIdentityValue: avatarIdentityValue
+        )
+    }
+
+    static func descriptor(
+        identityValue: String?,
+        name: String,
+        emoji: String,
+        contextURL: URL?
+    ) -> AgentAvatarDescriptor {
+        guard let components = identityComponents(from: identityValue, relativeTo: contextURL) else {
+            return descriptor(kind: .emoji, name: name, emoji: emoji)
+        }
+        let defaultAvatarFileURL = contextURL?.appendingPathComponent(uploadedAvatarIdentityValue, isDirectory: false)
+
+        return descriptor(
+            kind: components.kind,
+            name: name,
+            emoji: emoji,
+            avatarFileURL: components.fileURL ?? defaultAvatarFileURL,
+            diceBearSeed: components.seed,
+            remoteURL: components.remoteURL,
+            avatarIdentityValue: components.identityValue
         )
     }
 
@@ -138,38 +166,60 @@ enum AgentAvatarDefaults {
     static func identityValue(for descriptor: AgentAvatarDescriptor) -> String? {
         switch descriptor.kind {
         case .diceBear:
-            return descriptor.diceBearURL.absoluteString
+            return descriptor.remoteURL?.absoluteString ?? descriptor.diceBearURL.absoluteString
         case .uploaded:
-            return uploadedAvatarIdentityValue
+            return descriptor.avatarIdentityValue ?? uploadedAvatarIdentityValue
         case .emoji:
             return nil
         }
     }
 
-    static func identityComponents(from value: String?) -> (kind: AgentAvatarKind, seed: String?)? {
+    static func identityValue(kind: AgentAvatarKind, seed: String?, name: String, emoji: String) -> String? {
+        identityValue(for: descriptor(kind: kind, name: name, emoji: emoji, diceBearSeed: seed))
+    }
+
+    static func normalizedIdentityValue(_ value: String?) -> String? {
         guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalized.isEmpty
         else {
             return nil
         }
+        return normalized
+    }
+
+    static func identityComponents(
+        from value: String?,
+        relativeTo baseURL: URL? = nil
+    ) -> (kind: AgentAvatarKind, seed: String?, remoteURL: URL?, fileURL: URL?, identityValue: String?)? {
+        guard let normalized = normalizedIdentityValue(value) else {
+            return nil
+        }
 
         if let url = URL(string: normalized),
-           url.scheme == "https" || url.scheme == "http",
-           url.host == "api.dicebear.com",
-           url.path == "/9.x/notionists/png"
+           url.scheme == "https" || url.scheme == "http"
         {
-            let seed = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first(where: { $0.name == "seed" })?
-                .value
-            return (.diceBear, seed)
+            let seed: String?
+            if url.host == "api.dicebear.com" {
+                seed = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .first(where: { $0.name == "seed" })?
+                    .value
+            } else {
+                seed = nil
+            }
+            return (.diceBear, seed, url, nil, normalized)
         }
 
-        if normalized == uploadedAvatarIdentityValue {
-            return (.uploaded, nil)
+        let fileURL: URL?
+        if let url = URL(string: normalized), url.isFileURL {
+            fileURL = url
+        } else if normalized.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: normalized, isDirectory: false)
+        } else {
+            fileURL = baseURL?.appendingPathComponent(normalized, isDirectory: false)
         }
 
-        return nil
+        return (.uploaded, nil, nil, fileURL, normalized)
     }
 }
 

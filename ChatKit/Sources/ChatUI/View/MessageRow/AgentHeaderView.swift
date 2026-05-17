@@ -8,8 +8,6 @@
 import Foundation
 import UIKit
 
-@MainActor private let agentHeaderAvatarImageCache = NSCache<NSURL, UIImage>()
-
 final class AgentHeaderView: MessageListRowView {
     private let avatarContainerView = UIView()
     private let avatarImageView = UIImageView()
@@ -80,30 +78,9 @@ final class AgentHeaderView: MessageListRowView {
         avatarTask = nil
 
         guard let url else { return }
-        if let cached = agentHeaderAvatarImageCache.object(forKey: url as NSURL) {
-            avatarImageView.image = cached
-            return
+        avatarTask = ChatAvatarImageLoader.loadImage(from: url) { [weak self] image in
+            guard let self, self.representedAvatarURL == url, let image else { return }
+            self.avatarImageView.image = image
         }
-
-        if url.isFileURL {
-            guard let data = try? Data(contentsOf: url),
-                  let image = UIImage(data: data)
-            else {
-                return
-            }
-            agentHeaderAvatarImageCache.setObject(image, forKey: url as NSURL)
-            avatarImageView.image = image
-            return
-        }
-
-        avatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                agentHeaderAvatarImageCache.setObject(image, forKey: url as NSURL)
-                guard let self, self.representedAvatarURL == url else { return }
-                self.avatarImageView.image = image
-            }
-        }
-        avatarTask?.resume()
     }
 }

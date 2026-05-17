@@ -24,6 +24,8 @@ struct TeamProfile: Codable, Equatable, Identifiable {
     var thinkingStrength: ChatThinkingStrength
     var autoCompactEnabled: Bool
     var identityDocument: String?
+    /// Raw Avatar field from IDENTITY.md. Descriptor details are derived on demand.
+    var avatarIdentityValue: String?
 
     init(
         id: String = OpenAvaID.generate(.team),
@@ -37,7 +39,8 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         selectedModelID: String? = nil,
         thinkingStrength: ChatThinkingStrength = .medium,
         autoCompactEnabled: Bool = true,
-        identityDocument: String? = nil
+        identityDocument: String? = nil,
+        avatarIdentityValue: String? = nil
     ) {
         self.id = id
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,6 +55,7 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         self.thinkingStrength = thinkingStrength
         self.autoCompactEnabled = autoCompactEnabled
         self.identityDocument = identityDocument
+        self.avatarIdentityValue = AgentAvatarDefaults.normalizedIdentityValue(avatarIdentityValue)
     }
 
     init(from decoder: any Decoder) throws {
@@ -68,5 +72,15 @@ struct TeamProfile: Codable, Equatable, Identifiable {
         thinkingStrength = .medium
         autoCompactEnabled = true
         identityDocument = nil
+        avatarIdentityValue = nil
+    }
+
+    func avatarDescriptor(with contextURL: URL?) -> AgentAvatarDescriptor {
+        AgentAvatarDefaults.descriptor(
+            identityValue: avatarIdentityValue,
+            name: name,
+            emoji: emoji,
+            contextURL: contextURL
+        )
     }
 }

@@ -49,8 +49,12 @@ final class AgentStoreTests: XCTestCase {
         let profile = try AgentStore.createAgent(
             name: "Nova",
             emoji: "🦊",
-            avatarKind: .diceBear,
-            avatarSeed: "nova-seed",
+            avatarIdentityValue: AgentAvatarDefaults.identityValue(
+                kind: .diceBear,
+                seed: "nova-seed",
+                name: "Nova",
+                emoji: "🦊"
+            ),
             workspaceRootURL: workspaceRootURL
         )
 
@@ -62,8 +66,9 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(identityText.contains("https://api.dicebear.com/9.x/notionists/png?seed=nova-seed"))
 
         let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
-        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .diceBear)
-        XCTAssertEqual(snapshot.activeAgent?.avatarSeed, "nova-seed")
+        XCTAssertEqual(snapshot.activeAgent?.avatarIdentityValue, "https://api.dicebear.com/9.x/notionists/png?seed=nova-seed")
+        XCTAssertEqual(snapshot.activeAgent?.avatarDescriptor.kind, .diceBear)
+        XCTAssertEqual(snapshot.activeAgent?.avatarDescriptor.diceBearSeed, "nova-seed")
     }
 
     func testCreateAgentWritesUploadedAvatarPathToIdentity() throws {
@@ -73,7 +78,7 @@ final class AgentStoreTests: XCTestCase {
         let profile = try AgentStore.createAgent(
             name: "Nova",
             emoji: "🦊",
-            avatarKind: .uploaded,
+            avatarIdentityValue: AgentAvatarDefaults.uploadedAvatarIdentityValue,
             workspaceRootURL: workspaceRootURL
         )
 
@@ -85,7 +90,8 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertTrue(identityText.contains("  avatar.png"))
 
         let snapshot = AgentStore.load(workspaceRootURL: workspaceRootURL)
-        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .uploaded)
+        XCTAssertEqual(snapshot.activeAgent?.avatarIdentityValue, "avatar.png")
+        XCTAssertEqual(snapshot.activeAgent?.avatarDescriptor.kind, .uploaded)
     }
 
     func testSetSelectedModelPersistsForAgent() throws {
@@ -155,7 +161,7 @@ final class AgentStoreTests: XCTestCase {
             emoji: "🤖",
             workspaceRootURL: workspaceRootURL
         )
-        _ = AgentStore.setSelectedModel(UUID(), for: profile.id, workspaceRootURL: workspaceRootURL)
+        _ = AgentStore.setSelectedModel(UUID().uuidString, for: profile.id, workspaceRootURL: workspaceRootURL)
 
         let user = AgentStore.loadUser(workspaceRootURL: workspaceRootURL)
         XCTAssertEqual(user?.callName, "Yuan")
@@ -336,8 +342,9 @@ final class AgentStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.activeAgentID, agentID)
         XCTAssertEqual(snapshot.activeAgent?.name, "Copied Agent")
         XCTAssertEqual(snapshot.activeAgent?.emoji, "🧬")
-        XCTAssertEqual(snapshot.activeAgent?.avatarKind, .diceBear)
-        XCTAssertEqual(snapshot.activeAgent?.avatarSeed, "copied")
+        XCTAssertEqual(snapshot.activeAgent?.avatarIdentityValue, "https://api.dicebear.com/9.x/notionists/png?seed=copied")
+        XCTAssertEqual(snapshot.activeAgent?.avatarDescriptor.kind, .diceBear)
+        XCTAssertEqual(snapshot.activeAgent?.avatarDescriptor.diceBearSeed, "copied")
         XCTAssertEqual(
             snapshot.activeAgent?.contextURL.path,
             agentDirectoryURL.path
